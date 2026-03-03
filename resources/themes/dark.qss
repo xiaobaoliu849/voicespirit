@@ -1,0 +1,62 @@
+/* 暗色主题样式表 */
+QMainWindow {
+    background-color: #2d2d2d;
+}
+
+QWidget {
+    font-family: "Microsoft YaHei", "SimHei", sans-serif;
+    color: #e0e0e0;
+}
+
+QPushButton {
+    background-color: #4a86e8;
+    color: white;
+    border: none;
+    padding: 5px 10px;
+    border-radius: 3px;
+}
+
+QPushButton:hover {
+    background-color: #5a96f8;
+}
+
+QPushButton:pressed {
+    background-color: #3a76d8;
+}
+
+QLineEdit, QTextEdit, QPlainTextEdit {
+    border: 1px solid #555555;
+    border-radius: 3px;
+    padding: 3px;
+    background-color: #3d3d3d;
+    color: #e0e0e0;
+}
+
+QComboBox {
+    border: 1px solid #555555;
+    border-radius: 3px;
+    padding: 3px;
+    background-color: #3d3d3d;
+    color: #e0e0e0;
+}
+
+QTabWidget::pane {
+    border: 1px solid #555555;
+    background-color: #2d2d2d;
+}
+
+QTabBar::tab {
+    background-color: #3d3d3d;
+    padding: 5px 10px;
+    margin-right: 2px;
+}
+
+QTabBar::tab:selected {
+    background-color: #2d2d2d;
+    border-bottom: 2px solid #4a86e8;
+}
+
+QStatusBar {
+    background-color: #3d3d3d;
+    color: #b0b0b0;
+}

@@ -1,0 +1,33 @@
+# Project config
+config.json
+
+# Python
+*.pyc
+__pycache__/
+venv/
+.venv/
+build/
+dist/
+*.spec
+
+# Claude/Tools
+.claude/settings.local.json
+.kiro/
+
+# Media/Temp
+*.png
+*.mp3
+*.jpg
+!donate_qr.png
+backup_before_cleanup/
+005.mp3
+1.png
+2.png
+3.png
+5.png
+6.png
+
+# OS
+Thumbs.db
+.DS_Store
+nul
