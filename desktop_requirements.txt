@@ -1,0 +1,2 @@
+-r backend/requirements.txt
+pywebview>=5.1

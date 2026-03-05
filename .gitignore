@@ -9,6 +9,8 @@ venv/
 build/
 dist/
 *.spec
+backend/.venv/
+backend/temp_audio/
 
 # Claude/Tools
 .claude/settings.local.json
@@ -31,3 +33,7 @@ backup_before_cleanup/
 Thumbs.db
 .DS_Store
 nul
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
