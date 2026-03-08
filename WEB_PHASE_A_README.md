@@ -109,6 +109,9 @@ run_web_desktop.bat
 Notes:
 - The launcher starts backend automatically on `127.0.0.1:8000` if not already running.
 - Desktop UI opens `http://127.0.0.1:8000/app/` (FastAPI serves `frontend/dist`).
+- The desktop launcher enforces single-instance mode to avoid duplicate windows and backend contention.
+- Window size/position and WebView storage are persisted between launches.
+- A native desktop menu is available for reload, reset window layout, opening the browser/runtime folder, and quitting the app.
 
 ### 3) Optional auth token
 

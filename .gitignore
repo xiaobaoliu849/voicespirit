@@ -11,6 +11,7 @@ dist/
 *.spec
 backend/.venv/
 backend/temp_audio/
+.voicespirit-desktop/
 
 # Claude/Tools
 .claude/settings.local.json

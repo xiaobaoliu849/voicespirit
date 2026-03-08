@@ -750,3 +750,339 @@ d:\conda\envs\whisperx\python.exe main_new.py
 
 ### 明天续做建议
 - 聊天页可继续补齐：顶部“分享/更多”按钮真实行为、侧边栏历史会话分组与持久化、空状态卡片图标替换为正式 icon 资源。
+
+## 2026-03-07 桌面壳增强（PyWebView launcher）
+
+### 本次改动
+- `run_web_desktop.py`
+  - 新增单实例锁，避免重复启动多个桌面窗口和后端进程竞争。
+  - 新增窗口状态持久化：记录窗口大小、位置、最大化状态，并在下次启动时恢复。
+  - 新增 WebView 存储目录持久化，桌面态本地数据不再默认使用私有临时模式。
+  - 运行态目录支持“优先系统目录，失败回退项目内 `.voicespirit-desktop/`”。
+- `.gitignore`
+  - 忽略 `.voicespirit-desktop/` 运行态目录，避免状态文件进入版本控制。
+- `WEB_PHASE_A_README.md`
+  - 补充桌面启动器的单实例和状态持久化说明。
+
+### 验证结果
+- 语法校验：`python3 -m py_compile run_web_desktop.py` 通过。
+- 启动器导入检查：`python3 -c "import run_web_desktop as r; print(r.RUNTIME_DIR); print(r.load_window_state())"` 通过。
+
+### 当前结论
+- 桌面壳从“可启动”提升为“可重复使用”的状态，窗口行为和本地状态管理更加接近正式桌面应用。
+
+## 2026-03-07 桌面壳增强（原生菜单）
+
+### 本次改动
+- `run_web_desktop.py`
+  - 新增原生桌面菜单：
+    - `VoiceSpirit`：刷新应用、浏览器打开、打开桌面数据目录、打开项目目录、退出
+    - `Window`：重置窗口布局
+    - `Help`：打开项目目录
+  - 新增 `DesktopController` 统一处理菜单动作，避免桌面逻辑散落在启动函数中。
+  - `Reset Window Layout` 现在会立即恢复默认窗口尺寸，并尝试居中主屏幕。
+
+### 验证结果
+- 语法校验：`python3 -m py_compile run_web_desktop.py` 通过。
+- 菜单构造自检通过。
+- 窗口重置逻辑自检通过（恢复、缩放、移动到主屏幕居中）。
+
+## 2026-03-07 Web 桌面端 UI 续做（按根目录设计稿）
+
+### 本次改动
+- 设计参考确认：
+  - 根目录 `新建文本文档.txt` 为聊天页 HTML 设计稿。
+  - 根目录 `1.png` 为目标视觉参考图。
+- `frontend/src/App.tsx`
+  - 聊天页继续收敛到设计稿：内联 SVG 图标替代文字占位，Provider 顶栏、快捷卡片、输入条、历史列表与品牌区细节同步更新。
+  - `TTS` 升级为“语音工作台”布局：页头信息卡、主编辑区、右侧音频预览区。
+  - `Translate` 升级为“翻译工作台”布局：页头信息卡、参数编辑区、右侧结果面板。
+- `frontend/src/styles.css`
+  - 聊天页视觉进一步贴近设计稿：外边框、深色窄侧栏、浅色主画布、工具栏、空态卡片、悬浮输入区。
+  - 新增 `vsToolWorkspace / vsToolHeader / vsSurfaceCard / vsResultPanel / vsEmptyPanel` 等桌面端工作台样式。
+  - 移动端断点同步适配新工作台布局。
+
+### 验证结果
+- 前端构建：
+  - `cd frontend && npm run build` 通过。
+- 前端测试：
+  - `cd frontend && npm run test -- --run` 通过（2 files / 13 tests）。
+
+### 当前结论
+- Web 桌面端当前已完成统一视觉的页面：
+  - 聊天页
+  - 语音页
+  - 翻译页
+- 下一步可继续将 `Audio Overview / Settings / Voice Design / Voice Clone` 迁移到同一套桌面工作台设计语言。
+
+## 2026-03-07 Web 桌面端 UI 续做（剩余工作台统一）
+
+### 本次改动
+- `frontend/src/App.tsx`
+  - 为语音模块补充二级工作台切换：`文本转语音 / 音色设计 / 音色克隆`。
+  - 侧边栏“语音”高亮范围扩展到 `TTS / Voice Design / Voice Clone` 三个页面。
+  - `Voice Design` 从旧 `legacyPanel` 迁移为统一工作台布局：页头指标卡、创建表单、右侧预览卡和列表卡。
+  - `Voice Clone` 迁移为统一工作台布局：样本上传表单、样本摘要卡、克隆列表卡。
+  - `Audio Overview` 迁移为统一工作台布局：页头状态卡、脚本/合成参数面板、右侧音频预览与历史播客面板。
+  - `Settings` 迁移为统一工作台布局：Provider 配置区、后端运行态面板、配置摘要卡。
+- `frontend/src/styles.css`
+  - 新增语音二级导航样式：`vsWorkspaceTabs / vsWorkspaceTab`。
+  - 新增堆叠式右侧面板与内嵌卡片样式：`vsStackedPanels / vsInsetPanel / vsInsetPanelHeader`。
+  - 新增状态胶囊与设置摘要卡样式：`vsStatusRow / vsStatusPill / vsMetricList / vsMetricCard`。
+  - 新增 `rose / emerald` 主题变体，并为新工作台补充响应式适配。
+
+### 验证结果
+- 前端测试：`cd frontend && npm run test:run` 通过（2 files / 13 tests）。
+- 前端构建：`cd frontend && npm run build` 通过。
+
+### 当前结论
+- Web 桌面端五个主入口现在都已切到同一套工作台视觉语言：
+  - Chat
+  - Translate
+  - TTS
+  - Audio Overview
+  - Settings
+- 语音相关扩展页 `Voice Design / Voice Clone` 也已并入统一工作台风格，并补上入口切换。
+- 下一步更适合继续做：
+  - 为这些工作台补充更细的交互测试；或
+  - 继续把运行态 / 导出 / 复制等动作补齐到 Audio Overview 与语音扩展页。
+
+## 2026-03-07 Web 桌面端 UI 续做（前端交互补齐）
+
+### 本次改动
+- `frontend/src/App.tsx`
+  - 新增通用前端动作辅助：复制文本、导出文本文件、播客脚本转纯文本。
+  - `Voice Design` 增加：
+    - `Copy Prompt`
+    - `Use Preview in TTS`
+  - `Voice Clone` 增加：
+    - `Clear Sample`
+  - `Audio Overview` 增加：
+    - `Copy Script`
+    - `Export JSON`
+- `frontend/src/App.interactions.test.tsx`
+  - 新增前端交互测试：
+    - `Voice Design -> Use Preview in TTS`
+    - `Audio Overview -> Copy Script`
+
+### 验证结果
+- 前端测试：`cd frontend && npm run test:run` 通过（3 files / 15 tests）。
+- 前端构建：`cd frontend && npm run build` 通过。
+
+### 当前结论
+- 这轮优先补齐了不依赖后端改动的高价值本地交互。
+- 下一步适合继续做：
+  - `Translate` 结果复制 / 导出；
+  - `TTS / Audio Overview` 音频显式下载；
+  - 更多工作台级交互测试。
+
+## 2026-03-07 Web 桌面端 UI 续做（前端交互二批）
+
+### 本次改动
+- `frontend/src/App.tsx`
+  - `Translate` 增加：
+    - `Copy Result`
+    - `Export TXT`
+  - `TTS` 增加：
+    - `Download Audio`
+    - 生成成功后的本地提示文案
+  - `Audio Overview` 合成区增加：
+    - `Download Audio`
+- `frontend/src/App.interactions.test.tsx`
+  - 追加前端交互测试：
+    - `Translate -> Copy Result`
+    - `TTS -> Download Audio`
+
+### 验证结果
+- 前端测试：`cd frontend && npm run test:run` 通过（3 files / 17 tests）。
+- 前端构建：`cd frontend && npm run build` 通过。
+
+### 当前结论
+- 当前已补齐的本地交互包括：
+  - Voice Design：复制 Prompt、把预览文本送入 TTS
+  - Voice Clone：清空样本
+  - Audio Overview：复制脚本、导出 JSON、下载音频
+  - Translate：复制结果、导出 TXT
+  - TTS：下载音频
+
+## 2026-03-07 Web 桌面端 UI 续做（前端交互三批）
+
+### 本次改动
+- `frontend/src/App.tsx`
+  - `Chat` 顶栏动作接入真实交互：
+    - `复制会话`
+    - `Export chat`
+  - `Settings` 增加：
+    - `Copy Summary`
+  - 新增聊天转录构建逻辑与设置摘要复制逻辑。
+- `frontend/src/App.interactions.test.tsx`
+  - 追加前端交互测试：
+    - `Chat -> 复制会话`
+    - `Settings -> Copy Summary`
+
+### 验证结果
+- 前端测试：`cd frontend && npm run test:run` 通过（3 files / 19 tests）。
+- 前端构建：`cd frontend && npm run build` 通过。
+
+### 当前结论
+- 聊天页顶栏不再只是占位按钮，已具备会话复制/导出能力。
+- 设置页现在支持快速复制当前 Provider / 模型 / 配置路径 / 后端运行态摘要。
+
+## 2026-03-07 Web 桌面端 UI 续做（前端交互四批）
+
+### 本次改动
+- `frontend/src/App.tsx`
+  - 聊天历史项点击时，现改为回填完整原始提问，而不是截断后的短文本。
+- `frontend/src/App.interactions.test.tsx`
+  - 追加导出与历史交互测试：
+    - `Chat -> Export chat`
+    - `Translate -> Export TXT`
+    - `Audio Overview -> Export JSON`
+    - `Chat history -> restore full prompt`
+
+### 验证结果
+- 前端测试：`cd frontend && npm run test:run` 通过（3 files / 23 tests）。
+- 前端构建：`cd frontend && npm run build` 通过。
+
+### 当前结论
+- 当前主要本地复制/导出/下载交互已基本有测试覆盖。
+- 聊天历史的回填体验也比之前更完整。
+
+## 2026-03-07 Web 桌面端 UI 续做（前端交互五批）
+
+### 本次改动
+- `frontend/src/App.interactions.test.tsx`
+  - 追加交互测试：
+    - `Settings -> Show backend runtime / Copy backend runtime`
+    - `Audio Overview -> Download Audio`
+  - 同时把 Audio Overview mock 数据改为带音频路径，覆盖“载入后可直接下载”的链路。
+
+### 验证结果
+- 前端测试：`cd frontend && npm run test:run` 通过（3 files / 25 tests）。
+- 前端构建：`cd frontend && npm run build` 通过。
+
+### 当前结论
+- 设置页运行态面板与复制动作已纳入自动化覆盖。
+- 播客页“载入历史 -> 下载音频”链路也已纳入自动化覆盖。
+
+## 2026-03-08 Web 桌面端修正（聊天提供商与默认模型）
+
+### 本次改动
+- `frontend/src/App.tsx`
+  - 移除聊天/翻译/播客工作台里后端当前不支持的 `Google` 提供商入口。
+  - 聊天工作台默认提供商从 `Google` 改为 `DashScope`。
+  - 聊天模型占位从 `gemini-2.5-flash` 改为 `qwen-plus`。
+  - 新增基于设置页配置的默认模型回填：
+    - Chat
+    - Translate
+    - Audio Overview
+- `frontend/src/App.interactions.test.tsx`
+  - 新增测试：聊天页默认使用受支持提供商，并从设置中回填默认模型。
+
+### 验证结果
+- 前端测试：`cd frontend && npm run test:run` 通过（3 files / 26 tests）。
+- 前端构建：`cd frontend && npm run build` 通过。
+
+### 当前结论
+- 之前你看到的 `Unsupported provider: Google` 属于前端默认值错误，不是你操作有问题。
+- 刷新前端后，聊天页默认应改为 `DashScope + qwen-plus`。
+
+## 2026-03-08 Web 桌面端修正（翻译页回归简洁翻译器）
+
+### 本次改动
+- `frontend/src/App.tsx`
+  - 将翻译页从“工作台卡片布局”改回更接近原桌面端的简洁翻译器：
+    - 顶部简洁参数条
+    - 左侧原文
+    - 右侧译文
+  - 移除翻译页中的提供商/模型编辑控件，改为只读提示：
+    - 使用设置中的默认提供商 / 模型
+  - 翻译页 provider/model 运行时与 Settings 页面同步。
+- `frontend/src/styles.css`
+  - 新增简洁翻译器样式：
+    - `vsTranslateConfigHint`
+    - 收紧 `vsTranslateToolbar`
+    - 保持双栏工具布局
+
+### 验证结果
+- 前端测试：`cd frontend && npm run test:run` 通过（3 files / 26 tests）。
+- 前端构建：`cd frontend && npm run build` 通过。
+
+### 当前结论
+- 翻译页现在更接近你给的 `1.png` 方向，而不是之前的 `2.png` 工作台卡片风格。
+- 如果继续收敛，下一步应该做的是：
+  - 更细地对齐顶部控件尺寸、留白和按钮色值；
+  - 弱化标题区，让整体更像“工具”而不是“页面模块”。
+
+## 2026-03-08 Web 桌面端增强（专业翻译器 + 图片翻译）
+
+### 本次改动
+- `backend/services/llm_service.py`
+  - 扩展多模态消息支持。
+  - 新增 `translate_image()`，可将图片作为 `image_url` 内容发送给兼容模型。
+- `backend/routers/translate.py`
+  - 新增 `POST /api/translate/image`，支持图片翻译上传。
+- `frontend/src/api.ts`
+  - 新增 `translateImage()`。
+- `frontend/src/App.tsx`
+  - 翻译页升级为 `文本翻译 / 图片翻译` 双模式。
+  - 文本模式保持极简双栏。
+  - 图片模式支持上传、预览、替换、清空，并调用后端图片翻译接口。
+  - 翻译页 provider/model 与 Settings 保持同步，不在页面内重复编辑。
+- `frontend/src/App.interactions.test.tsx`
+  - 新增图片翻译模式前端测试。
+- `backend/tests/test_api_smoke.py`
+  - 新增图片翻译接口 smoke test。
+
+### 验证结果
+- 前端测试：`cd frontend && npm run test:run` 通过（3 files / 27 tests）。
+- 前端构建：`cd frontend && npm run build` 通过。
+- 后端测试：`cd backend && .venv/bin/python -m unittest tests.test_api_smoke -v` 通过（14 tests）。
+
+### 当前结论
+- 翻译页现在更接近“专业翻译工具”的信息层级：
+  - 设置页管模型/provider
+  - 翻译页专注源内容、语言、结果
+- 图片翻译链路已打通，但实际效果依赖你在 Settings 中选择/配置支持视觉的模型。
+
+## 2026-03-08 Web 翻译器精修（统一专业界面）
+
+### 本次改动
+- `frontend/src/App.tsx`
+  - 移除翻译页顶部说明块，改成单一工作区布局。
+  - 将 `文本翻译 / 图片翻译`、语言选择、交换按钮、Translate 主按钮收拢到一条专业工具栏。
+  - 将 provider/model 改成只读设置徽标，弱化存在感，不再抢主流程注意力。
+  - 将结果区操作挪到译文面板头部，主流程变为“输入 / 上传 → 翻译 → 复制 / 导出”。
+- `frontend/src/styles.css`
+  - 重做翻译页容器、顶部条、双栏面板、图片上传区和结果区样式。
+  - 统一圆角、阴影、边框、留白和响应式行为，减少“页面模块感”，增强“工具面板感”。
+
+### 设计依据
+- 参考主流专业翻译工具的当前模式：主界面聚焦源语言、目标语言、源内容、结果内容。
+- 多模态能力使用轻量模式切换承载，而不是额外堆叠设置块。
+- 模型和提供商属于系统配置，应退到次要层级，只保留只读提示。
+
+### 验证结果
+- 前端测试：`cd frontend && npm run test:run` 通过（3 files / 27 tests）。
+- 前端构建：`cd frontend && npm run build` 通过。
+
+## 2026-03-08 前端验证补记（Codex 意外中断后续收尾）
+
+### 情况说明
+- 上一轮在更新翻译页交互文案与测试过程中，`codex` CLI 发生 `Segmentation fault`，任务中断在 `Run frontend validation` 之前。
+
+### 本次收尾
+- `frontend/src/App.tsx`
+  - 确认翻译页字符计数文案为中文：`个字符`。
+  - 删除 2 个未使用的 state，修复 TypeScript 构建失败。
+- `frontend/src/App.interactions.test.tsx`
+  - 保留并验证新增交互测试覆盖。
+
+### 验证结果
+- 前端构建：`cd frontend && npm run build` 通过。
+- 新增交互测试：`cd frontend && npm run test:run -- src/App.interactions.test.tsx --reporter=dot` 通过（15 tests）。
+- 前端全量测试：`cd frontend && npm run test:run` 通过（3 files / 28 tests）。
+
+### 结论
+- 这次中断是 CLI 进程异常退出，不是代码执行卡死。
+- 当前前端改动已完成收尾验证，可以从这个状态继续下一步开发。
