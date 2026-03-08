@@ -214,7 +214,7 @@ class ApiSmokeTests(unittest.TestCase):
             yield {"type": "meta", "provider": "DashScope", "model": "qwen-plus"}
             yield {"type": "delta", "content": "he"}
             yield {"type": "delta", "content": "llo"}
-            yield {"type": "done", "provider": "DashScope", "model": "qwen-plus", "reply": "hello"}
+            yield {"type": "done", "provider": "DashScope", "model": "qwen-plus", "reply": "hello", "memories_retrieved": 0, "memory_saved": True}
 
         with patch.object(chat_router.llm_service, "chat_completion_stream", new=fake_stream):
             response = self._request(
@@ -224,12 +224,17 @@ class ApiSmokeTests(unittest.TestCase):
                     "provider": "DashScope",
                     "messages": [{"role": "user", "content": "hello"}],
                 },
+                headers={
+                    "X-EverMem-Enabled": "true",
+                    "X-EverMem-Key": "test-key"
+                }
             )
         self.assertEqual(response.status_code, 200)
         text = response.text
         self.assertIn("event: delta", text)
         self.assertIn('"content": "he"', text)
         self.assertIn("event: done", text)
+        self.assertIn('memory_saved', text)
 
     def test_translate_endpoint(self) -> None:
         async def fake_translate_text(**kwargs: Any) -> dict[str, Any]:
@@ -248,6 +253,30 @@ class ApiSmokeTests(unittest.TestCase):
             )
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["translated_text"], "Hello")
+
+    def test_translate_image_endpoint(self) -> None:
+        async def fake_translate_image(**kwargs: Any) -> dict[str, Any]:
+            _ = kwargs
+            return {
+                "provider": "DashScope",
+                "model": "qwen-vl-max",
+                "translated_text": "Hello from image",
+            }
+
+        with patch.object(translate_router.llm_service, "translate_image", new=fake_translate_image):
+            response = self._request(
+                "POST",
+                "/api/translate/image",
+                files={"image_file": ("demo.png", b"fake-image", "image/png")},
+                data={
+                    "target_language": "English",
+                    "source_language": "auto",
+                    "provider": "DashScope",
+                    "model": "qwen-vl-max",
+                },
+            )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["translated_text"], "Hello from image")
 
     def test_voices_endpoints(self) -> None:
         async def fake_create_voice_design(**kwargs: Any) -> dict[str, Any]:

@@ -120,25 +120,25 @@ export default function ErrorNotice({ message, scope = "", context }: ErrorNotic
       ? contextEntries.map((item) => `- ${item}`).join("\n")
       : "- N/A";
     return [
-      "## VoiceSpirit Error Report",
-      `- generated_at: ${generatedAt}`,
-      `- scope: ${scopeLabel}`,
-      `- path: ${pathname}`,
-      `- frontend_version: ${frontendVersion}`,
-      `- user_agent: ${userAgent}`,
-      `- code: ${code || "N/A"}`,
-      `- request_id: ${requestId || "N/A"}`,
-      `- log_search_url: ${logSearchUrl || "N/A"}`,
+      "## VoiceSpirit 错误报告",
+      `- 生成时间: ${generatedAt}`,
+      `- 模块: ${scopeLabel}`,
+      `- 页面路径: ${pathname}`,
+      `- 前端版本: ${frontendVersion}`,
+      `- 浏览器信息: ${userAgent}`,
+      `- 错误代码: ${code || "N/A"}`,
+      `- 请求 ID: ${requestId || "N/A"}`,
+      `- 日志链接: ${logSearchUrl || "N/A"}`,
       "",
-      "### Message",
+      "### 错误信息",
       "```text",
       text,
       "```",
       "",
-      "### Context",
+      "### 上下文",
       contextBlock,
       "",
-      "### Suggested Fixes",
+      "### 建议处理方式",
       hintLines
     ].join("\n");
   }
@@ -163,30 +163,30 @@ export default function ErrorNotice({ message, scope = "", context }: ErrorNotic
     const ok = await copyText(requestId);
     if (ok) {
       setCopyState("ok");
-      setToast({ tone: "ok", text: "request_id copied." });
+      setToast({ tone: "ok", text: "请求 ID 已复制。" });
       return;
     }
-    setToast({ tone: "fail", text: "Copy failed. Please copy manually." });
+    setToast({ tone: "fail", text: "复制失败，请手动复制。" });
   }
 
   async function handleCopyDiagnostics() {
     const payload = `${diagnostics}\ngenerated_at=${new Date().toISOString()}`;
     const ok = await copyText(payload);
     if (ok) {
-      setToast({ tone: "ok", text: "Diagnostic details copied." });
+      setToast({ tone: "ok", text: "诊断信息已复制。" });
       return;
     }
-    setToast({ tone: "fail", text: "Copy failed. Please copy manually." });
+    setToast({ tone: "fail", text: "复制失败，请手动复制。" });
   }
 
   async function handleCopyIssueTemplate() {
     const payload = buildIssueTemplate(new Date().toISOString());
     const ok = await copyText(payload);
     if (ok) {
-      setToast({ tone: "ok", text: "Issue template copied." });
+      setToast({ tone: "ok", text: "问题模板已复制。" });
       return;
     }
-    setToast({ tone: "fail", text: "Copy failed. Please copy manually." });
+    setToast({ tone: "fail", text: "复制失败，请手动复制。" });
   }
 
   return (
@@ -215,7 +215,7 @@ export default function ErrorNotice({ message, scope = "", context }: ErrorNotic
               className="ghost errorCopyBtn"
               onClick={handleCopyRequestId}
             >
-              {copyState === "ok" ? "Copied" : "Copy request_id"}
+              {copyState === "ok" ? "已复制" : "复制请求 ID"}
             </button>
           ) : null}
           <button
@@ -223,21 +223,21 @@ export default function ErrorNotice({ message, scope = "", context }: ErrorNotic
             className="ghost errorCopyBtn"
             onClick={handleCopyDiagnostics}
           >
-            Copy diagnostics
+            复制诊断信息
           </button>
           <button
             type="button"
             className="ghost errorCopyBtn"
             onClick={handleCopyIssueTemplate}
           >
-            Copy issue template
+            复制问题模板
           </button>
           <button
             type="button"
             className="ghost errorCopyBtn"
             onClick={() => setDetailsOpen((value) => !value)}
           >
-            {detailsOpen ? "Hide details" : "Show details"}
+            {detailsOpen ? "隐藏详情" : "查看详情"}
           </button>
         </div>
       ) : null}
@@ -248,13 +248,13 @@ export default function ErrorNotice({ message, scope = "", context }: ErrorNotic
       ) : null}
       {detailsOpen ? (
         <div className="errorDetails">
-          <p>Diagnostic details</p>
+          <p>诊断信息</p>
           <pre>{diagnostics}</pre>
         </div>
       ) : null}
       {hints.length > 0 ? (
         <div className="errorHints">
-          <p>Suggested fixes</p>
+          <p>建议处理方式</p>
           <ul>
             {hints.map((tip, idx) => (
               <li key={`error-hint-${idx}`}>{tip}</li>

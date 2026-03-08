@@ -13,6 +13,8 @@ export type VoicesResponse = {
 export type ChatMessage = {
   role: "system" | "user" | "assistant";
   content: string;
+  memoriesUsed?: number;
+  memorySaved?: boolean;
 };
 
 export type ChatRequest = {
@@ -32,7 +34,7 @@ export type ChatResponse = {
 
 type StreamEventHandlers = {
   onDelta: (chunk: string) => void;
-  onDone?: () => void;
+  onDone?: (meta?: { memoriesRetrieved: number; memorySaved: boolean }) => void;
 };
 
 export type TranslateRequest = {
@@ -85,9 +87,9 @@ export type VoiceCreateResponse = {
 export type SettingsModelValue =
   | string
   | {
-      default?: string;
-      available?: string[];
-    };
+    default?: string;
+    available?: string[];
+  };
 
 export type AppSettings = {
   api_keys: Record<string, string>;
@@ -200,6 +202,76 @@ export const API_BASE_URL =
   import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
 export const API_TOKEN = import.meta.env.VITE_API_TOKEN || "";
 export const API_ADMIN_TOKEN = import.meta.env.VITE_API_ADMIN_TOKEN || "";
+const CLIENT_ID_STORAGE_KEY = "voicespirit_client_id";
+const EVERMEM_ENABLED_STORAGE_KEY = "evermem_enabled";
+const EVERMEM_URL_STORAGE_KEY = "evermem_url";
+const EVERMEM_LEGACY_KEY_STORAGE_KEY = "evermem_key";
+
+let evermemRuntimeKey = "";
+
+function safeStorageGet(key: string): string {
+  try {
+    return localStorage.getItem(key) || "";
+  } catch {
+    return "";
+  }
+}
+
+function safeStorageSet(key: string, value: string): void {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    // Ignore storage failures in non-browser contexts.
+  }
+}
+
+function safeStorageRemove(key: string): void {
+  try {
+    localStorage.removeItem(key);
+  } catch {
+    // Ignore storage failures in non-browser contexts.
+  }
+}
+
+function createClientId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return `vs-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+export function getClientId(): string {
+  const existing = safeStorageGet(CLIENT_ID_STORAGE_KEY).trim();
+  if (existing) {
+    return existing;
+  }
+  const next = createClientId();
+  safeStorageSet(CLIENT_ID_STORAGE_KEY, next);
+  return next;
+}
+
+export function configureEverMemRuntime(config: {
+  enabled: boolean;
+  url: string;
+  key?: string;
+}): void {
+  safeStorageSet(EVERMEM_ENABLED_STORAGE_KEY, String(config.enabled));
+  safeStorageSet(EVERMEM_URL_STORAGE_KEY, config.url.trim());
+  safeStorageRemove(EVERMEM_LEGACY_KEY_STORAGE_KEY);
+  evermemRuntimeKey = (config.key || "").trim();
+}
+
+export function getEverMemRuntimeConfig(): {
+  enabled: boolean;
+  url: string;
+  key: string;
+} {
+  return {
+    enabled: safeStorageGet(EVERMEM_ENABLED_STORAGE_KEY) === "true",
+    url: safeStorageGet(EVERMEM_URL_STORAGE_KEY),
+    key: evermemRuntimeKey
+  };
+}
 
 function apiFetch(
   input: RequestInfo | URL,
@@ -213,6 +285,9 @@ function apiFetch(
       : API_TOKEN;
   if (token && !headers.has("Authorization")) {
     headers.set("Authorization", `Bearer ${token}`);
+  }
+  if (!headers.has("X-Client-ID")) {
+    headers.set("X-Client-ID", getClientId());
   }
   return fetch(input, { ...init, headers });
 }
@@ -396,7 +471,11 @@ function handleSseChunk(chunk: string, handlers: StreamEventHandlers): boolean {
     return false;
   }
   if (parsed.event === "done") {
-    handlers.onDone?.();
+    const meta = {
+      memoriesRetrieved: typeof payload.memories_retrieved === "number" ? payload.memories_retrieved : 0,
+      memorySaved: typeof payload.memory_saved === "boolean" ? payload.memory_saved : false
+    };
+    handlers.onDone?.(meta);
     return true;
   }
   if (parsed.event === "error") {
@@ -411,11 +490,17 @@ export async function streamChatCompletion(
   payload: ChatRequest,
   handlers: StreamEventHandlers
 ): Promise<void> {
+  const evermem = getEverMemRuntimeConfig();
   const response = await apiFetch(`${API_BASE_URL}/api/chat/completions/stream`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Accept: "text/event-stream"
+      Accept: "text/event-stream",
+      ...(evermem.enabled && {
+        "X-EverMem-Enabled": "true",
+        "X-EverMem-Url": evermem.url || "",
+        ...(evermem.key ? { "X-EverMem-Key": evermem.key } : {})
+      })
     },
     body: JSON.stringify(payload)
   });
@@ -461,6 +546,32 @@ export async function translateText(
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload)
+  });
+  if (!response.ok) {
+    await throwApiError(response);
+  }
+  return response.json();
+}
+
+export async function translateImage(params: {
+  image_file: File;
+  target_language: string;
+  source_language?: string;
+  provider?: string;
+  model?: string;
+}): Promise<TranslateResponse> {
+  const formData = new FormData();
+  formData.append("image_file", params.image_file);
+  formData.append("target_language", params.target_language);
+  formData.append("source_language", params.source_language || "auto");
+  formData.append("provider", params.provider || "DashScope");
+  if (params.model) {
+    formData.append("model", params.model);
+  }
+
+  const response = await apiFetch(`${API_BASE_URL}/api/translate/image`, {
+    method: "POST",
+    body: formData
   });
   if (!response.ok) {
     await throwApiError(response);

@@ -43,20 +43,20 @@ describe("ErrorNotice", () => {
     setClipboardWriteText(writeText);
 
     render(<ErrorNotice message={BASE_ERROR} scope="chat" />);
-    const button = screen.getByRole("button", { name: "Copy request_id" });
+    const button = screen.getByRole("button", { name: "复制请求 ID" });
     await act(async () => {
       fireEvent.click(button);
       await Promise.resolve();
     });
 
     expect(writeText).toHaveBeenCalledWith("req_test_001");
-    expect(screen.getByRole("button", { name: "Copied" })).toBeInTheDocument();
-    expect(screen.getByRole("status")).toHaveTextContent("request_id copied.");
+    expect(screen.getByRole("button", { name: "已复制" })).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent("请求 ID 已复制。");
 
     await act(async () => {
       vi.advanceTimersByTime(1500);
     });
-    expect(screen.getByRole("button", { name: "Copy request_id" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "复制请求 ID" })).toBeInTheDocument();
   });
 
   it("shows fallback text when clipboard copy fails", async () => {
@@ -65,11 +65,11 @@ describe("ErrorNotice", () => {
 
     render(<ErrorNotice message={BASE_ERROR} scope="chat" />);
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "Copy request_id" }));
+      fireEvent.click(screen.getByRole("button", { name: "复制请求 ID" }));
       await Promise.resolve();
     });
 
-    expect(screen.getByRole("status")).toHaveTextContent("Copy failed. Please copy manually.");
+    expect(screen.getByRole("status")).toHaveTextContent("复制失败，请手动复制。");
   });
 
   it("copies diagnostics payload", async () => {
@@ -90,7 +90,7 @@ describe("ErrorNotice", () => {
       />
     );
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "Copy diagnostics" }));
+      fireEvent.click(screen.getByRole("button", { name: "复制诊断信息" }));
       await Promise.resolve();
     });
 
@@ -107,26 +107,26 @@ describe("ErrorNotice", () => {
     expect(payload).toContain("context.provider=DashScope");
     expect(payload).toContain("context.backend_auth_enabled=false");
     expect(payload).toContain("generated_at=2026-03-05T13:14:15.000Z");
-    expect(screen.getByRole("status")).toHaveTextContent("Diagnostic details copied.");
+    expect(screen.getByRole("status")).toHaveTextContent("诊断信息已复制。");
   });
 
   it("toggles diagnostic details panel", async () => {
     render(<ErrorNotice message={BASE_ERROR} scope="chat" />);
-    expect(screen.queryByText("Diagnostic details")).not.toBeInTheDocument();
+    expect(screen.queryByText("诊断信息")).not.toBeInTheDocument();
 
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "Show details" }));
+      fireEvent.click(screen.getByRole("button", { name: "查看详情" }));
     });
-    expect(screen.getByText("Diagnostic details")).toBeInTheDocument();
+    expect(screen.getByText("诊断信息")).toBeInTheDocument();
     expect(screen.getByText(/code=AUTH_TOKEN_INVALID/)).toBeInTheDocument();
     expect(screen.getByText(/scope=chat/)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Hide details" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "隐藏详情" })).toBeInTheDocument();
 
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "Hide details" }));
+      fireEvent.click(screen.getByRole("button", { name: "隐藏详情" }));
     });
-    expect(screen.queryByText("Diagnostic details")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Show details" })).toBeInTheDocument();
+    expect(screen.queryByText("诊断信息")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "查看详情" })).toBeInTheDocument();
   });
 
   it("copies markdown issue template payload", async () => {
@@ -147,24 +147,25 @@ describe("ErrorNotice", () => {
       />
     );
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "Copy issue template" }));
+      fireEvent.click(screen.getByRole("button", { name: "复制问题模板" }));
       await Promise.resolve();
     });
 
     expect(writeText).toHaveBeenCalledTimes(1);
     const payload = writeText.mock.calls[0][0] as string;
-    expect(payload).toContain("## VoiceSpirit Error Report");
-    expect(payload).toContain("- generated_at: 2026-03-05T15:16:17.000Z");
-    expect(payload).toContain("- scope: chat");
-    expect(payload).toContain("- path: /");
-    expect(payload).toMatch(/- frontend_version: \S+/);
-    expect(payload).toContain("- user_agent: ");
-    expect(payload).toContain("- code: AUTH_TOKEN_INVALID");
-    expect(payload).toContain("- request_id: req_test_001");
-    expect(payload).toContain("### Context");
+    expect(payload).toContain("## VoiceSpirit 错误报告");
+    expect(payload).toContain("- 生成时间: 2026-03-05T15:16:17.000Z");
+    expect(payload).toContain("- 模块: chat");
+    expect(payload).toContain("- 页面路径: /");
+    expect(payload).toMatch(/- 前端版本: \S+/);
+    expect(payload).toContain("- 浏览器信息: ");
+    expect(payload).toContain("- 错误代码: AUTH_TOKEN_INVALID");
+    expect(payload).toContain("- 请求 ID: req_test_001");
+    expect(payload).toContain("### 上下文");
     expect(payload).toContain("- model=qwen-plus");
     expect(payload).toContain("- backend_auth_enabled=false");
     expect(payload).toContain("- provider=DashScope");
-    expect(screen.getByRole("status")).toHaveTextContent("Issue template copied.");
+    expect(payload).toContain("### 建议处理方式");
+    expect(screen.getByRole("status")).toHaveTextContent("问题模板已复制。");
   });
 });

@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from typing import Any, Literal
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -97,7 +97,7 @@ async def create_chat_completion(payload: ChatRequest) -> ChatResponse:
         403: {"description": "Authentication token invalid.", "model": StructuredErrorResponse},
     },
 )
-async def create_chat_completion_stream(payload: ChatRequest) -> StreamingResponse:
+async def create_chat_completion_stream(payload: ChatRequest, request: Request) -> StreamingResponse:
     async def event_generator():
         try:
             async for event in llm_service.chat_completion_stream(
@@ -106,6 +106,7 @@ async def create_chat_completion_stream(payload: ChatRequest) -> StreamingRespon
                 messages=[item.model_dump() for item in payload.messages],
                 temperature=payload.temperature,
                 max_tokens=payload.max_tokens,
+                request_headers=dict(request.headers),
             ):
                 event_type = str(event.get("type", "message"))
                 event_data = {k: v for k, v in event.items() if k != "type"}

@@ -1,17 +1,17 @@
 :root {
-  --text: #172032;
-  --muted: #6f7685;
-  --line: #d7dceb;
-  --panel: #f8f9fc;
-  --brand: #4f46e5;
-  --brand-dark: #4338ca;
-  --brand-soft: #eef0ff;
-  --user-bg: #eff4ff;
+  --text: #1e293b;
+  --muted: #7b849a;
+  --line: #dfe4f0;
+  --panel: #f7f8fc;
+  --brand: #6b4cf6;
+  --brand-dark: #5a3ff0;
+  --brand-soft: #efebff;
+  --user-bg: #ede9fe;
   --assistant-bg: #ffffff;
-  --sidebar-bg: #121524;
-  --sidebar-line: #252a3f;
-  --sidebar-text: #9ca8c8;
-  --sidebar-text-strong: #e7ecff;
+  --sidebar-bg: #12131b;
+  --sidebar-line: #1d2030;
+  --sidebar-text: #b0b6c9;
+  --sidebar-text-strong: #f6f7fb;
   font-family: "Sora", "PingFang SC", "Microsoft YaHei", sans-serif;
   color: var(--text);
 }
@@ -23,94 +23,112 @@
 body {
   margin: 0;
   min-height: 100vh;
-  background: radial-gradient(circle at 30% -20%, #f1efff 0, #f6f7fb 38%, #eef1f8 100%);
+  background:
+    radial-gradient(circle at top left, rgba(107, 76, 246, 0.16), transparent 22%),
+    linear-gradient(180deg, #eff1f7 0%, #f5f6fb 100%);
+}
+
+#root {
+  min-height: 100vh;
 }
 
 .vsApp {
-  min-height: 100vh;
+  width: min(100%, 1940px);
+  min-height: calc(100vh - 24px);
+  margin: 12px;
   display: grid;
-  grid-template-columns: 236px minmax(0, 1fr);
+  grid-template-columns: 160px minmax(0, 1fr);
+  border: 4px solid #6b63ff;
+  border-radius: 16px;
+  overflow: hidden;
+  background: #fbfbfe;
+  box-shadow: 0 18px 60px rgba(58, 64, 92, 0.12);
 }
 
 .vsSidebar {
   display: grid;
   grid-template-rows: auto auto auto minmax(0, 1fr) auto;
-  background: linear-gradient(180deg, #171b2e 0, #101324 100%);
+  background: linear-gradient(180deg, #11131b 0, #0f1017 100%);
   border-right: 1px solid var(--sidebar-line);
   color: var(--sidebar-text);
-  min-height: 100vh;
+  min-height: 100%;
 }
 
 .vsBrand {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 20px 16px 12px;
+  gap: 9px;
+  padding: 14px 14px 10px;
 }
 
 .vsBrand h1 {
   margin: 0;
-  font-size: 18px;
+  font-size: 14px;
+  font-weight: 700;
   color: var(--sidebar-text-strong);
-  letter-spacing: 0.2px;
+  letter-spacing: 0;
 }
 
 .vsBrandIcon {
-  width: 30px;
-  height: 30px;
-  border-radius: 9px;
-  background: linear-gradient(135deg, #4f46e5, #8b5cf6);
+  width: 26px;
+  height: 26px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #7c5cff, #5941e8);
   color: #fff;
-  font-size: 11px;
-  font-weight: 700;
   display: grid;
   place-items: center;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16);
 }
 
 .vsSidebarAction {
-  padding: 0 14px 16px;
+  padding: 2px 12px 14px;
 }
 
 .vsNewChatBtn {
   width: 100%;
-  padding: 11px 12px;
-  border-radius: 12px;
+  padding: 10px 12px;
+  border-radius: 11px;
   border: 0;
-  background: linear-gradient(120deg, #4f46e5, #7c3aed);
+  background: linear-gradient(180deg, #7f56ff, #6d43f4);
   color: #fff;
   font-weight: 700;
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  box-shadow: 0 10px 22px rgba(93, 69, 241, 0.3);
 }
 
 .vsNewChatBtn:hover {
-  filter: brightness(1.06);
+  filter: brightness(1.04);
 }
 
 .vsSidebarSection {
-  padding: 0 10px;
+  padding: 0 8px;
 }
 
 .vsSectionLabel {
   margin: 0 8px 8px;
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 700;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.05em;
   text-transform: uppercase;
-  color: #6d7799;
+  color: #78809a;
 }
 
 .vsNav {
   display: grid;
-  gap: 4px;
+  gap: 3px;
 }
 
 .vsNavItem {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 9px;
   width: 100%;
   border: 0;
-  border-radius: 12px;
+  border-radius: 10px;
   padding: 9px 10px;
   text-align: left;
   background: transparent;
@@ -120,28 +138,25 @@ body {
 }
 
 .vsNavItem:hover {
-  background: rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.05);
 }
 
 .vsNavItem.active {
-  color: #b9beff;
-  background: rgba(79, 70, 229, 0.24);
+  color: #d8d8ff;
+  background: rgba(88, 86, 199, 0.28);
 }
 
 .vsNavIcon {
-  width: 24px;
-  height: 24px;
-  border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  width: 18px;
+  height: 18px;
   display: grid;
   place-items: center;
-  font-size: 12px;
-  font-weight: 700;
+  flex: 0 0 auto;
 }
 
 .vsHistorySection {
   min-height: 0;
-  padding-top: 14px;
+  padding-top: 12px;
 }
 
 .vsHistoryHead {
@@ -158,10 +173,10 @@ body {
 .vsHistoryClearBtn {
   border: 0;
   background: transparent;
-  color: #6d7799;
+  color: #747d98;
   cursor: pointer;
   padding: 4px 0;
-  font-size: 12px;
+  font-size: 11px;
 }
 
 .vsHistoryList {
@@ -179,74 +194,113 @@ body {
   padding: 8px 10px;
   text-align: left;
   background: transparent;
-  color: #c7d0ee;
+  color: #d3d8ea;
   cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .vsHistoryItem:hover {
   background: rgba(255, 255, 255, 0.06);
 }
 
+.vsNavItem:focus-visible,
+.vsHistoryItem:focus-visible,
+.vsNewChatBtn:focus-visible,
+.vsTopbarBtn:focus-visible,
+.vsTopbarIconBtn:focus-visible,
+.vsQuickActionBtn:focus-visible,
+.vsPodcastMenuTrigger:focus-visible,
+.vsPodcastAdvancedToggle:focus-visible,
+.vsPodcastIconAction:focus-visible,
+.vsRemoveLineBtn:focus-visible,
+.vsRoleSelect:focus-visible,
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(124, 92, 255, 0.18);
+}
+
+.vsHistoryIcon {
+  width: 16px;
+  height: 16px;
+  color: #c5cbe0;
+  flex: 0 0 auto;
+}
+
+.vsHistoryText {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .vsHistoryEmpty {
   margin: 0;
   font-size: 12px;
-  color: #5f6887;
+  color: #646d8d;
   padding: 6px 10px;
 }
 
 .vsProfileCard {
-  margin: 14px 10px;
-  padding: 10px;
-  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  margin: 12px 0 0;
+  padding: 16px 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
   display: flex;
   align-items: center;
   gap: 10px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.02), transparent);
 }
 
 .vsProfileAvatar {
-  width: 34px;
-  height: 34px;
+  width: 28px;
+  height: 28px;
   border-radius: 50%;
   display: grid;
   place-items: center;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 700;
-  background: #353a56;
-  color: #f1f5ff;
+  background: linear-gradient(180deg, #ffdca8, #f3b670);
+  color: #503318;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.4);
 }
 
 .vsProfileName {
   margin: 0;
-  color: #e8ecff;
-  font-size: 13px;
+  color: #eef1ff;
+  font-size: 12px;
   font-weight: 700;
 }
 
 .vsProfilePlan {
   margin: 2px 0 0;
-  color: #7f8ab2;
-  font-size: 11px;
+  color: #8a94b8;
+  font-size: 10px;
 }
 
 .legacyMain {
   min-width: 0;
   display: grid;
   grid-template-rows: minmax(0, 1fr);
+  background: #fbfbfe;
 }
 
 .vsChatWorkspace {
-  min-height: 100vh;
+  min-height: 100%;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
-  background: linear-gradient(180deg, #f7f8fc 0, #f2f5fb 100%);
+  background: linear-gradient(180deg, #fbfbfd 0, #f8f9fd 100%);
 }
 
 .vsTopbar {
-  height: 68px;
-  border-bottom: 1px solid #dee3f0;
-  background: rgba(247, 248, 252, 0.85);
-  backdrop-filter: blur(8px);
-  padding: 0 20px;
+  height: 58px;
+  border-bottom: 1px solid #eaedf5;
+  background: rgba(252, 252, 254, 0.92);
+  backdrop-filter: blur(10px);
+  padding: 0 18px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -264,31 +318,80 @@ body {
   min-width: 0;
   display: flex;
   align-items: center;
-  gap: 10px;
-  font-size: 12px;
-  color: #707a92;
+  gap: 8px;
+  font-size: 11px;
+  color: #9097aa;
   font-weight: 700;
 }
 
-.vsTopbarField select,
-.vsTopbarField input {
-  border: 1px solid #d7dced;
+.vsSelectShell,
+.vsInputShell {
+  position: relative;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px 0 12px;
+  height: 34px;
   border-radius: 10px;
-  height: 36px;
-  padding: 0 12px;
   background: #fff;
-  box-shadow: none;
-  color: #2c3349;
+  border: 1px solid #eceff5;
+  color: #495066;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.8);
 }
 
-.vsTopbarModelField input {
-  min-width: 220px;
+.vsSelectShell select,
+.vsInputShell input {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  height: auto;
+  color: #4a5168;
+  box-shadow: none;
+}
+
+.vsSelectShell select {
+  appearance: none;
+  padding-right: 14px;
+}
+
+.vsInputShell input {
+  min-width: 210px;
+}
+
+.vsSelectChevron {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 12px;
+  color: #acb2c1;
+  pointer-events: none;
+}
+
+.vsProviderShell {
+  padding-left: 10px;
+  padding-right: 24px;
+}
+
+.vsProviderGoogle {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  color: #4f7cff;
+}
+
+.vsProviderGeneric {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  color: #68708b;
 }
 
 .vsTopbarDivider {
   width: 1px;
-  height: 18px;
-  background: #d7dced;
+  height: 16px;
+  background: #e3e6ef;
 }
 
 .vsTopbarActions {
@@ -298,125 +401,152 @@ body {
 }
 
 .vsTopbarBtn {
-  border: 1px solid #cfddff;
-  background: #f2f6ff;
-  color: #3652a4;
+  border: 1px solid #eee7ff;
+  background: #faf7ff;
+  color: #6f52ec;
   border-radius: 10px;
-  padding: 8px 12px;
+  padding: 7px 11px;
   font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .vsTopbarBtn:hover {
-  background: #e9f0ff;
+  background: #f4eeff;
 }
 
 .vsTopbarIconBtn {
-  border: 1px solid #d5dbeb;
+  border: 1px solid #eceff5;
   background: #fff;
-  color: #5b6378;
+  color: #7a8195;
   border-radius: 10px;
   width: 34px;
   height: 34px;
-  padding: 0;
+  padding: 7px;
   font-weight: 700;
 }
 
 .vsTopbarIconBtn:hover {
-  background: #f0f3fa;
+  background: #f4f6fb;
 }
 
 .vsChatBody {
   min-height: 0;
   overflow-y: auto;
-  padding: 24px clamp(18px, 7vw, 92px);
+  padding: 32px clamp(22px, 8vw, 110px);
 }
 
 .vsChatEmptyState {
-  max-width: 660px;
-  margin: 36px auto 0;
+  max-width: 650px;
+  margin: 120px auto 0;
   text-align: center;
 }
 
 .vsEmptyLogo {
-  width: 84px;
-  height: 84px;
-  border-radius: 24px;
-  margin: 0 auto 16px;
+  width: 72px;
+  height: 72px;
+  border-radius: 20px;
+  margin: 0 auto 18px;
   display: grid;
   place-items: center;
-  font-size: 24px;
-  font-weight: 700;
-  color: #4338ca;
-  background: linear-gradient(145deg, #eef1ff, #f8edff);
-  border: 1px solid #d9deef;
+  background: linear-gradient(180deg, #f6f5fc, #f2f2fa);
+  border: 1px solid #ececf4;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85);
+}
+
+.vsEmptyLogoInner {
+  width: 54px;
+  height: 54px;
+  border-radius: 16px;
+  display: grid;
+  place-items: center;
+  background: linear-gradient(180deg, #f7f6ff, #f1eeff);
+  color: #7c5cff;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9);
 }
 
 .vsChatEmptyState h2 {
-  margin: 0 0 8px;
-  color: #2a3249;
-  font-size: 26px;
+  margin: 0 0 10px;
+  color: #2b3143;
+  font-size: 18px;
+  font-weight: 800;
 }
 
 .vsChatEmptyState p {
   margin: 0;
-  color: #6c758f;
+  color: #9aa2b5;
+  font-size: 13px;
 }
 
 .vsQuickActions {
-  margin-top: 20px;
+  margin-top: 24px;
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
+  gap: 12px;
 }
 
 .vsQuickActionBtn {
-  border: 1px solid #dce2f1;
-  border-radius: 16px;
-  background: rgba(255, 255, 255, 0.85);
-  color: #33415f;
-  min-height: 88px;
+  border: 1px solid #e8ebf4;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.78);
+  color: #3c4358;
+  min-height: 62px;
   text-align: left;
-  padding: 14px;
+  padding: 14px 15px;
   display: grid;
   gap: 8px;
   justify-items: start;
+  align-content: center;
+  box-shadow: 0 2px 12px rgba(116, 124, 151, 0.05);
 }
 
 .vsQuickActionBtn:hover {
   background: #fff;
-  border-color: #bec7eb;
+  border-color: #d7dbeb;
 }
 
 .vsQuickActionIcon {
-  width: 28px;
-  height: 28px;
-  border-radius: 10px;
+  width: 20px;
+  height: 20px;
   display: grid;
   place-items: center;
-  font-size: 12px;
-  font-weight: 700;
-  background: #eceffd;
-  color: #4f46e5;
+}
+
+.vsQuickActionBtn.indigo .vsQuickActionIcon {
+  color: #6b4cf6;
+}
+
+.vsQuickActionBtn.violet .vsQuickActionIcon {
+  color: #8b5cf6;
+}
+
+.vsQuickActionBtn.blue .vsQuickActionIcon {
+  color: #4b82f1;
+}
+
+.vsQuickActionBtn.emerald .vsQuickActionIcon {
+  color: #17a56d;
 }
 
 .vsMessageList {
-  width: min(900px, 100%);
+  width: min(860px, 100%);
   margin: 0 auto;
   display: grid;
-  gap: 12px;
+  gap: 14px;
 }
 
 .vsComposerWrap {
-  width: min(980px, calc(100% - 30px));
-  margin: 0 auto 16px;
+  width: min(900px, calc(100% - 36px));
+  margin: 0 auto 14px;
 }
 
 .vsComposer {
-  border: 1px solid #d8dff0;
-  border-radius: 20px;
-  background: rgba(255, 255, 255, 0.92);
-  box-shadow: 0 8px 28px rgba(45, 65, 128, 0.08);
-  padding: 10px;
+  border: 1px solid #eceef4;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.97);
+  box-shadow: 0 8px 26px rgba(45, 65, 128, 0.06);
+  padding: 8px 10px;
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   gap: 8px;
@@ -424,30 +554,30 @@ body {
 }
 
 .vsAttachBtn {
-  width: 36px;
-  height: 36px;
+  width: 38px;
+  height: 38px;
   border-radius: 12px;
   border: 0;
   background: transparent;
-  color: #616a84;
-  font-size: 20px;
-  padding: 0;
+  color: #8a92a6;
+  padding: 8px;
 }
 
 .vsAttachBtn:hover {
-  background: #f1f3fc;
+  background: #f3f5fa;
 }
 
 .vsComposer textarea {
   border: 0;
   background: transparent;
-  padding: 8px 2px 9px;
-  min-height: 38px;
+  padding: 9px 2px 8px;
+  min-height: 40px;
   max-height: 200px;
   resize: none;
   box-shadow: none;
   line-height: 1.55;
-  color: #2c3550;
+  color: #444d65;
+  font-size: 14px;
 }
 
 .vsComposer textarea:focus {
@@ -457,40 +587,462 @@ body {
 .vsSendBtn {
   border: 0;
   border-radius: 12px;
-  padding: 9px 14px;
-  background: linear-gradient(120deg, #4f46e5, #7c3aed);
+  padding: 10px 14px;
+  background: linear-gradient(180deg, #7b5cff, #6b45f3);
   color: #fff;
   font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  box-shadow: 0 10px 20px rgba(103, 77, 241, 0.28);
 }
 
 .vsSendBtn:hover {
-  filter: brightness(1.05);
+  filter: brightness(1.04);
 }
 
 .vsChatDisclaimer {
   margin: 10px 0 0;
   text-align: center;
-  color: #9aa2b8;
+  color: #b3b9c9;
   font-size: 11px;
 }
 
+.vsToolWorkspace {
+  min-height: 100%;
+  padding: 28px clamp(18px, 4vw, 34px);
+  background: linear-gradient(180deg, #fbfbfe 0, #f7f8fc 100%);
+}
+
+.vsToolWorkspace > form {
+  display: block;
+  margin: 0;
+}
+
+.vsTranslatePage {
+  min-height: 100%;
+  padding: 10px 12px 14px;
+  background: #f4f5f7;
+}
+
+.vsVisuallyHidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.vsTranslateShell {
+  display: grid;
+  gap: 10px;
+  min-height: 100%;
+}
+
+.vsTranslateTopbar {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 10px;
+  align-items: center;
+  padding: 10px 12px;
+  border: 1px solid #d9dde5;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 10px 28px rgba(25, 35, 52, 0.04);
+}
+
+.vsTranslateModeBar {
+  display: inline-flex;
+  gap: 6px;
+  padding: 4px;
+  border-radius: 999px;
+  background: #eef1f5;
+}
+
+.vsTranslateModeBtn {
+  border-radius: 999px;
+  padding: 8px 14px;
+  background: transparent;
+  color: #667085;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.vsTranslateModeBtn.active {
+  background: #ffffff;
+  border: 1px solid #d8dde5;
+  color: #1f2937;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+}
+
+.vsTranslateToolbar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.vsTranslateTopbarActions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.vsTranslateConfigHint {
+  min-width: 0;
+  height: 38px;
+  border-radius: 999px;
+  border: 1px solid #dde3eb;
+  background: #f8fafc;
+  padding: 0 12px;
+  display: grid;
+  align-content: center;
+}
+
+.vsTranslateConfigHint span {
+  font-size: 11px;
+  color: #94a3b8;
+  font-weight: 700;
+}
+
+.vsTranslateConfigHint strong {
+  color: #475569;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.vsTranslateField {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.vsTranslateField span {
+  font-size: 11px;
+  color: #8b95a7;
+  font-weight: 700;
+}
+
+.vsTranslateField input,
+.vsTranslateField select {
+  height: 38px;
+  min-width: 0;
+  border-radius: 10px;
+  border: 1px solid #d8dee7;
+  background: #fff;
+  padding: 0 12px;
+  color: #475569;
+  font-size: 13px;
+}
+
+.vsTranslateCombobox {
+  position: relative;
+}
+
+.vsTranslateComboboxControl {
+  display: flex;
+  align-items: center;
+  height: 38px;
+  border-radius: 10px;
+  border: 1px solid #d8dee7;
+  background: #fff;
+  overflow: hidden;
+}
+
+.vsTranslateCombobox.open .vsTranslateComboboxControl {
+  border-color: #b7c6dc;
+  box-shadow: 0 0 0 3px rgba(117, 146, 190, 0.12);
+}
+
+.vsTranslateComboboxControl input {
+  flex: 1;
+  height: 100%;
+  min-width: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  padding: 0 12px;
+  color: #475569;
+  font-size: 13px;
+}
+
+.vsTranslateComboboxToggle {
+  width: 34px;
+  height: 100%;
+  border-left: 1px solid #edf1f5;
+  border-radius: 0;
+  background: transparent;
+  color: #667085;
+  padding: 0;
+}
+
+.vsTranslateLanguageList {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  z-index: 20;
+  display: grid;
+  gap: 4px;
+  max-height: 260px;
+  overflow: auto;
+  padding: 8px;
+  border: 1px solid #d8dee7;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 18px 40px rgba(15, 23, 42, 0.12);
+}
+
+.vsTranslateLanguageOption {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  border-radius: 10px;
+  padding: 9px 10px;
+  background: transparent;
+  color: #475569;
+  text-align: left;
+}
+
+.vsTranslateLanguageOption:hover,
+.vsTranslateLanguageOption.active {
+  background: #f5f8fc;
+}
+
+.vsTranslateLanguageOption strong {
+  color: #334155;
+  font-size: 13px;
+}
+
+.vsTranslateLanguageOption span {
+  color: #94a3b8;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.vsTranslateLanguageEmpty {
+  padding: 12px 10px;
+  color: #94a3b8;
+  font-size: 12px;
+}
+
+.vsTranslateSwapBtn {
+  height: 38px;
+  width: 38px;
+  border-radius: 10px;
+  background: #fff;
+  color: #667085;
+  border: 1px solid #d8dee7;
+  padding: 0;
+  font-size: 14px;
+}
+
+.vsTranslateSwapBtn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.vsTranslateSubmitBtn {
+  height: 38px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #d87b57 0%, #cc6944 100%);
+  padding: 0 18px;
+  font-size: 13px;
+  box-shadow: 0 8px 20px rgba(216, 123, 87, 0.24);
+}
+
+.vsTranslateSubmitBtn:hover {
+  background: #c96f4b;
+}
+
+.vsTranslateEditorGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  min-height: 680px;
+}
+
+.vsTranslatePane {
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  min-height: 0;
+  border: 1px solid #d9dde5;
+  border-radius: 14px;
+  background: #ffffff;
+  overflow: hidden;
+  box-shadow: 0 10px 28px rgba(25, 35, 52, 0.04);
+}
+
+.vsTranslatePane.source {
+  background: linear-gradient(180deg, #ffffff 0%, #fbfcfe 100%);
+}
+
+.vsTranslatePane.result {
+  background: linear-gradient(180deg, #ffffff 0%, #fdfdfd 100%);
+}
+
+.vsTranslatePaneHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 14px 16px;
+  border-bottom: 1px solid #edf1f5;
+  color: #94a3b8;
+  font-size: 12px;
+}
+
+.vsTranslatePaneHead strong {
+  color: #334155;
+  font-size: 13px;
+}
+
+.vsTranslatePaneActions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.vsTranslateImageStage {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  padding: 16px;
+}
+
+.vsTranslateImageDrop {
+  min-height: 320px;
+  border: 1px dashed #ccd5e1;
+  border-radius: 14px;
+  background: linear-gradient(180deg, #f8fafc 0%, #f5f7fb 100%);
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 10px;
+  text-align: center;
+  color: #7c8798;
+  cursor: pointer;
+}
+
+.vsTranslateImageDrop input,
+.vsTranslateFooterUpload input {
+  display: none;
+}
+
+.vsTranslateImageDrop strong {
+  color: #334155;
+  font-size: 14px;
+}
+
+.vsTranslateImageDrop span {
+  max-width: 260px;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.vsTranslateImagePreview {
+  width: 100%;
+  max-height: 460px;
+  object-fit: contain;
+  border: 1px solid #d9dde5;
+  border-radius: 14px;
+  background: #fff;
+}
+
+.vsTranslateTextarea,
+.vsTranslateResult {
+  width: 100%;
+  min-height: 0;
+  border: 0;
+  outline: none;
+  resize: none;
+  background: transparent;
+  padding: 16px 18px 18px;
+  font-size: 15px;
+  color: #334155;
+  line-height: 1.75;
+}
+
+.vsTranslateResult {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: inherit;
+}
+
+.vsTranslatePlaceholder {
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 10px;
+  padding: 24px;
+  text-align: center;
+  color: #94a3b8;
+}
+
+.vsTranslatePlaceholder strong {
+  color: #334155;
+}
+
+.vsTranslatePlaceholder p {
+  margin: 0;
+  max-width: 280px;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.vsTranslatePaneFooter {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-top: 1px solid #edf1f5;
+  background: #fafbfc;
+}
+
+.vsTranslateFooterUpload {
+  display: inline-flex;
+  align-items: center;
+}
+
+
 .legacyPanel {
   min-height: 100vh;
-  padding: 18px 20px;
+  padding: 32px clamp(16px, 5vw, 40px);
   overflow-y: auto;
-  background: #f7f8fb;
+  background: #f8fafc;
+}
+
+.legacyPanel>.form {
+  max-width: 860px;
+  margin: 0 auto;
 }
 
 .form {
   display: grid;
-  gap: 14px;
+  gap: 20px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 16px;
+  padding: 24px;
+  box-shadow: 0 4px 24px rgba(15, 23, 42, 0.04);
 }
 
 label {
   display: grid;
   gap: 8px;
   font-weight: 600;
-  color: #2f3c53;
+  font-size: 13px;
+  color: #334155;
 }
 
 textarea,
@@ -504,75 +1056,118 @@ textarea,
 select,
 input {
   width: 100%;
-  border: 1px solid var(--line);
+  border: 1px solid #cbd5e1;
   border-radius: 10px;
-  padding: 10px 12px;
+  padding: 10px 14px;
   background: #fff;
-  box-shadow: inset 0 1px 2px rgba(18, 30, 54, 0.03);
+  color: #1e293b;
+  font-size: 14px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.02);
+  transition: all 0.2s ease;
+}
+
+textarea:focus,
+select:focus,
+input:focus {
+  outline: none;
+  border-color: #8b5cf6;
+  box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.15);
+}
+
+textarea {
+  line-height: 1.5;
 }
 
 .row {
   display: grid;
-  grid-template-columns: 1fr 160px;
-  gap: 12px;
+  grid-template-columns: 1fr 180px;
+  gap: 16px;
 }
 
 .row3 {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 12px;
+  gap: 16px;
 }
 
 .rowWide {
   display: grid;
-  grid-template-columns: 180px 1fr;
-  gap: 12px;
+  grid-template-columns: 200px 1fr;
+  gap: 16px;
 }
 
 .rowOverview {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 16px;
 }
 
 button {
   border: 0;
   border-radius: 10px;
-  padding: 10px 16px;
-  background: var(--brand);
+  padding: 10px 18px;
+  background: linear-gradient(180deg, #7b5cff, #6b45f3);
   color: #fff;
   font-weight: 700;
   cursor: pointer;
-  box-shadow: none;
+  box-shadow: 0 4px 12px rgba(107, 69, 243, 0.2);
+  transition: all 0.2s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
 }
 
-button:hover {
-  background: var(--brand-dark);
-  transform: none;
+button:hover:not(:disabled) {
+  filter: brightness(1.05);
+  transform: translateY(-1px);
+}
+
+button:active:not(:disabled) {
+  transform: translateY(0);
 }
 
 button:disabled {
   opacity: 0.6;
   cursor: not-allowed;
+  background: #94a3b8;
+  box-shadow: none;
+  filter: none;
   transform: none;
 }
 
 button.ghost {
-  background: #eceff2;
-  color: #3f4752;
-  border: 1px solid #d7dce2;
+  background: transparent;
+  color: #475569;
+  border: 1px solid #cbd5e1;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05);
 }
 
-button.ghost:hover {
-  background: #e4e8ec;
+button.ghost:hover:not(:disabled) {
+  background: #f8fafc;
+  color: #1e293b;
+  border-color: #94a3b8;
+}
+
+button.ghost:focus-visible {
+  border-color: #8b5cf6;
 }
 
 button.danger {
-  background: #cf3f3f;
+  background: transparent;
+  color: #ef4444;
+  border: 1px solid #fca5a5;
+  box-shadow: 0 1px 2px rgba(220, 38, 38, 0.05);
 }
 
-button.danger:hover {
-  background: #b33333;
+button.danger:hover:not(:disabled) {
+  background: #fef2f2;
+  border-color: #ef4444;
+}
+
+button.danger:focus-visible {
+  border-color: #ef4444;
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.14);
 }
 
 .chatBox {
@@ -617,20 +1212,25 @@ button.danger:hover {
 }
 
 .audioWrap {
-  margin-top: 14px;
+  margin-top: 16px;
+}
+
+.audioWrap audio {
+  width: 100%;
 }
 
 .resultBox {
-  margin-top: 10px;
-  border: 1px solid #d9e0ef;
-  border-radius: 10px;
-  background: #f7faff;
-  padding: 12px;
+  margin-top: 16px;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: #f8fafc;
+  padding: 16px;
 }
 
-.resultBox p {
-  margin: 0 0 8px;
+.resultBox > p {
+  margin: 0 0 12px;
   font-weight: 700;
+  color: #334155;
 }
 
 .resultBox pre {
@@ -639,6 +1239,7 @@ button.danger:hover {
   word-break: break-word;
   font-family: "Consolas", "Menlo", monospace;
   font-size: 13px;
+  color: #475569;
 }
 
 .ok {
@@ -649,6 +1250,16 @@ button.danger:hover {
 .muted {
   margin: 0;
   color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.vsInlineEmptyState {
+  padding: 14px 16px;
+  border: 1px dashed #d7deeb;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.72);
+  text-align: center;
 }
 
 .inlineActions {
@@ -661,54 +1272,80 @@ button.danger:hover {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
-  margin: 0 0 12px;
+  margin: 0 auto 12px;
+  max-width: 860px;
 }
 
 .runtimeCopyStatus {
-  margin: 0 0 10px;
+  margin: 0 auto 10px;
+  max-width: 860px;
+  padding: 10px 12px;
+  border: 1px solid #fecaca;
+  border-radius: 10px;
+  background: #fff5f5;
   font-size: 12px;
   color: #9a2c2c;
 }
 
 .runtimeDetails {
-  margin: 0 0 14px;
-  border: 1px solid #d9e2f1;
-  border-radius: 10px;
-  background: #f7faff;
-  padding: 10px 12px;
+  margin: 0 auto 16px;
+  max-width: 860px;
+  max-height: 260px;
+  overflow: auto;
+  border: 1px solid #334155;
+  border-radius: 12px;
+  background: #1e293b;
+  padding: 16px;
   white-space: pre-wrap;
   word-break: break-word;
-  font-size: 12px;
-  color: #31415c;
+  font-size: 13px;
+  color: #f8fafc;
   font-family: "Consolas", "Menlo", monospace;
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.2);
 }
 
 .voiceList {
   display: grid;
-  gap: 10px;
+  gap: 12px;
 }
 
 .voiceItem {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
-  border: 1px solid #d9e0ef;
-  border-radius: 10px;
+  gap: 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: #f8fafc;
+  padding: 14px 16px;
+  transition: all 0.2s ease;
+}
+
+.voiceItem:hover {
   background: #fff;
-  padding: 10px 12px;
+  border-color: #cbd5e1;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.04);
+}
+
+.voiceItem:focus-within {
+  background: #fff;
+  border-color: #c7d2fe;
+  box-shadow: 0 0 0 3px rgba(124, 92, 255, 0.08);
 }
 
 .voiceItem strong {
   display: block;
-  margin-bottom: 3px;
+  margin-bottom: 4px;
+  font-size: 14px;
+  color: #1e293b;
 }
 
 .voiceItem p {
   margin: 0;
-  color: #617089;
+  color: #64748b;
   font-size: 12px;
-  word-break: break-all;
+  line-height: 1.5;
+  word-break: break-word;
 }
 
 .scriptLineList {
@@ -826,13 +1463,18 @@ button.danger:hover {
   color: #7f2525;
 }
 
-.errorHints li + li {
+.errorHints li+li {
   margin-top: 6px;
 }
 
 @media (max-width: 900px) {
   .vsApp {
+    margin: 0;
+    width: 100%;
+    min-height: 100vh;
     grid-template-columns: 1fr;
+    border-width: 0;
+    border-radius: 0;
   }
 
   .vsSidebar {
@@ -866,6 +1508,9 @@ button.danger:hover {
     width: 100%;
   }
 
+  .vsTopbarField,
+  .vsSelectShell,
+  .vsInputShell,
   .vsTopbarModelField input {
     min-width: 0;
     width: 100%;
@@ -876,8 +1521,45 @@ button.danger:hover {
   }
 
   .vsChatBody {
-    padding: 14px 12px;
+    padding: 20px 14px;
   }
+
+  .vsChatEmptyState {
+    margin-top: 40px;
+  }
+
+  .vsToolWorkspace {
+    padding: 18px 14px;
+  }
+
+  .vsTranslatePage {
+    padding: 14px;
+  }
+
+  .vsTranslateTopbar {
+    grid-template-columns: 1fr;
+    justify-items: stretch;
+  }
+
+  .vsTranslateToolbar {
+    flex-wrap: wrap;
+    justify-content: flex-start;
+  }
+
+  .vsTranslateTopbarActions {
+    flex-wrap: wrap;
+    justify-content: flex-start;
+  }
+
+  .vsTranslateModeBar {
+    width: fit-content;
+  }
+
+  .vsTranslateEditorGrid {
+    grid-template-columns: 1fr;
+    min-height: 0;
+  }
+
 
   .vsQuickActions {
     grid-template-columns: 1fr;
@@ -899,4 +1581,682 @@ button.danger:hover {
     flex-direction: column;
     align-items: flex-start;
   }
+}
+
+/* =========================================================
+   Podcast Progressive Disclosure UI (v2)
+   ========================================================= */
+
+.vsPodcastCards {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  width: 100%;
+}
+
+.vsPodcastPage {
+  display: grid;
+  gap: 18px;
+}
+
+.vsPodcastHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 4px 2px;
+}
+
+.vsPodcastHeaderCopy h2 {
+  margin: 0;
+  font-size: 24px;
+  color: #1e293b;
+}
+
+.vsPodcastHeaderCopy p {
+  margin: 8px 0 0;
+  color: #64748b;
+  font-size: 14px;
+}
+
+.vsPodcastHeaderActions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.vsPodcastStatusChip {
+  display: inline-flex;
+  align-items: center;
+  height: 34px;
+  padding: 0 12px;
+  border-radius: 999px;
+  background: #eef2ff;
+  color: #4f46e5;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.vsPodcastMiniBtn {
+  min-height: 34px;
+  padding: 0 14px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.vsPodcastMenuWrap {
+  position: relative;
+}
+
+.vsPodcastMenuTrigger {
+  min-width: 42px;
+  min-height: 34px;
+  padding: 0 12px;
+  border-radius: 999px;
+  font-size: 22px;
+  line-height: 1;
+}
+
+.vsPodcastMenuTrigger:hover:not(:disabled) {
+  background: #eef2ff;
+  color: #4338ca;
+}
+
+.vsPodcastMenuTrigger:focus-visible {
+  background: #eef2ff;
+  color: #4338ca;
+}
+
+.vsPodcastMenu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  min-width: 150px;
+  padding: 8px;
+  border-radius: 12px;
+  border: 1px solid #e2e8f0;
+  background: #fff;
+  box-shadow: 0 16px 40px rgba(15, 23, 42, 0.14);
+  z-index: 12;
+}
+
+.vsPodcastMenuItem {
+  width: 100%;
+  justify-content: center;
+}
+
+.vsPodcastLayout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.7fr) minmax(300px, 0.95fr);
+  gap: 20px;
+  align-items: start;
+}
+
+.vsPodcastMain {
+  display: grid;
+  gap: 18px;
+  min-width: 0;
+}
+
+.vsPodcastSide {
+  display: grid;
+  gap: 18px;
+  min-width: 0;
+}
+
+.vsPodcastSideCard {
+  background: #fff;
+  border-radius: 16px;
+  border: 1px solid rgba(15, 23, 42, 0.06);
+  box-shadow: 0 4px 20px rgba(15, 23, 42, 0.05);
+  padding: 18px;
+}
+
+.vsPodcastSideHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.vsPodcastSideHeader h3 {
+  margin: 0;
+  color: #1e293b;
+  font-size: 16px;
+}
+
+.vsPodcastStepCard {
+  background: white;
+  border-radius: 16px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.04);
+  border: 1px solid rgba(0, 0, 0, 0.05);
+  overflow: hidden;
+  transition: all 0.3s ease;
+}
+
+.vsPodcastStepHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 24px;
+  border-bottom: 1px solid #f0f2f5;
+  background: #fdfdff;
+}
+
+.vsPodcastStepTitle {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.vsPodcastStepTitle h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: #1e293b;
+}
+
+.vsStepNum {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #e0e7ff;
+  color: #4f46e5;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.vsStepIcon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #4f46e5;
+  width: 24px;
+  height: 24px;
+}
+
+.vsStepMeta {
+  font-size: 13px;
+  color: #64748b;
+  background: #f1f5f9;
+  padding: 2px 8px;
+  border-radius: 12px;
+}
+
+.vsPodcastStepContent {
+  padding: 24px;
+}
+
+.vsPodcastField {
+  display: grid;
+  gap: 10px;
+}
+
+.vsPodcastFieldLabel {
+  font-size: 14px;
+  font-weight: 700;
+  color: #334155;
+}
+
+.vsTopicInput {
+  width: 100%;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 16px;
+  font-size: 15px;
+  line-height: 1.6;
+  resize: vertical;
+  min-height: 100px;
+  transition: border-color 0.2s, box-shadow 0.2s;
+  background: #fafafa;
+}
+
+.vsTopicInput:focus {
+  outline: none;
+  border-color: #818cf8;
+  box-shadow: 0 0 0 3px rgba(129, 140, 248, 0.1);
+  background: white;
+}
+
+.vsPodcastStepActions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-top: 20px;
+}
+
+.vsGenerateBtn {
+  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+  color: white;
+  border: none;
+  padding: 0 24px;
+  height: 44px;
+  border-radius: 10px;
+  font-weight: 600;
+  font-size: 15px;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.2);
+  transition: transform 0.1s, box-shadow 0.2s;
+}
+
+.vsGenerateBtn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(99, 102, 241, 0.3);
+}
+
+.vsGenerateBtn:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.vsGenerateBtn:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.vsPodcastAdvancedToggle {
+  background: transparent;
+  border: none;
+  color: #64748b;
+  font-size: 14px;
+  cursor: pointer;
+  padding: 8px 12px;
+  border-radius: 6px;
+  transition: background 0.2s, color 0.2s;
+}
+
+.vsPodcastAdvancedToggle:hover {
+  background: #f1f5f9;
+  color: #334155;
+}
+
+.vsPodcastAdvancedToggle:focus-visible {
+  background: #eef2ff;
+  color: #4338ca;
+}
+
+.vsPodcastAdvancedPanel {
+  margin-top: 20px;
+  padding: 20px;
+  background: #f8fafc;
+  border-radius: 12px;
+  border: 1px solid #e2e8f0;
+  animation: slideDown 0.3s ease-out;
+}
+
+.vsPodcastToolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.vsPodcastIconAction {
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  border-radius: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+}
+
+.vsPodcastIconAction:hover:not(:disabled) {
+  background: #eef2ff;
+  color: #4338ca;
+}
+
+.vsPodcastIconAction:focus-visible {
+  background: #eef2ff;
+  color: #4338ca;
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Script Bubbles */
+.scriptLineBox {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.vsScriptBubble {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 85%;
+  width: fit-content;
+  padding: 16px;
+  border-radius: 16px;
+  position: relative;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.vsScriptBubble:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+}
+
+.vsScriptBubble.roleA {
+  align-self: flex-start;
+  background: #fff0f2;
+  border: 1px solid #ffe3e6;
+  border-bottom-left-radius: 4px;
+}
+
+.vsScriptBubble.roleB {
+  align-self: flex-end;
+  background: #eef2ff;
+  border: 1px solid #e0e7ff;
+  border-bottom-right-radius: 4px;
+}
+
+.vsScriptBubbleMeta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.vsRoleSelect {
+  background: transparent;
+  border: none;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 0;
+  outline: none;
+}
+
+.vsRoleSelect:focus-visible {
+  border-radius: 6px;
+}
+
+.roleA .vsRoleSelect {
+  color: #e11d48;
+}
+
+.roleB .vsRoleSelect {
+  color: #4f46e5;
+}
+
+.vsRemoveLineBtn {
+  background: transparent;
+  border: none;
+  color: #94a3b8;
+  cursor: pointer;
+  font-size: 14px;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  transition: background 0.2s, color 0.2s;
+}
+
+.vsRemoveLineBtn:hover {
+  background: rgba(0, 0, 0, 0.05);
+  color: #ef4444;
+}
+
+.vsScriptBubbleInput {
+  background: transparent;
+  border: none;
+  width: 100%;
+  font-size: 15px;
+  line-height: 1.5;
+  color: #1e293b;
+  resize: vertical;
+  min-height: 48px;
+  padding: 0;
+  box-shadow: none;
+}
+
+.vsScriptBubbleInput:focus {
+  outline: none;
+}
+
+/* Add Line Button */
+.vsAddLineCenter {
+  display: flex;
+  justify-content: center;
+  margin-top: 10px;
+}
+
+.vsAddLineBtn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: transparent;
+  border: 1.5px dashed #cbd5e1;
+  color: #64748b;
+  padding: 10px 24px;
+  border-radius: 20px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.vsAddLineBtn:hover {
+  border-color: #8b5cf6;
+  color: #8b5cf6;
+  background: #f5f3ff;
+}
+
+.vsBtnGlyph {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+}
+
+/* Synth Bar */
+.vsSynthBar {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  background: #f8fafc;
+  padding: 16px 20px;
+  border-radius: 12px;
+  border: 1px solid #e2e8f0;
+  gap: 16px;
+  position: sticky;
+  bottom: 12px;
+  z-index: 5;
+}
+
+.vsSynthBarMain {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.vsSynthVoices {
+  display: flex;
+  gap: 24px;
+  flex-wrap: wrap;
+}
+
+.vsSynthVoiceSelect {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  color: #334155;
+  font-weight: 600;
+}
+
+.vsSynthVoiceSelect select {
+  min-width: 180px;
+}
+
+.vsSynthVoiceSelect select:focus-visible {
+  border-color: #10b981;
+  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.12);
+}
+
+.vsSynthBarActions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.vsSynthBarAdvanced {
+  padding-top: 4px;
+  border-top: 1px solid #e2e8f0;
+}
+
+.roleIndicator {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 700;
+  color: white;
+}
+
+.roleIndicator.rose {
+  background: #e11d48;
+}
+
+.roleIndicator.blue {
+  background: #4f46e5;
+}
+
+.roleIndicator.roleA {
+  background: #e11d48;
+}
+
+.roleIndicator.roleB {
+  background: #4f46e5;
+}
+
+.vsSynthesizeTriggerBtn {
+  background: #10b981;
+  color: white;
+  border: none;
+  padding: 0 24px;
+  height: 44px;
+  border-radius: 10px;
+  font-weight: 600;
+  font-size: 15px;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.2);
+  transition: transform 0.1s, box-shadow 0.2s, background 0.2s;
+  white-space: nowrap;
+}
+
+.vsSynthesizeTriggerBtn:hover:not(:disabled) {
+  background: #059669;
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(16, 185, 129, 0.3);
+}
+
+.vsSynthesizeTriggerBtn:focus-visible {
+  box-shadow:
+    0 0 0 3px rgba(16, 185, 129, 0.16),
+    0 6px 16px rgba(16, 185, 129, 0.24);
+}
+
+.vsSynthesizeTriggerBtn:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.vsSynthesizeTriggerBtn:disabled {
+  background: #9ca3af;
+  box-shadow: none;
+  cursor: not-allowed;
+}
+
+.vsPodcastAudioWrap {
+  margin-top: 0;
+}
+
+.vsPodcastAudioWrap audio {
+  width: 100%;
+}
+
+.vsPodcastPreviewEmpty {
+  min-height: 180px;
+  border-radius: 16px;
+  display: grid;
+  place-items: center;
+  background:
+    radial-gradient(circle at top, rgba(129, 140, 248, 0.16), transparent 42%),
+    linear-gradient(180deg, #f8fafc, #f1f5f9);
+  color: #94a3b8;
+  font-size: 48px;
+}
+
+@media (max-width: 1200px) {
+  .vsPodcastLayout {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 900px) {
+
+  .vsPodcastHeader,
+  .vsPodcastStepHeader,
+  .vsPodcastSideHeader,
+  .vsSynthBarMain {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .vsPodcastHeaderActions,
+  .vsPodcastToolbar,
+  .vsSynthBarActions {
+    justify-content: flex-start;
+  }
+
+  .vsPodcastMiniBtn,
+  .vsPodcastMenuTrigger,
+  .vsPodcastAdvancedToggle,
+  .vsSynthesizeTriggerBtn {
+    width: 100%;
+  }
+
+  .vsScriptBubble {
+    max-width: 100%;
+  }
+
+  .vsSynthVoiceSelect,
+  .vsSynthVoiceSelect select {
+    width: 100%;
+  }
+
+  .vsSynthVoiceSelect select {
+    min-width: 0;
+  }
+}
+
+.gridList {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 12px;
 }
