@@ -126,6 +126,19 @@ DEFAULT_CONFIG = {
         "history_retention": "Keep all history",
         "log_level": "INFO"
     },
+    "memory_settings": {
+        "enabled": False,
+        "api_url": "https://api.evermind.ai",
+        "api_key": "",
+        "scope_id": "",
+        "remember_chat": True,
+        "remember_voice_chat": True,
+        "remember_recordings": False,
+        "remember_podcast": True,
+        "remember_tts": True,
+        "store_transcript_fulltext": False,
+        "temporary_session": False
+    },
     "output_directory": "", # Default output path
     "tts_settings": {
         "default_voice": "zh-CN-XiaoxiaoNeural",
@@ -146,6 +159,19 @@ DEFAULT_CONFIG = {
         "theme": "default",
         "window_size": [1000, 800]
     }
+}
+
+MEMORY_SETTINGS_ALIASES = {
+    "url": "api_url",
+    "key": "api_key",
+    "scopeId": "scope_id",
+    "tempSession": "temporary_session",
+    "sceneChat": "remember_chat",
+    "sceneVoiceChat": "remember_voice_chat",
+    "sceneTranscription": "remember_recordings",
+    "scenePodcast": "remember_podcast",
+    "sceneTts": "remember_tts",
+    "storeTranscriptFulltext": "store_transcript_fulltext",
 }
 
 class ConfigManager:
@@ -189,6 +215,8 @@ class ConfigManager:
             with open(self.config_file, 'r', encoding='utf-8') as f:
                 loaded_config = json.load(f)
 
+            self._normalize_memory_settings_payload(loaded_config)
+
             # Start with a fresh default config
             merged_config = copy.deepcopy(DEFAULT_CONFIG)
             # Merge the loaded config INTO the fresh default config structure
@@ -207,6 +235,20 @@ class ConfigManager:
         except Exception as e:
             logging.error(f"Error loading/merging configuration: {e}. Using default config.", exc_info=True)
             self.config = copy.deepcopy(DEFAULT_CONFIG) # Reset to default on other errors
+
+    def _normalize_memory_settings_payload(self, payload):
+        if not isinstance(payload, dict):
+            return
+
+        memory_settings = payload.get("memory_settings")
+        if not isinstance(memory_settings, dict):
+            return
+
+        normalized = {}
+        for key, value in memory_settings.items():
+            canonical_key = MEMORY_SETTINGS_ALIASES.get(key, key)
+            normalized[canonical_key] = value
+        payload["memory_settings"] = normalized
 
     def _merge_configs(self, target, source, current_path=""): # Added path for logging
         """Recursively merge source dict into target dict.

@@ -5,6 +5,7 @@ import os
 import re
 from typing import List
 import time
+from pathlib import Path
 import requests
 import httpx
 from PySide6.QtCore import QObject, Signal, QRunnable, Slot, QThreadPool
@@ -14,6 +15,7 @@ try:
 except ImportError:
     websockets = None
 from app.core.config import ConfigManager # Updated import
+from backend.services.transcription_service import TranscriptionService
 
 try:
     from PyPDF2 import PdfReader
@@ -1588,41 +1590,12 @@ class ApiClient(QObject):
         self.thread_pool.start(worker)
 
     def _execute_transcription_request(self, file_path):
-        """Executes ASR using DashScope Recognition."""
-        if not dashscope:
-            raise ImportError("DashScope SDK not available for ASR.")
-            
-        api_key = self.config_manager.get("api_keys.dashscope_api_key")
-        if not api_key:
-            raise ValueError("DashScope API Key missing.")
-            
-        dashscope.api_key = api_key
-        
+        """Executes ASR via the shared Qwen transcription service."""
         try:
-            from dashscope.audio.asr import Recognition
-            
-            # Use 'sensevoice-v1' which is robust and available
-            # Note: SenseVoice might return different result structure, checking docs...
-            # SenseVoice via Recognition usually returns 'text' in result.
-            rec = Recognition(model='sensevoice-v1', format='wav', sample_rate=16000, callback=None) 
-            
-            result = rec.call(file_path)
-            
-            if result.status_code == 200:
-                # SenseVoice result formatting
-                if 'sentences' in result.output:
-                    text = "".join([s['text'] for s in result.output['sentences']])
-                elif 'text' in result.output:
-                     text = result.output['text']
-                else:
-                    text = "" 
-                
-                logging.info(f"ASR Result: {text}")
-                return text
-
-            else:
-                raise Exception(f"ASR Failed: {result.code} - {result.message}")
-                
+            service = TranscriptionService()
+            text = asyncio.run(service.transcribe_file(Path(file_path)))
+            logging.info(f"ASR Result: {text}")
+            return text
         except Exception as e:
             logging.error(f"ASR Exception: {e}")
             raise

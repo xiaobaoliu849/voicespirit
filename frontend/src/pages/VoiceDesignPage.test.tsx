@@ -16,12 +16,13 @@ describe('VoiceDesignPage', () => {
                 errorRuntimeContext={{}}
             />
         );
-        expect(screen.getByText('创建设计音色')).toBeInTheDocument();
+        expect(screen.getByText('音色设计工作室 (Voice Design)')).toBeInTheDocument();
         expect(screen.getByDisplayValue('test-voice')).toBeInTheDocument();
         expect(screen.getByDisplayValue('en')).toBeInTheDocument();
         expect(screen.getByDisplayValue('A test prompt')).toBeInTheDocument();
         expect(screen.getByDisplayValue('Hello world')).toBeInTheDocument();
-        expect(screen.getByText('暂无音色。')).toBeInTheDocument();
+        expect(screen.getByText('创造全新音色')).toBeInTheDocument();
+        expect(screen.getByText('暂无您设计的自定义音色。')).toBeInTheDocument();
     });
 
     it('displays error and info messages', () => {

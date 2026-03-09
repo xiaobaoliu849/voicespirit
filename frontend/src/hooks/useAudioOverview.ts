@@ -4,6 +4,7 @@ import {
   deleteAudioOverviewPodcast,
   fetchAudioOverviewPodcastAudio,
   generateAudioOverviewScript,
+  getEverMemRuntimeConfig,
   getAudioOverviewPodcast,
   listAudioOverviewPodcasts,
   saveAudioOverviewScript,
@@ -16,6 +17,7 @@ import {
 import type { FormatErrorMessage } from "../utils/errorFormatting";
 
 type MergeStrategy = "auto" | "pydub" | "ffmpeg" | "concat";
+export type AudioOverviewWorkspaceMode = "podcast" | "multi_dialogue";
 
 type Options = {
   voices: VoiceInfo[];
@@ -23,6 +25,8 @@ type Options = {
 };
 
 export default function useAudioOverview({ voices, formatErrorMessage }: Options) {
+  const [audioOverviewWorkspaceMode, setAudioOverviewWorkspaceMode] =
+    useState<AudioOverviewWorkspaceMode>("podcast");
   const [audioOverviewTopic, setAudioOverviewTopic] = useState("AI 对个人学习习惯的影响");
   const [audioOverviewLanguage, setAudioOverviewLanguage] = useState("zh");
   const [audioOverviewProvider, setAudioOverviewProvider] = useState("DashScope");
@@ -35,6 +39,8 @@ export default function useAudioOverview({ voices, formatErrorMessage }: Options
   const [audioOverviewPodcasts, setAudioOverviewPodcasts] = useState<AudioOverviewPodcast[]>([]);
   const [audioOverviewVoiceA, setAudioOverviewVoiceA] = useState("");
   const [audioOverviewVoiceB, setAudioOverviewVoiceB] = useState("");
+  const [audioOverviewSpeakerA, setAudioOverviewSpeakerA] = useState("主播 A");
+  const [audioOverviewSpeakerB, setAudioOverviewSpeakerB] = useState("主播 B");
   const [audioOverviewRate, setAudioOverviewRate] = useState("+0%");
   const [audioOverviewGapMs, setAudioOverviewGapMs] = useState(250);
   const [audioOverviewMergeStrategy, setAudioOverviewMergeStrategy] =
@@ -49,6 +55,14 @@ export default function useAudioOverview({ voices, formatErrorMessage }: Options
   const [audioOverviewAdvancedOpen, setAudioOverviewAdvancedOpen] = useState(false);
   const [synthBarAdvancedOpen, setSynthBarAdvancedOpen] = useState(false);
   const [audioOverviewMenuOpen, setAudioOverviewMenuOpen] = useState(false);
+  const [audioOverviewUseMemory, setAudioOverviewUseMemory] = useState(
+    () => getEverMemRuntimeConfig().enabled
+  );
+  const [audioOverviewMemoryConfigured, setAudioOverviewMemoryConfigured] = useState(
+    () => getEverMemRuntimeConfig().enabled
+  );
+  const [audioOverviewMemoriesRetrieved, setAudioOverviewMemoriesRetrieved] = useState(0);
+  const [audioOverviewMemorySaved, setAudioOverviewMemorySaved] = useState(false);
 
   const audioOverviewVoiceOptions = useMemo(() => {
     const localePrefix = audioOverviewLanguage === "en" ? "en-US" : "zh-CN";
@@ -90,6 +104,22 @@ export default function useAudioOverview({ voices, formatErrorMessage }: Options
   }, [audioOverviewVoiceA, audioOverviewVoiceB, audioOverviewVoiceOptions]);
 
   useEffect(() => {
+    if (audioOverviewWorkspaceMode === "multi_dialogue") {
+      setAudioOverviewSpeakerA((value) => value || "角色 A");
+      setAudioOverviewSpeakerB((value) => value || "角色 B");
+      return;
+    }
+
+    if (audioOverviewLanguage === "en") {
+      setAudioOverviewSpeakerA("Host A");
+      setAudioOverviewSpeakerB("Host B");
+    } else {
+      setAudioOverviewSpeakerA("主播 A");
+      setAudioOverviewSpeakerB("主播 B");
+    }
+  }, [audioOverviewLanguage, audioOverviewWorkspaceMode]);
+
+  useEffect(() => {
     void loadAudioOverviewPodcasts();
   }, []);
 
@@ -124,6 +154,24 @@ export default function useAudioOverview({ voices, formatErrorMessage }: Options
     setAudioOverviewMenuOpen(false);
   }
 
+  function buildAudioOverviewMemoryInfo(params: {
+    memoriesRetrieved?: number;
+    memorySaved?: boolean;
+  }) {
+    const retrieved = Number(params.memoriesRetrieved || 0);
+    const saved = Boolean(params.memorySaved);
+    if (retrieved > 0 && saved) {
+      return `已引用 ${retrieved} 条长期记忆，并写入本次播客草稿。`;
+    }
+    if (retrieved > 0) {
+      return `已引用 ${retrieved} 条长期记忆。`;
+    }
+    if (saved) {
+      return "已写入本次播客草稿到长期记忆。";
+    }
+    return "";
+  }
+
   async function loadAudioOverviewPodcasts() {
     setAudioOverviewListBusy(true);
     try {
@@ -139,6 +187,8 @@ export default function useAudioOverview({ voices, formatErrorMessage }: Options
   async function loadAudioOverviewPodcastById(podcastId: number) {
     setAudioOverviewError("");
     setAudioOverviewInfo("");
+    setAudioOverviewMemoriesRetrieved(0);
+    setAudioOverviewMemorySaved(false);
     try {
       const podcast = await getAudioOverviewPodcast(podcastId);
       applyAudioOverviewPodcast(podcast);
@@ -194,17 +244,31 @@ export default function useAudioOverview({ voices, formatErrorMessage }: Options
     setAudioOverviewError("");
     setAudioOverviewInfo("");
     setAudioOverviewBusy(true);
+    setAudioOverviewMemoriesRetrieved(0);
+    setAudioOverviewMemorySaved(false);
     try {
+      const runtimeMemory = getEverMemRuntimeConfig();
+      const memoryConfigured = runtimeMemory.enabled;
+      const shouldUseMemory = audioOverviewUseMemory && memoryConfigured;
+      setAudioOverviewMemoryConfigured(memoryConfigured);
+
       const generated = await generateAudioOverviewScript({
         topic,
         language: audioOverviewLanguage,
         turn_count: audioOverviewTurnCount,
         provider: audioOverviewProvider,
         model: audioOverviewModel.trim() || undefined
-      });
+      }, { useMemory: shouldUseMemory });
       const normalized = normalizeAudioOverviewScriptLines(generated.script_lines);
+      const memoryInfo = buildAudioOverviewMemoryInfo({
+        memoriesRetrieved: generated.memories_retrieved,
+        memorySaved: generated.memory_saved
+      });
+
       setAudioOverviewLanguage(generated.language);
       setAudioOverviewScriptLines(normalized);
+      setAudioOverviewMemoriesRetrieved(generated.memories_retrieved || 0);
+      setAudioOverviewMemorySaved(Boolean(generated.memory_saved));
       clearAudioOverviewAudio();
 
       if (audioOverviewPodcastId === null) {
@@ -214,7 +278,9 @@ export default function useAudioOverview({ voices, formatErrorMessage }: Options
           script_lines: normalized
         });
         applyAudioOverviewPodcast(created);
-        setAudioOverviewInfo(`脚本已生成，并保存为播客 #${created.id}。`);
+        setAudioOverviewInfo(
+          `脚本已生成，并保存为播客 #${created.id}。${memoryInfo ? ` ${memoryInfo}` : ""}`
+        );
       } else {
         const updated = await updateAudioOverviewPodcast(audioOverviewPodcastId, {
           topic,
@@ -222,7 +288,9 @@ export default function useAudioOverview({ voices, formatErrorMessage }: Options
           script_lines: normalized
         });
         applyAudioOverviewPodcast(updated);
-        setAudioOverviewInfo(`播客 #${updated.id} 的脚本已重新生成。`);
+        setAudioOverviewInfo(
+          `播客 #${updated.id} 的脚本已重新生成。${memoryInfo ? ` ${memoryInfo}` : ""}`
+        );
       }
 
       await loadAudioOverviewPodcasts();
@@ -308,6 +376,8 @@ export default function useAudioOverview({ voices, formatErrorMessage }: Options
     setAudioOverviewAdvancedOpen(false);
     setSynthBarAdvancedOpen(false);
     setAudioOverviewMenuOpen(false);
+    setAudioOverviewMemoriesRetrieved(0);
+    setAudioOverviewMemorySaved(false);
     clearAudioOverviewAudio();
   }
 
@@ -340,8 +410,12 @@ export default function useAudioOverview({ voices, formatErrorMessage }: Options
   }
 
   function buildAudioOverviewScriptText() {
+    const roleMap: Record<string, string> = {
+      A: audioOverviewSpeakerA.trim() || "角色 A",
+      B: audioOverviewSpeakerB.trim() || "角色 B"
+    };
     return normalizeAudioOverviewScriptLines(audioOverviewScriptLines)
-      .map((line, index) => `${index + 1}. 主播 ${line.role}：${line.text}`)
+      .map((line, index) => `${index + 1}. ${roleMap[line.role]}：${line.text}`)
       .join("\n\n");
   }
 
@@ -394,9 +468,22 @@ export default function useAudioOverview({ voices, formatErrorMessage }: Options
   }
 
   const currentAudioOverviewLabel =
-    audioOverviewPodcastId !== null ? `播客 #${audioOverviewPodcastId}` : "未保存草稿";
+    audioOverviewPodcastId !== null
+      ? `${audioOverviewWorkspaceMode === "podcast" ? "节目" : "多人对话"} #${audioOverviewPodcastId}`
+      : "未保存草稿";
+
+  const audioOverviewWorkspaceTitle =
+    audioOverviewWorkspaceMode === "podcast" ? "播客工作台" : "多人对话工作台";
+
+  const audioOverviewWorkspaceDescription =
+    audioOverviewWorkspaceMode === "podcast"
+      ? "围绕一个主题生成双人节目脚本，并进一步合成为完整音频。"
+      : "围绕一个议题生成多轮人物对话脚本，适合演示、角色讨论和场景化内容。";
 
   return {
+    audioOverviewWorkspaceMode,
+    audioOverviewWorkspaceTitle,
+    audioOverviewWorkspaceDescription,
     audioOverviewBusy,
     audioOverviewSaving,
     audioOverviewSynthBusy,
@@ -413,10 +500,16 @@ export default function useAudioOverview({ voices, formatErrorMessage }: Options
     audioOverviewAdvancedOpen,
     audioOverviewMenuOpen,
     synthBarAdvancedOpen,
+    audioOverviewUseMemory,
+    audioOverviewMemoryConfigured,
+    audioOverviewMemoriesRetrieved,
+    audioOverviewMemorySaved,
     audioOverviewScriptLines,
     audioOverviewVoiceOptions,
     audioOverviewVoiceA,
     audioOverviewVoiceB,
+    audioOverviewSpeakerA,
+    audioOverviewSpeakerB,
     audioOverviewRate,
     audioOverviewGapMs,
     audioOverviewAudioUrl,
@@ -424,6 +517,7 @@ export default function useAudioOverview({ voices, formatErrorMessage }: Options
     currentAudioOverviewLabel,
     onGenerateScript,
     onNewDraft,
+    onWorkspaceModeChange: setAudioOverviewWorkspaceMode,
     onToggleMenu: () => setAudioOverviewMenuOpen((value) => !value),
     onDeleteCurrent,
     onTopicChange: setAudioOverviewTopic,
@@ -431,6 +525,7 @@ export default function useAudioOverview({ voices, formatErrorMessage }: Options
     onLanguageChange: setAudioOverviewLanguage,
     onProviderChange: setAudioOverviewProvider,
     onModelChange: setAudioOverviewModel,
+    onUseMemoryChange: setAudioOverviewUseMemory,
     onTurnCountChange,
     onSaveScript,
     onCopyScript,
@@ -441,6 +536,8 @@ export default function useAudioOverview({ voices, formatErrorMessage }: Options
     onAddLine,
     onVoiceAChange: setAudioOverviewVoiceA,
     onVoiceBChange: setAudioOverviewVoiceB,
+    onSpeakerAChange: setAudioOverviewSpeakerA,
+    onSpeakerBChange: setAudioOverviewSpeakerB,
     onToggleSynthAdvanced: () => setSynthBarAdvancedOpen((value) => !value),
     onSynthesize,
     onRateChange: setAudioOverviewRate,

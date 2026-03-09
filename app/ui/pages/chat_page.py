@@ -8,6 +8,7 @@ from PySide6.QtGui import QAction, QKeyEvent, QIcon, QFont, QDesktopServices, QC
 from app.core.api_client import ApiClient
 from app.core.config import ConfigManager, get_resource_path
 from app.core.database import DatabaseManager
+from app.core.desktop_memory import DesktopMemoryManager
 from app.core.translation import TranslationManager
 import logging
 from app.ui.styles.design_system import Colors
@@ -54,6 +55,7 @@ class ChatPage(QWidget):
         self.translation_manager.language_changed.connect(self.update_ui_text)
         
         self.db_manager = DatabaseManager()
+        self.memory_manager = DesktopMemoryManager(self.config_manager, self.db_manager)
         self.thread_pool = QThreadPool()
         self.api_client = ApiClient(self.config_manager, self.thread_pool)
         self.tts_handler = tts_handler
@@ -514,6 +516,7 @@ class ChatPage(QWidget):
             
         # Save to DB & Add User Bubble
         msg_id = self.db_manager.add_message(self.current_session_id, "user", text)
+        self.memory_manager.capture_chat_message(text=text, source="chat_text")
         
         # 检查是否需要更新标题（如果是 "New Chat" 则更新）
         sessions = self.db_manager.get_sessions(limit=20)
@@ -851,6 +854,13 @@ class ChatPage(QWidget):
                 # Save and display the transcribed text
                 msg_id = self.db_manager.add_message(self.current_session_id, "user", text)
                 self.add_message(text, is_user=True, message_id=msg_id)
+                self.memory_manager.capture_voice_transcript(
+                    session_id=self.current_session_id,
+                    text=text,
+                    source="recording_transcription",
+                    provider=provider,
+                    model=model,
+                )
                 
                 # Now send to AI for response
                 self._send_transcribed_message(text)
@@ -906,6 +916,13 @@ class ChatPage(QWidget):
         
         # Save user message to database
         msg_id = self.db_manager.add_message(self.current_session_id, "user", text)
+        self.memory_manager.capture_voice_transcript(
+            session_id=self.current_session_id,
+            text=text,
+            source="live_transcript",
+            provider=self.provider_combo.currentText(),
+            model=self.model_combo.currentText(),
+        )
         
         # Add user message bubble with ID
         self.add_message(text, is_user=True, message_id=msg_id)

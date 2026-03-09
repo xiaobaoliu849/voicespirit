@@ -88,6 +88,31 @@ export default function PodcastTopicStep({ audioOverview }: Props) {
                 />
               </label>
             </div>
+
+            <label className="vsPodcastMemoryToggle">
+              <input
+                type="checkbox"
+                checked={audioOverview.audioOverviewUseMemory}
+                onChange={(e) => audioOverview.onUseMemoryChange(e.target.checked)}
+              />
+              <div>
+                <strong>使用 EverMem 长期记忆辅助脚本生成</strong>
+                <p>
+                  {audioOverview.audioOverviewMemoryConfigured
+                    ? "生成播客脚本时会尝试召回相关历史记忆，并把本次草稿写回 EverMem。"
+                    : "请先在设置页启用 EverMem。未接入时这里不会注入长期记忆。"}
+                </p>
+              </div>
+            </label>
+
+            {audioOverview.audioOverviewMemoriesRetrieved > 0 || audioOverview.audioOverviewMemorySaved ? (
+              <p className="vsPodcastMemoryResult">
+                {audioOverview.audioOverviewMemoriesRetrieved > 0
+                  ? `本次生成已引用 ${audioOverview.audioOverviewMemoriesRetrieved} 条长期记忆。`
+                  : "本次生成未召回历史记忆。"}
+                {audioOverview.audioOverviewMemorySaved ? " 已写入本次播客草稿。" : ""}
+              </p>
+            ) : null}
           </div>
         ) : null}
       </div>

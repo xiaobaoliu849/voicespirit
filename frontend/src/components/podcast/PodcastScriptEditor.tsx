@@ -21,6 +21,7 @@ export default function PodcastScriptEditor({ audioOverview }: Props) {
             type="button"
             className="ghost vsPodcastIconAction"
             title="保存脚本"
+            aria-label="保存脚本"
             onClick={() => void audioOverview.onSaveScript()}
             disabled={
               audioOverview.audioOverviewSaving ||
@@ -34,6 +35,7 @@ export default function PodcastScriptEditor({ audioOverview }: Props) {
             type="button"
             className="ghost vsPodcastIconAction"
             title="复制脚本"
+            aria-label="复制脚本"
             onClick={() => void audioOverview.onCopyScript()}
           >
             ⧉
@@ -42,6 +44,7 @@ export default function PodcastScriptEditor({ audioOverview }: Props) {
             type="button"
             className="ghost vsPodcastIconAction"
             title="导出脚本"
+            aria-label="导出脚本"
             onClick={audioOverview.onExportScript}
           >
             ⤓

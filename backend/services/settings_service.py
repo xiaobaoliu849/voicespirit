@@ -6,6 +6,29 @@ from typing import Any
 from .config_loader import BackendConfig, DEFAULT_BASE_URLS, PROVIDER_KEY_MAP
 
 SETTINGS_PROVIDERS = tuple(PROVIDER_KEY_MAP.keys())
+MEMORY_SETTINGS_ALIASES = {
+    "url": "api_url",
+    "key": "api_key",
+    "scopeId": "scope_id",
+    "tempSession": "temporary_session",
+    "sceneChat": "remember_chat",
+    "sceneVoiceChat": "remember_voice_chat",
+    "sceneTranscription": "remember_recordings",
+    "scenePodcast": "remember_podcast",
+    "sceneTts": "remember_tts",
+    "storeTranscriptFulltext": "store_transcript_fulltext",
+}
+MEMORY_SETTINGS_BOOL_KEYS = {
+    "enabled",
+    "remember_chat",
+    "remember_voice_chat",
+    "remember_recordings",
+    "remember_podcast",
+    "remember_tts",
+    "store_transcript_fulltext",
+    "temporary_session",
+}
+MEMORY_SETTINGS_STR_KEYS = {"api_url", "api_key", "scope_id"}
 
 DEFAULT_SETTINGS_TEMPLATE: dict[str, Any] = {
     "api_keys": {
@@ -40,6 +63,19 @@ DEFAULT_SETTINGS_TEMPLATE: dict[str, Any] = {
         "history_retention": "Keep all history",
         "log_level": "INFO",
     },
+    "memory_settings": {
+        "enabled": False,
+        "api_url": "https://api.evermind.ai",
+        "api_key": "",
+        "scope_id": "",
+        "remember_chat": True,
+        "remember_voice_chat": True,
+        "remember_recordings": False,
+        "remember_podcast": True,
+        "remember_tts": True,
+        "store_transcript_fulltext": False,
+        "temporary_session": False,
+    },
     "output_directory": "",
     "tts_settings": {
         "default_voice": "",
@@ -54,6 +90,16 @@ DEFAULT_SETTINGS_TEMPLATE: dict[str, Any] = {
         "voice_clone_voices": [],
         "default_vd_model": "qwen3-tts-vd-realtime-2025-12-16",
         "default_vc_model": "qwen3-tts-vc-realtime-2025-11-27",
+    },
+    "transcription_settings": {
+        "public_base_url": "",
+        "upload_mode": "static",
+        "s3_bucket": "",
+        "s3_region": "",
+        "s3_endpoint_url": "",
+        "s3_access_key_id": "",
+        "s3_secret_access_key": "",
+        "s3_key_prefix": "transcription",
     },
     "minimax": {
         "api_key": "",
@@ -80,9 +126,11 @@ ALLOWED_UPDATE_SECTIONS = {
     "api_urls",
     "default_models",
     "general_settings",
+    "memory_settings",
     "output_directory",
     "tts_settings",
     "qwen_tts_settings",
+    "transcription_settings",
     "minimax",
     "auth_settings",
     "ui_settings",
@@ -133,6 +181,30 @@ class SettingsService:
             normalized[str(key)] = str(item).strip()
         return normalized
 
+    @staticmethod
+    def _normalize_bool(value: Any) -> bool:
+        if isinstance(value, str):
+            return value.strip().lower() in {"1", "true", "yes", "on"}
+        return bool(value)
+
+    def _normalize_memory_settings(self, value: dict[str, Any]) -> dict[str, Any]:
+        normalized: dict[str, Any] = {}
+        allowed_keys = DEFAULT_SETTINGS_TEMPLATE["memory_settings"].keys()
+
+        for key, item in value.items():
+            canonical_key = MEMORY_SETTINGS_ALIASES.get(str(key), str(key))
+            if canonical_key not in allowed_keys:
+                continue
+            if canonical_key in MEMORY_SETTINGS_BOOL_KEYS:
+                normalized[canonical_key] = self._normalize_bool(item)
+                continue
+            if canonical_key in MEMORY_SETTINGS_STR_KEYS:
+                normalized[canonical_key] = str(item).strip()
+                continue
+            normalized[canonical_key] = copy.deepcopy(item)
+
+        return normalized
+
     def _normalize_patch(self, patch: dict[str, Any]) -> dict[str, Any]:
         if not isinstance(patch, dict):
             raise ValueError("settings must be an object.")
@@ -158,6 +230,12 @@ class SettingsService:
                 normalized[key] = self._normalize_models(value)
                 continue
 
+            if key == "memory_settings":
+                if not isinstance(value, dict):
+                    raise ValueError("memory_settings must be an object.")
+                normalized[key] = self._normalize_memory_settings(value)
+                continue
+
             if not isinstance(value, dict):
                 raise ValueError(f"{key} must be an object.")
             normalized[key] = copy.deepcopy(value)
@@ -167,6 +245,11 @@ class SettingsService:
     def _build_settings_response(self, data: dict[str, Any]) -> dict[str, Any]:
         merged = copy.deepcopy(DEFAULT_SETTINGS_TEMPLATE)
         self._deep_merge(merged, data)
+        memory_settings = merged.get("memory_settings", {})
+        if isinstance(memory_settings, dict):
+            canonical_memory_settings = copy.deepcopy(DEFAULT_SETTINGS_TEMPLATE["memory_settings"])
+            canonical_memory_settings.update(self._normalize_memory_settings(memory_settings))
+            merged["memory_settings"] = canonical_memory_settings
         api_urls = merged.get("api_urls", {})
         if isinstance(api_urls, dict):
             for provider, default_url in DEFAULT_BASE_URLS.items():

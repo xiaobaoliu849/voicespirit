@@ -16,10 +16,11 @@ describe('VoiceClonePage', () => {
                 errorRuntimeContext={{}}
             />
         );
-        expect(screen.getByText('创建克隆音色')).toBeInTheDocument();
+        expect(screen.getByText('音色克隆工作室 (Voice Clone)')).toBeInTheDocument();
         expect(screen.getByDisplayValue('cloned-voice')).toBeInTheDocument();
-        expect(screen.getByText('已选择：test-audio.mp3')).toBeInTheDocument();
-        expect(screen.getByText('暂无音色。')).toBeInTheDocument();
+        expect(screen.getByText('test-audio.mp3')).toBeInTheDocument();
+        expect(screen.getByText('开始克隆音色')).toBeInTheDocument();
+        expect(screen.getByText('暂无克隆成功的音色。')).toBeInTheDocument();
     });
 
     it('displays error and info messages', () => {

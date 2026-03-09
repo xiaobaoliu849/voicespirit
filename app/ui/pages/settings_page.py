@@ -1115,6 +1115,81 @@ class SettingsPage(QWidget):
         general_layout.addRow(self.translation_manager.t("history_retention"), self.history_retention_combo)
         
         content_layout.addWidget(general_group)
+
+        memory_group = QGroupBox(self.translation_manager.t("memory_settings_group"))
+        memory_group.setStyleSheet("""
+            QGroupBox {
+                font-weight: bold;
+                border: 1px solid #E5E5E5;
+                border-radius: 5px;
+                margin-top: 0.8ex;
+                padding-top: 8px;
+                background-color: #FFFFFF;
+                font-size: 13px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 8px;
+                padding: 0 4px 0 4px;
+            }
+        """)
+        memory_layout = QFormLayout(memory_group)
+        memory_layout.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow)
+        memory_layout.setLabelAlignment(Qt.AlignRight)
+        memory_layout.setContentsMargins(12, 14, 12, 12)
+        memory_layout.setSpacing(10)
+
+        memory_desc = QLabel(self.translation_manager.t("memory_settings_description"))
+        memory_desc.setWordWrap(True)
+        memory_desc.setStyleSheet("color: #666; font-size: 12px; line-height: 1.4;")
+        memory_layout.addRow(memory_desc)
+
+        self.memory_enabled_checkbox = QCheckBox(self.translation_manager.t("memory_enabled"))
+        self.memory_enabled_checkbox.setStyleSheet(self.get_checkbox_style())
+        memory_layout.addRow(self.memory_enabled_checkbox)
+
+        self.memory_temp_session_checkbox = QCheckBox(self.translation_manager.t("memory_temporary_session"))
+        self.memory_temp_session_checkbox.setStyleSheet(self.get_checkbox_style())
+        memory_layout.addRow(self.memory_temp_session_checkbox)
+
+        self.memory_api_url_input = QLineEdit()
+        self.memory_api_url_input.setStyleSheet(self.get_input_style())
+        memory_layout.addRow(self.translation_manager.t("memory_api_url"), self.memory_api_url_input)
+
+        self.memory_api_key_input = QLineEdit()
+        self.memory_api_key_input.setEchoMode(QLineEdit.Password)
+        self.memory_api_key_input.setStyleSheet(self.get_input_style())
+        memory_layout.addRow(self.translation_manager.t("memory_api_key"), self.memory_api_key_input)
+
+        self.memory_scope_input = QLineEdit()
+        self.memory_scope_input.setStyleSheet(self.get_input_style())
+        memory_layout.addRow(self.translation_manager.t("memory_scope_id"), self.memory_scope_input)
+
+        self.memory_scene_chat_checkbox = QCheckBox(self.translation_manager.t("memory_scene_chat"))
+        self.memory_scene_chat_checkbox.setStyleSheet(self.get_checkbox_style())
+        memory_layout.addRow(self.memory_scene_chat_checkbox)
+
+        self.memory_scene_voice_chat_checkbox = QCheckBox(self.translation_manager.t("memory_scene_voice_chat"))
+        self.memory_scene_voice_chat_checkbox.setStyleSheet(self.get_checkbox_style())
+        memory_layout.addRow(self.memory_scene_voice_chat_checkbox)
+
+        self.memory_scene_transcription_checkbox = QCheckBox(self.translation_manager.t("memory_scene_transcription"))
+        self.memory_scene_transcription_checkbox.setStyleSheet(self.get_checkbox_style())
+        memory_layout.addRow(self.memory_scene_transcription_checkbox)
+
+        self.memory_scene_podcast_checkbox = QCheckBox(self.translation_manager.t("memory_scene_podcast"))
+        self.memory_scene_podcast_checkbox.setStyleSheet(self.get_checkbox_style())
+        memory_layout.addRow(self.memory_scene_podcast_checkbox)
+
+        self.memory_scene_tts_checkbox = QCheckBox(self.translation_manager.t("memory_scene_tts"))
+        self.memory_scene_tts_checkbox.setStyleSheet(self.get_checkbox_style())
+        memory_layout.addRow(self.memory_scene_tts_checkbox)
+
+        self.memory_store_fulltext_checkbox = QCheckBox(self.translation_manager.t("memory_store_fulltext"))
+        self.memory_store_fulltext_checkbox.setStyleSheet(self.get_checkbox_style())
+        memory_layout.addRow(self.memory_store_fulltext_checkbox)
+
+        content_layout.addWidget(memory_group)
         
         # Logging and Data Group
         logging_group = QGroupBox(self.translation_manager.t("logging_data_group"))
@@ -1472,6 +1547,19 @@ class SettingsPage(QWidget):
             self.output_directory_input.setText(self.config_manager.get("output_directory", ""))
             self.history_retention_combo.setCurrentText(self.config_manager.get("general_settings.history_retention", "Keep all history"))
             self.log_level_combo.setCurrentText(self.config_manager.get("general_settings.log_level", "INFO"))
+
+            # Load Memory Settings
+            self.memory_enabled_checkbox.setChecked(self.config_manager.get("memory_settings.enabled", False))
+            self.memory_temp_session_checkbox.setChecked(self.config_manager.get("memory_settings.temporary_session", False))
+            self.memory_api_url_input.setText(self.config_manager.get("memory_settings.api_url", "https://api.evermind.ai"))
+            self.memory_api_key_input.setText(self.config_manager.get("memory_settings.api_key", ""))
+            self.memory_scope_input.setText(self.config_manager.get("memory_settings.scope_id", ""))
+            self.memory_scene_chat_checkbox.setChecked(self.config_manager.get("memory_settings.remember_chat", True))
+            self.memory_scene_voice_chat_checkbox.setChecked(self.config_manager.get("memory_settings.remember_voice_chat", True))
+            self.memory_scene_transcription_checkbox.setChecked(self.config_manager.get("memory_settings.remember_recordings", False))
+            self.memory_scene_podcast_checkbox.setChecked(self.config_manager.get("memory_settings.remember_podcast", True))
+            self.memory_scene_tts_checkbox.setChecked(self.config_manager.get("memory_settings.remember_tts", True))
+            self.memory_store_fulltext_checkbox.setChecked(self.config_manager.get("memory_settings.store_transcript_fulltext", False))
             
             # Load UI Settings
             self.theme_combo.setCurrentText(self.config_manager.get("ui_settings.theme", "default"))
@@ -1742,6 +1830,19 @@ class SettingsPage(QWidget):
             self.config_manager.update_setting("output_directory", self.output_directory_input.text())
             self.config_manager.update_setting("general_settings.history_retention", self.history_retention_combo.currentText())
             self.config_manager.update_setting("general_settings.log_level", self.log_level_combo.currentText())
+
+            # Update memory settings
+            self.config_manager.update_setting("memory_settings.enabled", self.memory_enabled_checkbox.isChecked())
+            self.config_manager.update_setting("memory_settings.temporary_session", self.memory_temp_session_checkbox.isChecked())
+            self.config_manager.update_setting("memory_settings.api_url", self.memory_api_url_input.text())
+            self.config_manager.update_setting("memory_settings.api_key", self.memory_api_key_input.text())
+            self.config_manager.update_setting("memory_settings.scope_id", self.memory_scope_input.text())
+            self.config_manager.update_setting("memory_settings.remember_chat", self.memory_scene_chat_checkbox.isChecked())
+            self.config_manager.update_setting("memory_settings.remember_voice_chat", self.memory_scene_voice_chat_checkbox.isChecked())
+            self.config_manager.update_setting("memory_settings.remember_recordings", self.memory_scene_transcription_checkbox.isChecked())
+            self.config_manager.update_setting("memory_settings.remember_podcast", self.memory_scene_podcast_checkbox.isChecked())
+            self.config_manager.update_setting("memory_settings.remember_tts", self.memory_scene_tts_checkbox.isChecked())
+            self.config_manager.update_setting("memory_settings.store_transcript_fulltext", self.memory_store_fulltext_checkbox.isChecked())
             
             # Save to file
             self.config_manager.save_config()

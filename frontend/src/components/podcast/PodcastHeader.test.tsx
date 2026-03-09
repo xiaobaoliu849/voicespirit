@@ -9,6 +9,7 @@ describe("PodcastHeader", () => {
 
     expect(screen.getByText("播客工作台")).toBeInTheDocument();
     expect(screen.getByText("播客 #12")).toBeInTheDocument();
+    expect(screen.getByText("长期记忆未接入")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "新建草稿" })).toBeInTheDocument();
   });
 

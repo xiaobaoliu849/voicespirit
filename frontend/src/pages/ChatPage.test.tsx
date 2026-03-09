@@ -1,13 +1,14 @@
 import { render, screen } from '@testing-library/react';
 import { describe, it, expect } from 'vitest';
 import ChatPage from './ChatPage';
-import { createChatController } from '../test/factories';
+import { createChatController, createVoiceChatController } from '../test/factories';
 
 describe('ChatPage', () => {
     it('renders correctly empty state', () => {
         render(
             <ChatPage
                 chat={createChatController()}
+                voiceChat={createVoiceChatController()}
                 errorRuntimeContext={{}}
             />
         );

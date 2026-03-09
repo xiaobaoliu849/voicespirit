@@ -13,6 +13,11 @@ export default function PodcastHeader({ audioOverview }: Props) {
       </div>
       <div className="vsPodcastHeaderActions">
         <span className="vsPodcastStatusChip">{audioOverview.currentAudioOverviewLabel}</span>
+        <span
+          className={`vsPodcastStatusChip ${audioOverview.audioOverviewMemoryConfigured ? "is-memory" : "is-muted"}`}
+        >
+          {audioOverview.audioOverviewMemoryConfigured ? "长期记忆已接入" : "长期记忆未接入"}
+        </span>
         <button
           type="button"
           className="ghost vsPodcastMiniBtn"

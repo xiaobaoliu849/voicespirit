@@ -2,8 +2,10 @@ import type { AudioOverviewPodcast, VoiceInfo } from "../api";
 import type { UseAudioOverviewResult } from "../hooks/useAudioOverview";
 import { vi } from "vitest";
 import type { UseChatResult } from "../hooks/useChat";
+import type { UseSettingsResult } from "../hooks/useSettings";
 import type { UseTranslateResult } from "../hooks/useTranslate";
 import type { UseTtsResult } from "../hooks/useTts";
+import type { UseVoiceChatResult } from "../hooks/useVoiceChat";
 import type { FormatErrorMessage } from "../utils/errorFormatting";
 import type { VoiceDesignController, VoiceCloneController } from "../hooks/useVoiceManagement";
 
@@ -16,7 +18,9 @@ export function createChatController(
 ): UseChatResult {
   return {
     chatProvider: "Google",
+    chatProviderOptions: ["Google", "DashScope"],
     chatModel: "",
+    chatModelOptions: [],
     chatInput: "",
     chatMessages: [],
     chatBusy: false,
@@ -38,7 +42,12 @@ export function createTtsController(
   overrides: Partial<UseTtsResult> = {}
 ): UseTtsResult {
   return {
+    ttsMode: "text",
+    ttsEngine: "edge",
     text: "Sample test text",
+    dialogueText: "A: 你好。\nB: 你好，今天想聊什么？",
+    pdfText: "",
+    pdfFile: null,
     voices: [],
     voice: "zh-CN-XiaoxiaoNeural",
     rate: "+0%",
@@ -46,11 +55,52 @@ export function createTtsController(
     loadingVoices: false,
     generating: false,
     ttsError: "",
+    ttsInfo: "",
+    engineOptions: [
+      { value: "edge", label: "Edge TTS", hint: "系统级稳定合成，适合基础朗读。" },
+      { value: "qwen_flash", label: "Qwen TTS Flash", hint: "阿里云 Qwen 音色，更适合中文与角色感。" },
+      { value: "minimax", label: "MiniMax TTS", hint: "MiniMax 多风格音色，适合配音与角色化朗读。" }
+    ],
     voiceOptions: [{ value: "zh-CN-XiaoxiaoNeural", label: "Xiaoxiao (zh-CN)" }],
+    activeSourceText: "Sample test text",
     onSubmit: vi.fn(),
+    onTtsModeChange: vi.fn(),
+    onEngineChange: vi.fn(),
     onTextChange: vi.fn(),
+    onDialogueTextChange: vi.fn(),
+    onPdfFileChange: vi.fn(),
+    onPdfTextChange: vi.fn(),
     onVoiceChange: vi.fn(),
     onRateChange: vi.fn(),
+    ...overrides
+  };
+}
+
+export function createVoiceChatController(
+  overrides: Partial<UseVoiceChatResult> = {}
+): UseVoiceChatResult {
+  return {
+    voiceChatProvider: "Google",
+    voiceChatProviderOptions: ["Google"],
+    voiceChatModel: "gemini-2.5-flash-native-audio-preview-12-2025",
+    voiceChatModelOptions: ["gemini-2.5-flash-native-audio-preview-12-2025"],
+    voiceChatVoice: "Puck",
+    voiceChatVoiceOptions: [{ value: "Puck", label: "Puck" }],
+    voiceChatBusy: false,
+    voiceChatRecording: false,
+    voiceChatConnected: false,
+    voiceChatSupported: true,
+    voiceChatStatus: "点击开始实时语音聊天",
+    voiceChatError: "",
+    voiceChatTranscript: "",
+    voiceChatReply: "",
+    voiceChatMessages: [],
+    sessionSummary: [],
+    onToggleRecording: vi.fn(),
+    onProviderChange: vi.fn(),
+    onModelChange: vi.fn(),
+    onVoiceChange: vi.fn(),
+    onResetSession: vi.fn(),
     ...overrides
   };
 }
@@ -66,6 +116,7 @@ export function createTranslateController(
     targetLanguage: "en",
     translateBusy: false,
     translateError: "",
+    translateInfo: "",
     translateResult: "Mock translation",
     onSubmit: vi.fn(),
     onProviderChange: vi.fn(),
@@ -73,6 +124,128 @@ export function createTranslateController(
     onInputChange: vi.fn(),
     onSourceLanguageChange: vi.fn(),
     onTargetLanguageChange: vi.fn(),
+    onSwapLanguages: vi.fn(),
+    onCopySource: vi.fn(),
+    onCopyResult: vi.fn(),
+    onPasteInput: vi.fn(),
+    onClearAll: vi.fn(),
+    ...overrides
+  };
+}
+
+export function createSettingsController(
+  overrides: Partial<UseSettingsResult> = {}
+): UseSettingsResult {
+  return {
+    settingsBusy: false,
+    settingsSaving: false,
+    settingsError: "",
+    settingsInfo: "",
+    settingsConfigPath: "/tmp/config.json",
+    settingsProvider: "DashScope",
+    settingsApiKey: "",
+    settingsApiUrl: "",
+    settingsDefaultModel: "qwen-plus",
+    settingsAvailableModelsText: "qwen-plus\nqwen-max",
+    transcriptionUploadMode: "static",
+    transcriptionPublicBaseUrl: "",
+    transcriptionS3Bucket: "",
+    transcriptionS3Region: "",
+    transcriptionS3EndpointUrl: "",
+    transcriptionS3AccessKeyId: "",
+    transcriptionS3SecretAccessKey: "",
+    transcriptionS3KeyPrefix: "transcription",
+    evermemEnabled: true,
+    evermemApiUrl: "https://api.evermind.ai",
+    evermemApiKey: "evermem-key",
+    evermemScopeId: "workspace-main",
+    evermemTempSession: false,
+    evermemRememberChat: true,
+    evermemRememberVoiceChat: true,
+    evermemRememberRecordings: false,
+    evermemRememberPodcast: true,
+    evermemRememberTts: true,
+    evermemStoreTranscript: false,
+    backendRuntimeRaw: '{\n  "name": "VoiceSpirit"\n}',
+    backendRuntimeOpen: false,
+    runtimeCopyStatus: "idle",
+    errorRuntimeContext: {
+      backend_phase: "B",
+      backend_auth_mode: "write-only-with-admin-settings",
+      backend_auth_enabled: false,
+      backend_version: "test",
+      backend_status: "ok"
+    },
+    providerSection: {
+      provider: "DashScope",
+      apiKeyConfigured: false,
+      apiUrlConfigured: false,
+      defaultModelConfigured: true,
+      availableModelCount: 2,
+      availableModels: ["qwen-plus", "qwen-max"]
+    },
+    providerModelCatalog: {
+      DashScope: { defaultModel: "qwen-plus", availableModels: ["qwen-plus", "qwen-max"] },
+      Google: { defaultModel: "gemini-2.5-flash", availableModels: ["gemini-2.5-flash"] }
+    },
+    memorySection: {
+      enabled: true,
+      configured: true,
+      temporarySession: false,
+      scopeIdConfigured: true,
+      scenes: [
+        { id: "chat", enabled: true, label: "聊天" },
+        { id: "voice_chat", enabled: true, label: "语音聊天" },
+        { id: "transcription", enabled: false, label: "录音转写" },
+        { id: "podcast", enabled: true, label: "播客脚本" },
+        { id: "tts", enabled: true, label: "语音合成" }
+      ],
+      storeTranscriptFulltext: false
+    },
+    transcriptionSection: {
+      uploadMode: "static",
+      publicBaseUrlConfigured: false,
+      s3Configured: false,
+      s3MissingFields: [],
+      s3KeyPrefix: "transcription"
+    },
+    desktopSection: {
+      configPath: "/tmp/config.json",
+      backendPhase: "B",
+      backendVersion: "test",
+      backendStatus: "ok",
+      runtimeVisible: false,
+      runtimeCopyStatus: "idle"
+    },
+    providerOptions: ["DashScope", "Google"],
+    onSubmit: vi.fn(),
+    onReload: vi.fn(),
+    onProviderChange: vi.fn(),
+    onApiKeyChange: vi.fn(),
+    onApiUrlChange: vi.fn(),
+    onDefaultModelChange: vi.fn(),
+    onAvailableModelsChange: vi.fn(),
+    onTranscriptionUploadModeChange: vi.fn(),
+    onTranscriptionPublicBaseUrlChange: vi.fn(),
+    onTranscriptionS3BucketChange: vi.fn(),
+    onTranscriptionS3RegionChange: vi.fn(),
+    onTranscriptionS3EndpointUrlChange: vi.fn(),
+    onTranscriptionS3AccessKeyIdChange: vi.fn(),
+    onTranscriptionS3SecretAccessKeyChange: vi.fn(),
+    onTranscriptionS3KeyPrefixChange: vi.fn(),
+    onEvermemEnabledChange: vi.fn(),
+    onEvermemApiUrlChange: vi.fn(),
+    onEvermemApiKeyChange: vi.fn(),
+    onEvermemScopeIdChange: vi.fn(),
+    onEvermemTempSessionChange: vi.fn(),
+    onEvermemRememberChatChange: vi.fn(),
+    onEvermemRememberVoiceChatChange: vi.fn(),
+    onEvermemRememberRecordingsChange: vi.fn(),
+    onEvermemRememberPodcastChange: vi.fn(),
+    onEvermemRememberTtsChange: vi.fn(),
+    onEvermemStoreTranscriptChange: vi.fn(),
+    onToggleRuntimeOpen: vi.fn(),
+    onCopyBackendRuntime: vi.fn(),
     ...overrides
   };
 }
@@ -111,6 +284,9 @@ export function createAudioOverviewController(
   overrides: Partial<UseAudioOverviewResult> = {}
 ): UseAudioOverviewResult {
   return {
+    audioOverviewWorkspaceMode: "podcast",
+    audioOverviewWorkspaceTitle: "播客工作台",
+    audioOverviewWorkspaceDescription: "围绕一个主题生成双人节目脚本，并进一步合成为完整音频。",
     audioOverviewBusy: false,
     audioOverviewSaving: false,
     audioOverviewSynthBusy: false,
@@ -127,6 +303,10 @@ export function createAudioOverviewController(
     audioOverviewAdvancedOpen: false,
     audioOverviewMenuOpen: false,
     synthBarAdvancedOpen: false,
+    audioOverviewUseMemory: false,
+    audioOverviewMemoryConfigured: false,
+    audioOverviewMemoriesRetrieved: 0,
+    audioOverviewMemorySaved: false,
     audioOverviewScriptLines: [
       { role: "A", text: "第一段内容" },
       { role: "B", text: "第二段内容" }
@@ -134,6 +314,8 @@ export function createAudioOverviewController(
     audioOverviewVoiceOptions: defaultVoiceOptions,
     audioOverviewVoiceA: "zh-CN-YunxiNeural",
     audioOverviewVoiceB: "zh-CN-XiaoxiaoNeural",
+    audioOverviewSpeakerA: "主播 A",
+    audioOverviewSpeakerB: "主播 B",
     audioOverviewRate: "+0%",
     audioOverviewGapMs: 250,
     audioOverviewAudioUrl: "",
@@ -141,6 +323,7 @@ export function createAudioOverviewController(
     currentAudioOverviewLabel: "播客 #12",
     onGenerateScript: vi.fn(),
     onNewDraft: vi.fn(),
+    onWorkspaceModeChange: vi.fn(),
     onToggleMenu: vi.fn(),
     onDeleteCurrent: vi.fn(),
     onTopicChange: vi.fn(),
@@ -148,6 +331,7 @@ export function createAudioOverviewController(
     onLanguageChange: vi.fn(),
     onProviderChange: vi.fn(),
     onModelChange: vi.fn(),
+    onUseMemoryChange: vi.fn(),
     onTurnCountChange: vi.fn(),
     onSaveScript: vi.fn(),
     onCopyScript: vi.fn(),
@@ -158,6 +342,8 @@ export function createAudioOverviewController(
     onAddLine: vi.fn(),
     onVoiceAChange: vi.fn(),
     onVoiceBChange: vi.fn(),
+    onSpeakerAChange: vi.fn(),
+    onSpeakerBChange: vi.fn(),
     onToggleSynthAdvanced: vi.fn(),
     onSynthesize: vi.fn(),
     onRateChange: vi.fn(),
@@ -182,11 +368,21 @@ export function createVoiceDesignController(
     designError: "",
     designInfo: "",
     designVoices: [],
+    designCanSubmit: false,
+    designPromptPresets: [
+      {
+        id: "warm_narrator",
+        label: "温暖旁白",
+        prompt: "温暖、亲和、清晰，适合知识讲解。"
+      }
+    ],
+    designGuidelines: ["描述音色的人设、语气、节奏和使用场景。"],
     designListBusy: false,
     onNameChange: vi.fn(),
     onLanguageChange: vi.fn(),
     onPromptChange: vi.fn(),
     onPreviewTextChange: vi.fn(),
+    onApplyPreset: vi.fn(),
     onSubmit: vi.fn(),
     onRefresh: vi.fn(),
     onDeleteVoice: vi.fn(),
@@ -204,6 +400,10 @@ export function createVoiceCloneController(
     cloneError: "",
     cloneInfo: "",
     cloneVoices: [],
+    cloneCanSubmit: false,
+    cloneFileSummary: "",
+    cloneAcceptedFormats: ["mp3", "wav"],
+    cloneRequirements: ["建议 10 到 30 秒的干净人声。"],
     cloneListBusy: false,
     onNameChange: vi.fn(),
     onAudioFileChange: vi.fn(),

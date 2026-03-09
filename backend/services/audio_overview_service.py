@@ -1,5 +1,4 @@
 from __future__ import annotations
-
 import logging
 import re
 import shutil
@@ -12,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from .llm_service import LLMService
+from .evermem_config import EverMemConfig
 from .tts_service import TTSService
 
 
@@ -125,6 +125,38 @@ class AudioOverviewService:
     def _build_prompt(topic: str, language: str, turn_count: int) -> str:
         template = PROMPT_TEMPLATE_EN if language == "en" else PROMPT_TEMPLATE_ZH
         return template.format(topic=topic, turn_count=turn_count)
+
+    @staticmethod
+    def _build_memory_context(memories: list[dict[str, Any]]) -> str:
+        lines: list[str] = []
+        for idx, memory in enumerate(memories[:5], start=1):
+            content = str(memory.get("content", "")).strip()
+            if not content:
+                continue
+            lines.append(f"{idx}. {content[:320]}")
+        return "\n".join(lines)
+
+    @staticmethod
+    def _build_script_memory_entry(
+        *,
+        topic: str,
+        language: str,
+        script_lines: list[dict[str, str]],
+    ) -> str:
+        preview = " ".join(
+            f"{line['role']}: {line['text'][:90]}"
+            for line in script_lines[:4]
+            if line.get("text")
+        )
+        if language == "en":
+            return (
+                f"VoiceSpirit podcast draft created. Topic: {topic}. "
+                f"Language: English. Key dialogue preview: {preview}"
+            ).strip()
+        return (
+            f"VoiceSpirit 播客草稿已生成。主题：{topic}。"
+            f"语言：中文。关键对话预览：{preview}"
+        ).strip()
 
     @staticmethod
     def _parse_script_from_text(text: str) -> list[dict[str, str]]:
@@ -426,6 +458,7 @@ class AudioOverviewService:
         turn_count: int = 10,
         provider: str = "DashScope",
         model: str | None = None,
+        request_headers: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         clean_topic = topic.strip()
         if not clean_topic:
@@ -436,6 +469,35 @@ class AudioOverviewService:
         prompt = self._build_prompt(clean_topic, clean_language, safe_turn_count)
         clean_provider = str(provider or "DashScope").strip() or "DashScope"
         clean_model = str(model or "").strip() or None
+        memories_retrieved = 0
+        memory_saved = False
+
+        evermem_config = EverMemConfig()
+        if request_headers:
+            evermem_config.update_from_headers(request_headers)
+        evermem_service = evermem_config.get_service()
+        memory_scope = evermem_config.memory_scope
+
+        system_prompt = (
+            "You write podcast scripts and must strictly follow the required output format "
+            "with one dialogue line per row."
+        )
+        if evermem_service and not evermem_service.should_skip_memory(clean_topic):
+            try:
+                memories = await evermem_service.search_memories(
+                    query=clean_topic,
+                    user_id=memory_scope,
+                    min_score=0.3,
+                )
+                memory_context = self._build_memory_context(memories)
+                if memory_context:
+                    memories_retrieved = len(memories[:5])
+                    system_prompt += (
+                        "\n\nRelevant long-term memories for this user. Use them only when they help make "
+                        f"the podcast more grounded and personalized.\n{memory_context}"
+                    )
+            except Exception:
+                logger.exception("Audio overview memory retrieval failed")
 
         completion = await self.llm_service.chat_completion(
             provider=clean_provider,
@@ -443,10 +505,7 @@ class AudioOverviewService:
             messages=[
                 {
                     "role": "system",
-                    "content": (
-                        "You write podcast scripts and must strictly follow the required output format "
-                        "with one dialogue line per row."
-                    ),
+                    "content": system_prompt,
                 },
                 {"role": "user", "content": prompt},
             ],
@@ -460,6 +519,22 @@ class AudioOverviewService:
         if len(normalized) < 2:
             raise RuntimeError("Generated script is too short or cannot be parsed.")
 
+        if evermem_service:
+            try:
+                saved = await evermem_service.add_memory(
+                    content=self._build_script_memory_entry(
+                        topic=clean_topic,
+                        language=clean_language,
+                        script_lines=normalized,
+                    ),
+                    user_id=memory_scope,
+                    sender=f"{memory_scope}_podcast",
+                    sender_name="VoiceSpirit Podcast",
+                )
+                memory_saved = saved is not None
+            except Exception:
+                logger.exception("Audio overview memory save failed")
+
         return {
             "topic": clean_topic,
             "language": clean_language,
@@ -468,6 +543,8 @@ class AudioOverviewService:
             "model": str(completion.get("model", clean_model or "")),
             "script_lines": normalized,
             "raw_reply": reply,
+            "memories_retrieved": memories_retrieved,
+            "memory_saved": memory_saved,
         }
 
     @staticmethod

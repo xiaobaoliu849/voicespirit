@@ -23,7 +23,11 @@ vi.mock("./api", async () => {
     synthesizeAudioOverviewPodcast: vi.fn(),
     updateSettings: vi.fn(),
     translateText: vi.fn(),
-    streamChatCompletion: vi.fn()
+    streamChatCompletion: vi.fn(),
+    transcribeAudio: vi.fn(),
+    createTranscriptionJob: vi.fn(),
+    createTranscriptionJobFromUrl: vi.fn(),
+    fetchTranscriptionJob: vi.fn()
   };
 });
 
@@ -40,6 +44,10 @@ const mockedGenerateAudioOverviewScript = vi.mocked(api.generateAudioOverviewScr
 const mockedCreateAudioOverviewPodcast = vi.mocked(api.createAudioOverviewPodcast);
 const mockedTranslateText = vi.mocked(api.translateText);
 const mockedStreamChatCompletion = vi.mocked(api.streamChatCompletion);
+const mockedTranscribeAudio = vi.mocked(api.transcribeAudio);
+const mockedCreateTranscriptionJob = vi.mocked(api.createTranscriptionJob);
+const mockedCreateTranscriptionJobFromUrl = vi.mocked(api.createTranscriptionJobFromUrl);
+const mockedFetchTranscriptionJob = vi.mocked(api.fetchTranscriptionJob);
 
 function setClipboardWriteText(writeText: (value: string) => Promise<void>) {
   Object.defineProperty(globalThis.navigator, "clipboard", {
@@ -50,6 +58,7 @@ function setClipboardWriteText(writeText: (value: string) => Promise<void>) {
 
 describe("App interactions", () => {
   beforeEach(() => {
+    localStorage.clear();
     mockedFetchApiRuntimeInfo.mockResolvedValue({
       status: "ok",
       phase: "B",
@@ -87,9 +96,11 @@ describe("App interactions", () => {
         api_urls: { DashScope: "" },
         default_models: { DashScope: { default: "qwen-plus", available: ["qwen-plus"] } },
         general_settings: {},
+        memory_settings: {},
         output_directory: "/tmp",
         tts_settings: {},
         qwen_tts_settings: {},
+        transcription_settings: {},
         minimax: {},
         ui_settings: {},
         shortcuts: {}
@@ -100,11 +111,43 @@ describe("App interactions", () => {
       count: 0,
       voices: []
     });
-    mockedFetchSpeakAudio.mockResolvedValue(new Blob(["tts"], { type: "audio/mpeg" }));
+    mockedFetchSpeakAudio.mockResolvedValue({
+      blob: new Blob(["tts"], { type: "audio/mpeg" }),
+      memorySaved: true
+    });
     mockedTranslateText.mockResolvedValue({
       provider: "DashScope",
       model: "qwen-plus",
       translated_text: "This is the translated result."
+    });
+    mockedTranscribeAudio.mockResolvedValue({
+      transcript: "同步转写结果",
+      memory_saved: true
+    });
+    mockedCreateTranscriptionJob.mockResolvedValue({
+      job_id: "tx_local_001",
+      mode: "async",
+      status: "uploaded",
+      file_name: "meeting.wav",
+      error: "Use /api/transcription/jobs/from-url for true DashScope async transcription.",
+      memory_saved: false
+    });
+    mockedCreateTranscriptionJobFromUrl.mockResolvedValue({
+      job_id: "tx_url_001",
+      remote_job_id: "remote-url-job-001",
+      mode: "async",
+      status: "submitted",
+      file_name: "demo.wav",
+      memory_saved: false
+    });
+    mockedFetchTranscriptionJob.mockResolvedValue({
+      job_id: "tx_url_001",
+      remote_job_id: "remote-url-job-001",
+      mode: "async",
+      status: "completed",
+      file_name: "demo.wav",
+      transcript: "异步转写完成",
+      memory_saved: true
     });
     mockedStreamChatCompletion.mockImplementation(async (_payload, handlers) => {
       handlers.onDelta("这是助手的回复。");
@@ -153,6 +196,7 @@ describe("App interactions", () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     vi.restoreAllMocks();
   });
 
@@ -165,7 +209,8 @@ describe("App interactions", () => {
     await waitFor(() => {
       expect(mockedStreamChatCompletion).toHaveBeenCalledWith(
         expect.objectContaining({
-          provider: "Google",
+          provider: "DashScope",
+          model: "qwen-plus",
           messages: [
             {
               role: "user",
@@ -187,8 +232,9 @@ describe("App interactions", () => {
   it("generates TTS audio preview from the current text", async () => {
     render(<App />);
 
-    fireEvent.click(await screen.findByRole("button", { name: "语音" }));
-    fireEvent.click(screen.getByRole("button", { name: "生成语音" }));
+    const ttsBtn = screen.getByTestId("nav-tts");
+    fireEvent.click(ttsBtn);
+    fireEvent.click(screen.getByRole("button", { name: "生成音频" }));
 
     await waitFor(() => {
       expect(mockedFetchSpeakAudio).toHaveBeenCalledWith(
@@ -198,14 +244,16 @@ describe("App interactions", () => {
         })
       );
     });
-    expect(await screen.findByText("预览音频")).toBeInTheDocument();
+    expect(await screen.findByText("合成结果及监视器")).toBeInTheDocument();
+    expect(screen.getByText("已将本次语音生成偏好写入长期记忆。")).toBeInTheDocument();
     expect(document.querySelector("audio")).toHaveAttribute("src", "blob:test-url");
   });
 
   it("submits translation with the edited target language", async () => {
     render(<App />);
 
-    fireEvent.click(await screen.findByRole("button", { name: "翻译" }));
+    const translateBtn = screen.getByTestId("nav-translate");
+    fireEvent.click(translateBtn);
     fireEvent.change(screen.getByLabelText("目标语言"), {
       target: { value: "日本語" }
     });
@@ -222,16 +270,40 @@ describe("App interactions", () => {
     expect(await screen.findByText("This is the translated result.")).toBeInTheDocument();
   });
 
+  it("transcribes a local audio file from the transcription center", async () => {
+    render(<App />);
+
+    const transcribeBtn = screen.getByTestId("nav-transcription");
+    fireEvent.click(transcribeBtn);
+
+    const fileInput = screen.getByLabelText("选择转写音频");
+    const audioFile = new File(["audio"], "note.wav", { type: "audio/wav" });
+    fireEvent.change(fileInput, { target: { files: [audioFile] } });
+    fireEvent.click(screen.getByRole("button", { name: "开始同步转写" }));
+
+    await waitFor(() => {
+      expect(mockedTranscribeAudio).toHaveBeenCalledWith(audioFile);
+    });
+    expect(await screen.findByDisplayValue("同步转写结果")).toBeInTheDocument();
+    expect(screen.getByText("同步转写完成，摘要已写入长期记忆。")).toBeInTheDocument();
+  });
+
   it("reveals and copies backend runtime details", async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     setClipboardWriteText(writeText);
 
     render(<App />);
 
-    fireEvent.click(await screen.findByRole("button", { name: "设置" }));
-    fireEvent.click(screen.getByRole("button", { name: "显示运行时信息" }));
+    const settingsBtn = screen.getByTestId("nav-settings");
+    fireEvent.click(settingsBtn);
+    fireEvent.click(screen.getByRole("button", { name: /系统与运行时/i }));
+    fireEvent.click(screen.getByRole("button", { name: "显示系统运行时日志" }));
 
-    expect(screen.getByText(/"name": "VoiceSpirit"/)).toBeInTheDocument();
+    await waitFor(() => {
+      const runtimeDetails = document.querySelector("pre.runtimeDetails");
+      expect(runtimeDetails).not.toBeNull();
+      expect(runtimeDetails?.textContent).toContain('"name": "VoiceSpirit"');
+    });
 
     fireEvent.click(screen.getByRole("button", { name: "复制运行时信息" }));
 
@@ -248,17 +320,18 @@ describe("App interactions", () => {
         )
       );
     });
-    expect(screen.getByRole("button", { name: "已复制运行时信息" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "已复制到剪贴板！" })).toBeInTheDocument();
   });
 
   it("loads a podcast and reveals the script editor and synth bar", async () => {
     render(<App />);
 
-    fireEvent.click(await screen.findByRole("button", { name: "播客" }));
+    const podcastBtn1 = screen.getByTestId("nav-audio_overview");
+    fireEvent.click(podcastBtn1);
     expect(await screen.findByRole("heading", { name: "播客工作台" })).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "编辑播客脚本" })).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "载入" }));
+    fireEvent.click(screen.getAllByRole("button", { name: "载入" })[0]!);
 
     await waitFor(() => {
       expect(screen.getByText("已载入播客 #12。")).toBeInTheDocument();
@@ -275,14 +348,15 @@ describe("App interactions", () => {
 
     render(<App />);
 
-    fireEvent.click(await screen.findByRole("button", { name: "播客" }));
-    fireEvent.click(screen.getByRole("button", { name: "载入" }));
+    const podcastBtn2 = screen.getByTestId("nav-audio_overview");
+    fireEvent.click(podcastBtn2);
+    fireEvent.click(await screen.findByRole("button", { name: "载入" }));
 
     await waitFor(() => {
       expect(screen.getByText("已载入播客 #12。")).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByTitle("复制脚本"));
+    fireEvent.click(screen.getByRole("button", { name: /复制脚本/i }));
 
     await waitFor(() => {
       expect(writeText).toHaveBeenCalledWith("1. 主播 A：第一段内容\n\n2. 主播 B：第二段内容");
@@ -295,14 +369,15 @@ describe("App interactions", () => {
 
     render(<App />);
 
-    fireEvent.click(await screen.findByRole("button", { name: "播客" }));
-    fireEvent.click(screen.getByRole("button", { name: "载入" }));
+    const podcastBtn3 = screen.getByTestId("nav-audio_overview");
+    fireEvent.click(podcastBtn3);
+    fireEvent.click(await screen.findByRole("button", { name: "载入" }));
 
     await waitFor(() => {
       expect(screen.getByText("已载入播客 #12。")).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByTitle("导出脚本"));
+    fireEvent.click(screen.getByRole("button", { name: /导出脚本/i }));
 
     expect(clickSpy).toHaveBeenCalled();
     expect(screen.getByText("脚本已导出为文本文件。")).toBeInTheDocument();
@@ -316,9 +391,11 @@ describe("App interactions", () => {
         api_urls: { DashScope: "" },
         default_models: { DashScope: { default: "qwen-plus", available: ["qwen-plus"] } },
         general_settings: {},
+        memory_settings: {},
         output_directory: "/tmp",
         tts_settings: {},
         qwen_tts_settings: {},
+        transcription_settings: {},
         minimax: {},
         ui_settings: {},
         shortcuts: {}
@@ -333,9 +410,11 @@ describe("App interactions", () => {
         api_urls: { DashScope: "" },
         default_models: { DashScope: { default: "qwen-max", available: ["qwen-plus", "qwen-max"] } },
         general_settings: {},
+        memory_settings: {},
         output_directory: "/tmp",
         tts_settings: {},
         qwen_tts_settings: {},
+        transcription_settings: {},
         minimax: {},
         ui_settings: {},
         shortcuts: {}
@@ -343,7 +422,8 @@ describe("App interactions", () => {
     });
 
     render(<App />);
-    fireEvent.click(await screen.findByRole("button", { name: "设置" }));
+    const settingsBtn2 = screen.getByTestId("nav-settings");
+    fireEvent.click(settingsBtn2);
 
     const apiKeyInput = screen.getByPlaceholderText("输入供应商 API Key");
     fireEvent.change(apiKeyInput, { target: { value: "new-key" } });
@@ -351,21 +431,70 @@ describe("App interactions", () => {
     const modelInput = screen.getByPlaceholderText("例如：qwen-plus / deepseek-chat");
     fireEvent.change(modelInput, { target: { value: "qwen-max" } });
 
-    fireEvent.click(screen.getByRole("button", { name: "保存供应商设置" }));
+    fireEvent.click(screen.getByRole("button", { name: /文件转写/i }));
+
+    const publicBaseUrlInput = screen.getByPlaceholderText("https://files.example.com");
+    fireEvent.change(publicBaseUrlInput, {
+      target: { value: "https://cdn.example.com/transcription" }
+    });
+    fireEvent.change(screen.getByRole("combobox"), {
+      target: { value: "s3" }
+    });
+    fireEvent.change(screen.getByPlaceholderText("例如: voicespirit-assets"), {
+      target: { value: "voicespirit-assets" }
+    });
+    fireEvent.change(screen.getByPlaceholderText("例如: us-east-1"), {
+      target: { value: "us-east-1" }
+    });
+    fireEvent.change(screen.getByPlaceholderText("例如: https://s3.example.com"), {
+      target: { value: "https://s3.example.com" }
+    });
+    fireEvent.change(screen.getByPlaceholderText("例如: voice-jobs/"), {
+      target: { value: "voice-jobs" }
+    });
+    fireEvent.change(screen.getByPlaceholderText("输入 Access Key ID"), {
+      target: { value: "key-id" }
+    });
+    fireEvent.change(screen.getByPlaceholderText("输入 Secret Access Key"), {
+      target: { value: "secret" }
+    });
+
+    const saveButton = screen.getByRole("button", { name: "保存全部修改" });
+    const settingsForm = saveButton.closest("form");
+    expect(settingsForm).not.toBeNull();
+    fireEvent.submit(settingsForm!);
 
     await waitFor(() => {
-      expect(mockedUpdateSettings).toHaveBeenCalledWith(
-        expect.objectContaining({
-          api_keys: { dashscope_api_key: "new-key" },
-          default_models: { DashScope: { default: "qwen-max", available: ["qwen-plus"] } }
-        })
-      );
+      expect(mockedUpdateSettings).toHaveBeenCalled();
     });
+
+    expect(mockedUpdateSettings).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        api_keys: { dashscope_api_key: "new-key" },
+        default_models: expect.objectContaining({
+          DashScope: expect.objectContaining({
+            default: "qwen-max"
+          })
+        }),
+        transcription_settings: expect.objectContaining({
+          upload_mode: "s3",
+          public_base_url: "https://cdn.example.com/transcription",
+          s3_bucket: "voicespirit-assets",
+          s3_region: "us-east-1",
+          s3_endpoint_url: "https://s3.example.com",
+          s3_access_key_id: "key-id",
+          s3_secret_access_key: "secret",
+          s3_key_prefix: "voice-jobs"
+        })
+      })
+    );
 
     expect(await screen.findByText("已保存 DashScope 的设置。")).toBeInTheDocument();
   });
 
   it("generates an audio overview script", async () => {
+    localStorage.setItem("evermem_enabled", "true");
+    localStorage.setItem("evermem_url", "https://api.evermind.ai");
     mockedGenerateAudioOverviewScript.mockResolvedValue({
       topic: "新主题",
       language: "zh",
@@ -375,7 +504,9 @@ describe("App interactions", () => {
       ],
       turn_count: 8,
       provider: "DashScope",
-      model: ""
+      model: "",
+      memories_retrieved: 2,
+      memory_saved: true
     });
     mockedCreateAudioOverviewPodcast.mockResolvedValue({
       id: 99,
@@ -391,7 +522,9 @@ describe("App interactions", () => {
     });
 
     render(<App />);
-    fireEvent.click(await screen.findByRole("button", { name: "播客" }));
+    const podcastBtn4 = screen.getByTestId("nav-audio_overview");
+    fireEvent.click(podcastBtn4);
+    expect(screen.getByText("长期记忆已接入")).toBeInTheDocument();
 
     const topicInput = screen.getByPlaceholderText("输入你想讨论的话题，例如：AI 如何改变个人学习习惯？");
     fireEvent.change(topicInput, { target: { value: "新主题" } });
@@ -399,11 +532,18 @@ describe("App interactions", () => {
     fireEvent.click(screen.getByRole("button", { name: "生成脚本" }));
 
     await waitFor(() => {
-      expect(mockedGenerateAudioOverviewScript).toHaveBeenCalled();
+      expect(mockedGenerateAudioOverviewScript).toHaveBeenCalledWith(
+        expect.objectContaining({
+          topic: "新主题"
+        }),
+        { useMemory: true }
+      );
       expect(mockedCreateAudioOverviewPodcast).toHaveBeenCalled();
     });
 
-    expect(await screen.findByText("脚本已生成，并保存为播客 #99。")).toBeInTheDocument();
+    expect(
+      await screen.findByText("脚本已生成，并保存为播客 #99。 已引用 2 条长期记忆，并写入本次播客草稿。")
+    ).toBeInTheDocument();
     expect(screen.getByDisplayValue("测试生成1")).toBeInTheDocument();
   });
 });

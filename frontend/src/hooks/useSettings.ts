@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import {
   configureEverMemRuntime,
+  getEverMemRuntimeConfig,
   fetchApiRuntimeInfo,
   fetchSettings,
   updateSettings,
@@ -39,6 +40,18 @@ type Options = {
   formatErrorMessage: FormatErrorMessage;
 };
 
+function trimOrEmpty(value: string) {
+  return value.trim();
+}
+
+type ProviderModelCatalog = Record<
+  string,
+  {
+    defaultModel: string;
+    availableModels: string[];
+  }
+>;
+
 export default function useSettings({ formatErrorMessage }: Options) {
   const [settingsBusy, setSettingsBusy] = useState(false);
   const [settingsSaving, setSettingsSaving] = useState(false);
@@ -52,10 +65,26 @@ export default function useSettings({ formatErrorMessage }: Options) {
   const [settingsApiUrl, setSettingsApiUrl] = useState("");
   const [settingsDefaultModel, setSettingsDefaultModel] = useState("");
   const [settingsAvailableModelsText, setSettingsAvailableModelsText] = useState("");
+  const [transcriptionUploadMode, setTranscriptionUploadMode] = useState("static");
+  const [transcriptionPublicBaseUrl, setTranscriptionPublicBaseUrl] = useState("");
+  const [transcriptionS3Bucket, setTranscriptionS3Bucket] = useState("");
+  const [transcriptionS3Region, setTranscriptionS3Region] = useState("");
+  const [transcriptionS3EndpointUrl, setTranscriptionS3EndpointUrl] = useState("");
+  const [transcriptionS3AccessKeyId, setTranscriptionS3AccessKeyId] = useState("");
+  const [transcriptionS3SecretAccessKey, setTranscriptionS3SecretAccessKey] = useState("");
+  const [transcriptionS3KeyPrefix, setTranscriptionS3KeyPrefix] = useState("transcription");
 
   const [evermemEnabled, setEvermemEnabled] = useState(false);
-  const [evermemUrl, setEvermemUrl] = useState("");
-  const [evermemKey, setEvermemKey] = useState("");
+  const [evermemApiUrl, setEvermemApiUrl] = useState("");
+  const [evermemApiKey, setEvermemApiKey] = useState("");
+  const [evermemScopeId, setEvermemScopeId] = useState("");
+  const [evermemTempSession, setEvermemTempSession] = useState(false);
+  const [evermemRememberChat, setEvermemRememberChat] = useState(true);
+  const [evermemRememberVoiceChat, setEvermemRememberVoiceChat] = useState(true);
+  const [evermemRememberRecordings, setEvermemRememberRecordings] = useState(true);
+  const [evermemRememberPodcast, setEvermemRememberPodcast] = useState(true);
+  const [evermemRememberTts, setEvermemRememberTts] = useState(false);
+  const [evermemStoreTranscript, setEvermemStoreTranscript] = useState(false);
 
   const [backendPhase, setBackendPhase] = useState("");
   const [backendAuthMode, setBackendAuthMode] = useState("");
@@ -113,6 +142,117 @@ export default function useSettings({ formatErrorMessage }: Options) {
     [backendPhase, backendAuthMode, backendAuthEnabled, backendVersion, backendStatus]
   );
 
+  const providerSection = useMemo(() => {
+    const availableModels = settingsAvailableModelsText
+      .split(/\r?\n/)
+      .map((item) => item.trim())
+      .filter(Boolean);
+    return {
+      provider: settingsProvider,
+      apiKeyConfigured: Boolean(trimOrEmpty(settingsApiKey)),
+      apiUrlConfigured: Boolean(trimOrEmpty(settingsApiUrl)),
+      defaultModelConfigured: Boolean(trimOrEmpty(settingsDefaultModel)),
+      availableModelCount: availableModels.length,
+      availableModels
+    };
+  }, [
+    settingsApiKey,
+    settingsApiUrl,
+    settingsAvailableModelsText,
+    settingsDefaultModel,
+    settingsProvider
+  ]);
+
+  const providerModelCatalog = useMemo<ProviderModelCatalog>(() => {
+    if (!settingsData) {
+      return {};
+    }
+    return Object.fromEntries(
+      Object.entries(settingsData.default_models || {}).map(([provider, value]) => {
+        const parsed = parseModelValue(value);
+        return [provider, parsed];
+      })
+    );
+  }, [settingsData]);
+
+  const memorySection = useMemo(() => {
+    return {
+      enabled: evermemEnabled,
+      configured:
+        evermemEnabled &&
+        Boolean(trimOrEmpty(evermemApiUrl)) &&
+        Boolean(trimOrEmpty(evermemApiKey)),
+      temporarySession: evermemTempSession,
+      scopeIdConfigured: Boolean(trimOrEmpty(evermemScopeId)),
+      scenes: [
+        { id: "chat", enabled: evermemRememberChat, label: "聊天" },
+        { id: "voice_chat", enabled: evermemRememberVoiceChat, label: "语音聊天" },
+        { id: "transcription", enabled: evermemRememberRecordings, label: "录音转写" },
+        { id: "podcast", enabled: evermemRememberPodcast, label: "播客脚本" },
+        { id: "tts", enabled: evermemRememberTts, label: "语音合成" }
+      ],
+      storeTranscriptFulltext: evermemStoreTranscript
+    };
+  }, [
+    evermemApiKey,
+    evermemApiUrl,
+    evermemEnabled,
+    evermemRememberChat,
+    evermemRememberPodcast,
+    evermemRememberRecordings,
+    evermemRememberTts,
+    evermemRememberVoiceChat,
+    evermemScopeId,
+    evermemStoreTranscript,
+    evermemTempSession
+  ]);
+
+  const transcriptionSection = useMemo(() => {
+    const missingS3Fields = [
+      ["s3_bucket", transcriptionS3Bucket],
+      ["s3_region", transcriptionS3Region],
+      ["s3_access_key_id", transcriptionS3AccessKeyId],
+      ["s3_secret_access_key", transcriptionS3SecretAccessKey]
+    ]
+      .filter(([, value]) => !trimOrEmpty(value))
+      .map(([key]) => key);
+
+    return {
+      uploadMode: transcriptionUploadMode,
+      publicBaseUrlConfigured: Boolean(trimOrEmpty(transcriptionPublicBaseUrl)),
+      s3Configured:
+        transcriptionUploadMode === "s3" ? missingS3Fields.length === 0 : false,
+      s3MissingFields: missingS3Fields,
+      s3KeyPrefix: trimOrEmpty(transcriptionS3KeyPrefix) || "transcription"
+    };
+  }, [
+    transcriptionPublicBaseUrl,
+    transcriptionS3AccessKeyId,
+    transcriptionS3Bucket,
+    transcriptionS3KeyPrefix,
+    transcriptionS3Region,
+    transcriptionS3SecretAccessKey,
+    transcriptionUploadMode
+  ]);
+
+  const desktopSection = useMemo(() => {
+    return {
+      configPath: settingsConfigPath,
+      backendPhase,
+      backendVersion,
+      backendStatus,
+      runtimeVisible: backendRuntimeOpen,
+      runtimeCopyStatus
+    };
+  }, [
+    backendPhase,
+    backendRuntimeOpen,
+    backendStatus,
+    backendVersion,
+    runtimeCopyStatus,
+    settingsConfigPath
+  ]);
+
   useEffect(() => {
     if (runtimeCopyStatus !== "ok") {
       return;
@@ -156,17 +296,32 @@ export default function useSettings({ formatErrorMessage }: Options) {
 
   useEffect(() => {
     void loadSettings();
-    const savedEnabled = localStorage.getItem("evermem_enabled") === "true";
-    const savedUrl = localStorage.getItem("evermem_url") || "";
-    const legacyKey = localStorage.getItem("evermem_key") || "";
+    const runtimeConfig = getEverMemRuntimeConfig();
 
-    setEvermemEnabled(savedEnabled);
-    setEvermemUrl(savedUrl);
-    setEvermemKey(legacyKey);
+    setEvermemEnabled(runtimeConfig.enabled);
+    setEvermemApiUrl(runtimeConfig.api_url);
+    setEvermemApiKey(runtimeConfig.api_key);
+    setEvermemScopeId(runtimeConfig.scope_id);
+    setEvermemTempSession(runtimeConfig.temporary_session);
+    setEvermemRememberChat(runtimeConfig.remember_chat);
+    setEvermemRememberVoiceChat(runtimeConfig.remember_voice_chat);
+    setEvermemRememberRecordings(runtimeConfig.remember_recordings);
+    setEvermemRememberPodcast(runtimeConfig.remember_podcast);
+    setEvermemRememberTts(runtimeConfig.remember_tts);
+    setEvermemStoreTranscript(runtimeConfig.store_transcript_fulltext);
+
     configureEverMemRuntime({
-      enabled: savedEnabled,
-      url: savedUrl,
-      key: legacyKey
+      enabled: runtimeConfig.enabled,
+      api_url: runtimeConfig.api_url,
+      api_key: runtimeConfig.api_key,
+      scope_id: runtimeConfig.scope_id,
+      temporary_session: runtimeConfig.temporary_session,
+      remember_chat: runtimeConfig.remember_chat,
+      remember_voice_chat: runtimeConfig.remember_voice_chat,
+      remember_recordings: runtimeConfig.remember_recordings,
+      remember_podcast: runtimeConfig.remember_podcast,
+      remember_tts: runtimeConfig.remember_tts,
+      store_transcript_fulltext: runtimeConfig.store_transcript_fulltext,
     });
     localStorage.removeItem("evermem_key");
   }, []);
@@ -185,6 +340,49 @@ export default function useSettings({ formatErrorMessage }: Options) {
     setSettingsApiUrl(apiUrl);
     setSettingsDefaultModel(defaultModel);
     setSettingsAvailableModelsText(availableModels.join("\n"));
+
+    const memorySettings = settingsData.memory_settings || {};
+    const transcriptionSettings = settingsData.transcription_settings || {};
+    if (typeof memorySettings.enabled === "boolean") setEvermemEnabled(memorySettings.enabled);
+    if (typeof memorySettings.api_url === "string") setEvermemApiUrl(memorySettings.api_url);
+    if (typeof memorySettings.api_key === "string") setEvermemApiKey(memorySettings.api_key);
+    if (typeof memorySettings.scope_id === "string") setEvermemScopeId(memorySettings.scope_id);
+    if (typeof memorySettings.temporary_session === "boolean") setEvermemTempSession(memorySettings.temporary_session);
+    if (typeof memorySettings.remember_chat === "boolean") setEvermemRememberChat(memorySettings.remember_chat);
+    if (typeof memorySettings.remember_voice_chat === "boolean") setEvermemRememberVoiceChat(memorySettings.remember_voice_chat);
+    if (typeof memorySettings.remember_recordings === "boolean") setEvermemRememberRecordings(memorySettings.remember_recordings);
+    if (typeof memorySettings.remember_podcast === "boolean") setEvermemRememberPodcast(memorySettings.remember_podcast);
+    if (typeof memorySettings.remember_tts === "boolean") setEvermemRememberTts(memorySettings.remember_tts);
+    if (typeof memorySettings.store_transcript_fulltext === "boolean") setEvermemStoreTranscript(memorySettings.store_transcript_fulltext);
+    if (typeof transcriptionSettings.upload_mode === "string" && transcriptionSettings.upload_mode.trim()) {
+      setTranscriptionUploadMode(transcriptionSettings.upload_mode);
+    }
+    if (typeof transcriptionSettings.public_base_url === "string") {
+      setTranscriptionPublicBaseUrl(transcriptionSettings.public_base_url);
+    }
+    if (typeof transcriptionSettings.s3_bucket === "string") setTranscriptionS3Bucket(transcriptionSettings.s3_bucket);
+    if (typeof transcriptionSettings.s3_region === "string") setTranscriptionS3Region(transcriptionSettings.s3_region);
+    if (typeof transcriptionSettings.s3_endpoint_url === "string") setTranscriptionS3EndpointUrl(transcriptionSettings.s3_endpoint_url);
+    if (typeof transcriptionSettings.s3_access_key_id === "string") setTranscriptionS3AccessKeyId(transcriptionSettings.s3_access_key_id);
+    if (typeof transcriptionSettings.s3_secret_access_key === "string") setTranscriptionS3SecretAccessKey(transcriptionSettings.s3_secret_access_key);
+    if (typeof transcriptionSettings.s3_key_prefix === "string" && transcriptionSettings.s3_key_prefix.trim()) {
+      setTranscriptionS3KeyPrefix(transcriptionSettings.s3_key_prefix);
+    }
+
+    // push to runtime to keep consistent
+    configureEverMemRuntime({
+      enabled: typeof memorySettings.enabled === "boolean" ? memorySettings.enabled : evermemEnabled,
+      api_url: typeof memorySettings.api_url === "string" ? memorySettings.api_url : evermemApiUrl,
+      api_key: typeof memorySettings.api_key === "string" ? memorySettings.api_key : evermemApiKey,
+      scope_id: typeof memorySettings.scope_id === "string" ? memorySettings.scope_id : evermemScopeId,
+      temporary_session: typeof memorySettings.temporary_session === "boolean" ? memorySettings.temporary_session : evermemTempSession,
+      remember_chat: typeof memorySettings.remember_chat === "boolean" ? memorySettings.remember_chat : evermemRememberChat,
+      remember_voice_chat: typeof memorySettings.remember_voice_chat === "boolean" ? memorySettings.remember_voice_chat : evermemRememberVoiceChat,
+      remember_recordings: typeof memorySettings.remember_recordings === "boolean" ? memorySettings.remember_recordings : evermemRememberRecordings,
+      remember_podcast: typeof memorySettings.remember_podcast === "boolean" ? memorySettings.remember_podcast : evermemRememberPodcast,
+      remember_tts: typeof memorySettings.remember_tts === "boolean" ? memorySettings.remember_tts : evermemRememberTts,
+      store_transcript_fulltext: typeof memorySettings.store_transcript_fulltext === "boolean" ? memorySettings.store_transcript_fulltext : evermemStoreTranscript
+    });
   }, [settingsData, settingsProvider]);
 
   async function onSubmit(event: FormEvent) {
@@ -207,8 +405,16 @@ export default function useSettings({ formatErrorMessage }: Options) {
     try {
       configureEverMemRuntime({
         enabled: evermemEnabled,
-        url: evermemUrl,
-        key: evermemKey
+        api_url: evermemApiUrl,
+        api_key: evermemApiKey,
+        scope_id: evermemScopeId,
+        temporary_session: evermemTempSession,
+        remember_chat: evermemRememberChat,
+        remember_voice_chat: evermemRememberVoiceChat,
+        remember_recordings: evermemRememberRecordings,
+        remember_podcast: evermemRememberPodcast,
+        remember_tts: evermemRememberTts,
+        store_transcript_fulltext: evermemStoreTranscript
       });
 
       const result = await updateSettings({
@@ -223,6 +429,29 @@ export default function useSettings({ formatErrorMessage }: Options) {
             default: settingsDefaultModel.trim(),
             available: availableModels
           }
+        },
+        memory_settings: {
+          enabled: evermemEnabled,
+          api_url: evermemApiUrl,
+          api_key: evermemApiKey,
+          scope_id: evermemScopeId,
+          temporary_session: evermemTempSession,
+          remember_chat: evermemRememberChat,
+          remember_voice_chat: evermemRememberVoiceChat,
+          remember_recordings: evermemRememberRecordings,
+          remember_podcast: evermemRememberPodcast,
+          remember_tts: evermemRememberTts,
+          store_transcript_fulltext: evermemStoreTranscript
+        },
+        transcription_settings: {
+          upload_mode: transcriptionUploadMode.trim() || "static",
+          public_base_url: transcriptionPublicBaseUrl.trim(),
+          s3_bucket: transcriptionS3Bucket.trim(),
+          s3_region: transcriptionS3Region.trim(),
+          s3_endpoint_url: transcriptionS3EndpointUrl.trim(),
+          s3_access_key_id: transcriptionS3AccessKeyId.trim(),
+          s3_secret_access_key: transcriptionS3SecretAccessKey.trim(),
+          s3_key_prefix: transcriptionS3KeyPrefix.trim() || "transcription"
         }
       });
       setSettingsData(result.settings);
@@ -247,13 +476,34 @@ export default function useSettings({ formatErrorMessage }: Options) {
     settingsApiUrl,
     settingsDefaultModel,
     settingsAvailableModelsText,
+    transcriptionUploadMode,
+    transcriptionPublicBaseUrl,
+    transcriptionS3Bucket,
+    transcriptionS3Region,
+    transcriptionS3EndpointUrl,
+    transcriptionS3AccessKeyId,
+    transcriptionS3SecretAccessKey,
+    transcriptionS3KeyPrefix,
     evermemEnabled,
-    evermemUrl,
-    evermemKey,
+    evermemApiUrl,
+    evermemApiKey,
+    evermemScopeId,
+    evermemTempSession,
+    evermemRememberChat,
+    evermemRememberVoiceChat,
+    evermemRememberRecordings,
+    evermemRememberPodcast,
+    evermemRememberTts,
+    evermemStoreTranscript,
     backendRuntimeRaw,
     backendRuntimeOpen,
     runtimeCopyStatus,
     errorRuntimeContext,
+    providerSection,
+    providerModelCatalog,
+    memorySection,
+    transcriptionSection,
+    desktopSection,
     providerOptions: settingsProviders.length
       ? settingsProviders
       : Object.keys(PROVIDER_API_KEY_FIELD),
@@ -264,9 +514,25 @@ export default function useSettings({ formatErrorMessage }: Options) {
     onApiUrlChange: setSettingsApiUrl,
     onDefaultModelChange: setSettingsDefaultModel,
     onAvailableModelsChange: setSettingsAvailableModelsText,
+    onTranscriptionUploadModeChange: setTranscriptionUploadMode,
+    onTranscriptionPublicBaseUrlChange: setTranscriptionPublicBaseUrl,
+    onTranscriptionS3BucketChange: setTranscriptionS3Bucket,
+    onTranscriptionS3RegionChange: setTranscriptionS3Region,
+    onTranscriptionS3EndpointUrlChange: setTranscriptionS3EndpointUrl,
+    onTranscriptionS3AccessKeyIdChange: setTranscriptionS3AccessKeyId,
+    onTranscriptionS3SecretAccessKeyChange: setTranscriptionS3SecretAccessKey,
+    onTranscriptionS3KeyPrefixChange: setTranscriptionS3KeyPrefix,
     onEvermemEnabledChange: setEvermemEnabled,
-    onEvermemUrlChange: setEvermemUrl,
-    onEvermemKeyChange: setEvermemKey,
+    onEvermemApiUrlChange: setEvermemApiUrl,
+    onEvermemApiKeyChange: setEvermemApiKey,
+    onEvermemScopeIdChange: setEvermemScopeId,
+    onEvermemTempSessionChange: setEvermemTempSession,
+    onEvermemRememberChatChange: setEvermemRememberChat,
+    onEvermemRememberVoiceChatChange: setEvermemRememberVoiceChat,
+    onEvermemRememberRecordingsChange: setEvermemRememberRecordings,
+    onEvermemRememberPodcastChange: setEvermemRememberPodcast,
+    onEvermemRememberTtsChange: setEvermemRememberTts,
+    onEvermemStoreTranscriptChange: setEvermemStoreTranscript,
     onToggleRuntimeOpen: () => setBackendRuntimeOpen((value) => !value),
     onCopyBackendRuntime
   };

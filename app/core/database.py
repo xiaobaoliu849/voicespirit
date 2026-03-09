@@ -42,6 +42,19 @@ class DatabaseManager:
                 FOREIGN KEY(session_id) REFERENCES sessions(id)
             )
         ''')
+
+        self.cursor.execute('''
+            CREATE TABLE IF NOT EXISTS voice_transcripts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id INTEGER,
+                source TEXT,
+                provider TEXT,
+                model TEXT,
+                transcript TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(session_id) REFERENCES sessions(id)
+            )
+        ''')
         
         # Create Podcasts Table (播客项目)
         self.cursor.execute('''
@@ -113,7 +126,40 @@ class DatabaseManager:
         """Deletes all sessions and messages."""
         self.cursor.execute("DELETE FROM messages")
         self.cursor.execute("DELETE FROM sessions")
+        self.cursor.execute("DELETE FROM voice_transcripts")
         self.conn.commit()
+
+    def add_voice_transcript(self, session_id, source, transcript, provider="", model=""):
+        """Stores raw voice transcript assets separately from long-term memory."""
+        self.cursor.execute(
+            """
+            INSERT INTO voice_transcripts (session_id, source, provider, model, transcript)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (session_id, source, provider, model, transcript),
+        )
+        transcript_id = self.cursor.lastrowid
+        if session_id:
+            self.cursor.execute(
+                "UPDATE sessions SET updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                (session_id,),
+            )
+        self.conn.commit()
+        return transcript_id
+
+    def get_voice_transcripts(self, session_id, limit=50):
+        """Returns raw transcript assets for a session."""
+        self.cursor.execute(
+            """
+            SELECT id, source, provider, model, transcript, created_at
+            FROM voice_transcripts
+            WHERE session_id = ?
+            ORDER BY id DESC
+            LIMIT ?
+            """,
+            (session_id, limit),
+        )
+        return self.cursor.fetchall()
     
     # ========== 播客相关方法 ==========
     

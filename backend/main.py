@@ -11,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from routers import audio_overview, chat, settings, translate, tts, voices
+from routers import audio_overview, chat, settings, translate, tts, voice_chat, voices
 from services.auth_service import (
     is_auth_enabled,
     should_enforce_auth,
@@ -272,10 +272,20 @@ def create_app() -> FastAPI:
     app.include_router(voices.router, prefix="/api/voices", tags=["voices"])
     app.include_router(settings.router, prefix="/api/settings", tags=["settings"])
     app.include_router(audio_overview.router, prefix="/api/audio-overview", tags=["audio-overview"])
+    from routers import transcription
+    app.include_router(transcription.router, prefix="/api/transcription", tags=["transcription"])
+    app.include_router(voice_chat.router, prefix="/api/voice-chat", tags=["voice-chat"])
 
     frontend_dist = Path(__file__).resolve().parents[1] / "frontend" / "dist"
     frontend_dist_resolved = frontend_dist.resolve()
     frontend_assets = frontend_dist / "assets"
+    transcription_public_dir = Path(__file__).resolve().parent / "temp_audio" / "transcription_jobs" / "published"
+    transcription_public_dir.mkdir(parents=True, exist_ok=True)
+    app.mount(
+        "/public/transcription",
+        StaticFiles(directory=str(transcription_public_dir)),
+        name="transcription-public",
+    )
     if frontend_dist.is_dir() and (frontend_dist / "index.html").is_file():
         if frontend_assets.is_dir():
             app.mount(

@@ -8,19 +8,27 @@ import unittest
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
+from urllib.parse import urlparse
 
 import httpx
+from starlette.requests import Request
+from starlette.routing import Mount, Route, WebSocketRoute
 
 from main import create_app
 from routers import audio_overview as audio_overview_router
 from routers import chat as chat_router
 from routers import settings as settings_router
+from routers import transcription as transcription_router
 from routers import translate as translate_router
 from routers import tts as tts_router
 from routers import voices as voices_router
 from services.audio_overview_service import AudioOverviewService, AudioOverviewServiceError
 from services.config_loader import BackendConfig
+from services.evermem_config import EverMemConfig
+from services.realtime_voice_service import RealtimeVoiceService
 from services.settings_service import SettingsService
+from services.transcription_publish_adapter import build_transcription_publisher
+from services.transcription_service import TranscriptionService
 
 
 class ApiSmokeTests(unittest.TestCase):
@@ -41,6 +49,72 @@ class ApiSmokeTests(unittest.TestCase):
         self.assertEqual(response.json(), {"status": "healthy"})
         self.assertTrue(bool(response.headers.get("x-request-id")))
 
+    def test_voice_chat_websocket_route_registered(self) -> None:
+        websocket_paths = {
+            route.path
+            for route in self.app.routes
+            if isinstance(route, WebSocketRoute)
+        }
+        self.assertIn("/api/voice-chat/ws", websocket_paths)
+
+    def test_realtime_voice_service_requires_google_api_key(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            config_path = Path(tmp_dir) / "config.json"
+            config_path.write_text(
+                json.dumps(
+                    {
+                        "api_keys": {"google_api_key": ""},
+                        "api_urls": {"Google": ""},
+                        "default_models": {"Google": {"default": "", "available": []}},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            service = RealtimeVoiceService(config=BackendConfig(config_path))
+            with self.assertRaises(RuntimeError) as exc:
+                service._resolve_google_settings(None)
+            self.assertIn("Google API Key", str(exc.exception))
+
+    def test_desktop_web_app_routes_serve_built_frontend(self) -> None:
+        app_routes = {getattr(route, "path", ""): route for route in self.app.routes}
+        self.assertIn("/app", app_routes)
+        self.assertIn("/app/", app_routes)
+
+        app_index_route = app_routes["/app/"]
+        self.assertIsInstance(app_index_route, Route)
+
+        response = asyncio.run(app_index_route.endpoint())
+        self.assertEqual(
+            Path(getattr(response, "path", "")),
+            Path(__file__).resolve().parents[2] / "frontend" / "dist" / "index.html",
+        )
+
+    def test_desktop_root_assets_alias_serves_bundles(self) -> None:
+        frontend_dist = Path(__file__).resolve().parents[2] / "frontend" / "dist"
+        index_html = frontend_dist / "index.html"
+        self.assertTrue(index_html.is_file())
+        html = index_html.read_text(encoding="utf-8")
+
+        script_marker = 'src="/assets/'
+        style_marker = 'href="/assets/'
+        script_start = html.index(script_marker) + len('src="')
+        script_end = html.index('"', script_start)
+        style_start = html.index(style_marker) + len('href="')
+        style_end = html.index('"', style_start)
+        script_path = html[script_start:script_end]
+        style_path = html[style_start:style_end]
+        assets_dir = frontend_dist / "assets"
+        self.assertTrue((assets_dir / script_path.removeprefix("/assets/")).is_file())
+        self.assertTrue((assets_dir / style_path.removeprefix("/assets/")).is_file())
+
+        asset_mount_paths = {
+            route.path
+            for route in self.app.routes
+            if isinstance(route, Mount)
+        }
+        self.assertIn("/assets", asset_mount_paths)
+        self.assertIn("/app/assets", asset_mount_paths)
+
     def test_request_id_passthrough(self) -> None:
         request_id = "req-smoke-001"
         response = self._request("GET", "/health", headers={"X-Request-ID": request_id})
@@ -48,8 +122,13 @@ class ApiSmokeTests(unittest.TestCase):
         self.assertEqual(response.headers.get("x-request-id"), request_id)
 
     def test_error_log_contains_request_id(self) -> None:
-        async def fake_generate_audio(text: str, voice: str | None, rate: str = "+0%") -> tuple[str, str, bool]:
-            _ = (text, voice, rate)
+        async def fake_generate_audio(
+            text: str,
+            voice: str | None,
+            rate: str = "+0%",
+            engine: str = "edge",
+        ) -> tuple[str, str, bool]:
+            _ = (text, voice, rate, engine)
             raise ValueError("Text is empty after cleanup.")
 
         request_id = "req-error-log-001"
@@ -70,8 +149,8 @@ class ApiSmokeTests(unittest.TestCase):
         self.assertEqual(payload["status"], 400)
 
     def test_tts_voices_endpoint(self) -> None:
-        async def fake_list_voices(locale: str | None = None) -> list[dict[str, Any]]:
-            _ = locale
+        async def fake_list_voices(locale: str | None = None, engine: str = "edge") -> list[dict[str, Any]]:
+            _ = (locale, engine)
             return [{"name": "zh-CN-XiaoxiaoNeural", "short_name": "Xiaoxiao", "locale": "zh-CN", "gender": "Female"}]
 
         with patch.object(tts_router.tts_service, "list_voices", new=fake_list_voices):
@@ -81,9 +160,16 @@ class ApiSmokeTests(unittest.TestCase):
         self.assertEqual(payload["count"], 1)
         self.assertEqual(payload["voices"][0]["name"], "zh-CN-XiaoxiaoNeural")
 
+    def test_tts_voices_endpoint_supports_qwen_flash_engine(self) -> None:
+        response = self._request("GET", "/api/tts/voices", params={"engine": "qwen_flash"})
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertGreater(payload["count"], 0)
+        self.assertEqual(payload["voices"][0]["name"], "Cherry")
+
     def test_auth_token_protection(self) -> None:
-        async def fake_list_voices(locale: str | None = None) -> list[dict[str, Any]]:
-            _ = locale
+        async def fake_list_voices(locale: str | None = None, engine: str = "edge") -> list[dict[str, Any]]:
+            _ = (locale, engine)
             return [{"name": "zh-CN-XiaoxiaoNeural", "short_name": "Xiaoxiao", "locale": "zh-CN", "gender": "Female"}]
 
         async def fake_chat_completion(**kwargs: Any) -> dict[str, Any]:
@@ -177,14 +263,658 @@ class ApiSmokeTests(unittest.TestCase):
                 settings_router.settings_service = original_service
 
     def test_tts_speak_endpoint(self) -> None:
-        async def fake_generate_audio(text: str, voice: str | None, rate: str = "+0%") -> tuple[str, str, bool]:
-            _ = (text, voice, rate)
+        async def fake_generate_audio(
+            text: str,
+            voice: str | None,
+            rate: str = "+0%",
+            engine: str = "edge",
+        ) -> tuple[str, str, bool]:
+            _ = (text, voice, rate, engine)
             raise ValueError("Text is empty after cleanup.")
 
         with patch.object(tts_router.tts_service, "generate_audio", new=fake_generate_audio):
             response = self._request("GET", "/api/tts/speak", params={"text": "hello"})
         self.assertEqual(response.status_code, 400)
         self.assertIn("Text is empty after cleanup", response.text)
+
+    def test_tts_speak_endpoint_passes_engine(self) -> None:
+        async def fake_generate_audio(
+            text: str,
+            voice: str | None,
+            rate: str = "+0%",
+            engine: str = "edge",
+        ) -> tuple[str, str, bool]:
+            self.assertEqual(text, "hello")
+            self.assertEqual(voice, "female-shaonv")
+            self.assertEqual(rate, "+10%")
+            self.assertEqual(engine, "minimax")
+            tmp_dir = tempfile.mkdtemp()
+            file_path = Path(tmp_dir) / "test.mp3"
+            file_path.write_bytes(b"ID3")
+            return str(file_path), "female-shaonv", False
+
+        with patch.object(tts_router.tts_service, "generate_audio", new=fake_generate_audio):
+            response = self._request(
+                "GET",
+                "/api/tts/speak",
+                params={
+                    "text": "hello",
+                    "voice": "female-shaonv",
+                    "rate": "+10%",
+                    "engine": "minimax",
+                },
+            )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.headers.get("x-tts-engine"), "minimax")
+
+    def test_tts_speak_endpoint_with_memory_header(self) -> None:
+        async def fake_generate_audio(
+            text: str,
+            voice: str | None,
+            rate: str = "+0%",
+            engine: str = "edge",
+        ) -> tuple[str, str, bool]:
+            _ = (text, voice, rate, engine)
+            tmp_dir = tempfile.mkdtemp()
+            file_path = Path(tmp_dir) / "test.mp3"
+            file_path.write_bytes(b"ID3")
+            return str(file_path), "zh-CN-XiaoxiaoNeural", True
+
+        class FakeEverMemService:
+            async def add_memory(self, **kwargs: Any) -> dict[str, Any] | None:
+                _ = kwargs
+                return {"status": "success"}
+
+        request = Request(
+            {
+                "type": "http",
+                "method": "GET",
+                "path": "/api/tts/speak",
+                "headers": [
+                    (b"x-evermem-enabled", b"true"),
+                    (b"x-evermem-key", b"test-key"),
+                ],
+            }
+        )
+        with patch.object(tts_router.tts_service, "generate_audio", new=fake_generate_audio):
+            with patch.object(EverMemConfig, "get_service", return_value=FakeEverMemService()):
+                response = asyncio.run(
+                    tts_router.speak(
+                        request=request,
+                        text="hello",
+                        voice="zh-CN-XiaoxiaoNeural",
+                        rate="+0%",
+                    )
+                )
+        self.assertIn("audio/mpeg", response.media_type)
+        self.assertEqual(response.headers.get("x-tts-voice"), "zh-CN-XiaoxiaoNeural")
+        self.assertEqual(response.headers.get("x-cache"), "HIT")
+        self.assertEqual(response.headers.get("x-evermem-saved"), "true")
+
+    def test_transcription_service_extracts_multimodal_text(self) -> None:
+        payload = {
+            "output": {
+                "choices": [
+                    {
+                        "message": {
+                            "content": [
+                                {"text": "第一句"},
+                                {"text": "第二句"},
+                            ]
+                        }
+                    }
+                ]
+            }
+        }
+
+        text = TranscriptionService._extract_text(payload)
+        self.assertEqual(text, "第一句\n第二句")
+
+    def test_transcription_service_rejects_unsupported_format(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            file_path = Path(tmp_dir) / "demo.txt"
+            file_path.write_text("not-audio", encoding="utf-8")
+
+            with self.assertRaises(ValueError):
+                asyncio.run(TranscriptionService().prepare_long_transcription_job(file_path))
+
+    def test_transcription_service_persists_async_job(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            config_path = Path(tmp_dir) / "config.json"
+            config_path.write_text("{}", encoding="utf-8")
+            audio_path = Path(tmp_dir) / "meeting.wav"
+            audio_path.write_bytes(b"RIFFdemo")
+
+            service = TranscriptionService(config=BackendConfig(config_path))
+            service.jobs_dir = Path(tmp_dir) / "jobs"
+            service.jobs_dir.mkdir(parents=True, exist_ok=True)
+
+            job = asyncio.run(service.prepare_long_transcription_job(audio_path))
+            self.assertEqual(job.status, "queued")
+            self.assertTrue(bool(job.job_id))
+
+            loaded = service.get_job(job.job_id or "")
+            self.assertIsNotNone(loaded)
+            self.assertEqual(loaded.status, "queued")
+            self.assertEqual(loaded.file_path, str(audio_path.resolve()))
+
+            updated = service.update_job(job.job_id or "", status="running")
+            self.assertEqual(updated.status, "running")
+
+    def test_transcription_service_submit_and_refresh_async_job(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            config_path = Path(tmp_dir) / "config.json"
+            config_path.write_text("{}", encoding="utf-8")
+            service = TranscriptionService(config=BackendConfig(config_path))
+            service.jobs_dir = Path(tmp_dir) / "jobs"
+            service.jobs_dir.mkdir(parents=True, exist_ok=True)
+
+            job = asyncio.run(
+                service.prepare_long_transcription_url_job("https://example.com/audio/meeting.wav")
+            )
+
+            async def fake_submit(file_url: str) -> str:
+                self.assertEqual(file_url, "https://example.com/audio/meeting.wav")
+                return "remote-task-001"
+
+            async def fake_status(remote_job_id: str) -> dict[str, Any]:
+                self.assertEqual(remote_job_id, "remote-task-001")
+                return {
+                    "task_status": "SUCCEEDED",
+                    "transcript": "会议转写完成",
+                }
+
+            with patch.object(service, "_submit_remote_job_from_url", new=fake_submit):
+                submitted = asyncio.run(service.submit_long_transcription_job(job.job_id or ""))
+            self.assertEqual(submitted.status, "submitted")
+            self.assertEqual(submitted.remote_job_id, "remote-task-001")
+
+            with patch.object(service, "_fetch_remote_job_status", new=fake_status):
+                completed = asyncio.run(service.refresh_long_transcription_job(job.job_id or ""))
+            self.assertEqual(completed.status, "completed")
+            self.assertTrue(bool(completed.transcript_path))
+            transcript_path = Path(completed.transcript_path or "")
+            self.assertTrue(transcript_path.is_file())
+            self.assertEqual(transcript_path.read_text(encoding="utf-8"), "会议转写完成")
+
+    def test_transcription_service_lists_jobs_by_status_and_recency(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            config_path = Path(tmp_dir) / "config.json"
+            config_path.write_text("{}", encoding="utf-8")
+            service = TranscriptionService(config=BackendConfig(config_path))
+            service.jobs_dir = Path(tmp_dir) / "jobs"
+            service.jobs_dir.mkdir(parents=True, exist_ok=True)
+
+            first = asyncio.run(
+                service.prepare_long_transcription_url_job("https://example.com/audio/first.wav")
+            )
+            second = asyncio.run(
+                service.prepare_long_transcription_url_job("https://example.com/audio/second.wav")
+            )
+
+            service.update_job(first.job_id or "", status="failed", error="boom")
+            service.update_job(second.job_id or "", status="completed")
+
+            completed = service.list_jobs(statuses={"completed"}, limit=10)
+            self.assertEqual(len(completed), 1)
+            self.assertEqual(completed[0].job_id, second.job_id)
+
+            all_jobs = service.list_jobs(limit=10)
+            self.assertEqual(len(all_jobs), 2)
+            self.assertEqual(all_jobs[0].job_id, second.job_id)
+            self.assertEqual(all_jobs[1].job_id, first.job_id)
+
+    def test_transcription_service_publishes_local_job_with_public_base_url(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            config_path = Path(tmp_dir) / "config.json"
+            config_path.write_text(
+                json.dumps({"transcription_settings": {"public_base_url": "https://files.example.com"}}),
+                encoding="utf-8",
+            )
+            audio_path = Path(tmp_dir) / "meeting.wav"
+            audio_path.write_bytes(b"RIFFdemo")
+
+            service = TranscriptionService(config=BackendConfig(config_path))
+            service.jobs_dir = Path(tmp_dir) / "jobs"
+            service.jobs_dir.mkdir(parents=True, exist_ok=True)
+
+            job = asyncio.run(service.prepare_long_transcription_job(audio_path))
+            published = service.publish_local_job_for_async(job.job_id or "")
+
+            self.assertTrue(bool(published.source_url))
+            self.assertIn("/public/transcription/", published.source_url or "")
+            published_name = Path(urlparse(published.source_url or "").path).name
+            self.assertTrue((service.published_dir / published_name).is_file())
+
+    def test_transcription_publisher_disables_unsupported_upload_mode(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            config_path = Path(tmp_dir) / "config.json"
+            config_path.write_text(
+                json.dumps(
+                    {
+                        "transcription_settings": {
+                            "public_base_url": "https://files.example.com",
+                            "upload_mode": "oss",
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+            publisher = build_transcription_publisher(
+                BackendConfig(config_path),
+                published_dir=Path(tmp_dir) / "published",
+            )
+            self.assertFalse(publisher.is_enabled())
+            with self.assertRaises(ValueError):
+                publisher.publish(
+                    job_id="tx_demo",
+                    source_path=Path(tmp_dir) / "missing.wav",
+                )
+
+    def test_transcription_publisher_disables_s3_mode_without_boto3(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            config_path = Path(tmp_dir) / "config.json"
+            config_path.write_text(
+                json.dumps(
+                    {
+                        "transcription_settings": {
+                            "upload_mode": "s3",
+                            "public_base_url": "https://cdn.example.com/transcription",
+                            "s3_bucket": "voicespirit-assets",
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with patch(
+                "services.transcription_publish_adapter._is_boto3_available",
+                return_value=False,
+            ):
+                publisher = build_transcription_publisher(
+                    BackendConfig(config_path),
+                    published_dir=Path(tmp_dir) / "published",
+                )
+            self.assertFalse(publisher.is_enabled())
+
+    def test_transcription_publisher_supports_s3_mode(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            config_path = Path(tmp_dir) / "config.json"
+            config_path.write_text(
+                json.dumps(
+                    {
+                        "transcription_settings": {
+                            "upload_mode": "s3",
+                            "public_base_url": "https://cdn.example.com/transcription",
+                            "s3_bucket": "voicespirit-assets",
+                            "s3_region": "us-east-1",
+                            "s3_endpoint_url": "https://s3.example.com",
+                            "s3_access_key_id": "key-id",
+                            "s3_secret_access_key": "secret",
+                            "s3_key_prefix": "voice-jobs",
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+            audio_path = Path(tmp_dir) / "meeting.wav"
+            audio_path.write_bytes(b"RIFFdemo")
+            upload_calls: list[tuple[str, str, str, dict[str, Any]]] = []
+
+            class FakeS3Client:
+                def upload_file(self, file_name: str, bucket: str, key: str, ExtraArgs: dict[str, Any]):
+                    upload_calls.append((file_name, bucket, key, ExtraArgs))
+
+            with patch(
+                "services.transcription_publish_adapter._is_boto3_available",
+                return_value=True,
+            ):
+                with patch(
+                    "services.transcription_publish_adapter._create_s3_client",
+                    return_value=FakeS3Client(),
+                ):
+                    publisher = build_transcription_publisher(
+                        BackendConfig(config_path),
+                        published_dir=Path(tmp_dir) / "published",
+                    )
+                    published = publisher.publish(job_id="tx_demo", source_path=audio_path)
+
+            self.assertTrue(publisher.is_enabled())
+            self.assertEqual(len(upload_calls), 1)
+            file_name, bucket, key, extra_args = upload_calls[0]
+            self.assertEqual(file_name, str(audio_path))
+            self.assertEqual(bucket, "voicespirit-assets")
+            self.assertEqual(key, "voice-jobs/tx_demo.wav")
+            self.assertEqual(extra_args["ContentType"], "audio/x-wav")
+            self.assertEqual(
+                published.source_url,
+                "https://cdn.example.com/transcription/voice-jobs/tx_demo.wav",
+            )
+
+    def test_transcription_sync_endpoint(self) -> None:
+        async def fake_transcribe_file(file_path: str | Path) -> str:
+            self.assertTrue(Path(file_path).is_file())
+            return "同步转写成功"
+
+        async def fake_save_memory(**kwargs: Any) -> bool:
+            self.assertIn("同步转写成功", kwargs["transcript_text"])
+            return True
+
+        with patch.object(transcription_router.transcription_service, "transcribe_file", new=fake_transcribe_file):
+            with patch.object(transcription_router.transcription_service, "maybe_save_memory", new=fake_save_memory):
+                response = self._request(
+                    "POST",
+                    "/api/transcription/",
+                    headers={
+                        "X-EverMem-Enabled": "true",
+                        "X-EverMem-Key": "test-key",
+                    },
+                    files={"file": ("demo.wav", b"RIFFdemo", "audio/wav")},
+                )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["transcript"], "同步转写成功")
+        self.assertTrue(response.json()["memory_saved"])
+
+    def test_transcription_async_job_saves_memory_once(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            jobs_dir = Path(tmp_dir) / "jobs"
+            jobs_dir.mkdir(parents=True, exist_ok=True)
+            original_jobs_dir = transcription_router.transcription_service.jobs_dir
+            transcription_router.transcription_service.jobs_dir = jobs_dir
+            try:
+                async def fake_submit_remote_job_from_url(file_url: str) -> str:
+                    return "remote-url-job-001"
+
+                async def fake_fetch_status(remote_job_id: str) -> dict[str, Any]:
+                    return {"task_status": "SUCCEEDED", "transcript": "异步转写记忆测试"}
+
+                save_calls = {"count": 0}
+
+                async def fake_save_memory(**kwargs: Any) -> bool:
+                    save_calls["count"] += 1
+                    return True
+
+                with patch.object(
+                    transcription_router.transcription_service,
+                    "_submit_remote_job_from_url",
+                    new=fake_submit_remote_job_from_url,
+                ):
+                    created = self._request(
+                        "POST",
+                        "/api/transcription/jobs/from-url",
+                        json={"file_url": "https://example.com/audio/demo.wav"},
+                    )
+                job_id = created.json()["job_id"]
+
+                with patch.object(
+                    transcription_router.transcription_service,
+                    "_fetch_remote_job_status",
+                    new=fake_fetch_status,
+                ):
+                    with patch.object(
+                        transcription_router.transcription_service,
+                        "maybe_save_memory",
+                        new=fake_save_memory,
+                    ):
+                        first = self._request(
+                            "GET",
+                            f"/api/transcription/jobs/{job_id}",
+                            headers={
+                                "X-EverMem-Enabled": "true",
+                                "X-EverMem-Key": "test-key",
+                            },
+                        )
+                        second = self._request(
+                            "GET",
+                            f"/api/transcription/jobs/{job_id}",
+                            headers={
+                                "X-EverMem-Enabled": "true",
+                                "X-EverMem-Key": "test-key",
+                            },
+                        )
+                self.assertEqual(first.status_code, 200)
+                self.assertTrue(first.json()["memory_saved"])
+                self.assertEqual(second.status_code, 200)
+                self.assertTrue(second.json()["memory_saved"])
+                self.assertEqual(save_calls["count"], 1)
+            finally:
+                transcription_router.transcription_service.jobs_dir = original_jobs_dir
+
+    def test_transcription_async_job_endpoints(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            jobs_dir = Path(tmp_dir) / "jobs"
+            jobs_dir.mkdir(parents=True, exist_ok=True)
+            original_jobs_dir = transcription_router.transcription_service.jobs_dir
+            transcription_router.transcription_service.jobs_dir = jobs_dir
+            try:
+                created = self._request(
+                    "POST",
+                    "/api/transcription/jobs",
+                    files={"file": ("meeting.wav", b"RIFFdemo", "audio/wav")},
+                )
+                self.assertEqual(created.status_code, 200)
+                payload = created.json()
+                self.assertEqual(payload["status"], "uploaded")
+                job_id = payload["job_id"]
+                self.assertIn("public_base_url", payload["error"])
+
+                loaded = self._request("GET", f"/api/transcription/jobs/{job_id}")
+                self.assertEqual(loaded.status_code, 200)
+                loaded_payload = loaded.json()
+                self.assertEqual(loaded_payload["status"], "uploaded")
+                self.assertIsNone(loaded_payload["transcript"])
+            finally:
+                transcription_router.transcription_service.jobs_dir = original_jobs_dir
+
+    def test_transcription_async_job_endpoint_auto_submits_when_public_base_url_is_configured(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            jobs_dir = Path(tmp_dir) / "jobs"
+            jobs_dir.mkdir(parents=True, exist_ok=True)
+            config_path = Path(tmp_dir) / "config.json"
+            config_path.write_text(
+                json.dumps({"transcription_settings": {"public_base_url": "https://files.example.com"}}),
+                encoding="utf-8",
+            )
+
+            original_jobs_dir = transcription_router.transcription_service.jobs_dir
+            original_config = transcription_router.transcription_service.config
+            transcription_router.transcription_service.jobs_dir = jobs_dir
+            transcription_router.transcription_service.config = BackendConfig(config_path)
+            try:
+                async def fake_submit_remote_job_from_url(file_url: str) -> str:
+                    self.assertTrue(file_url.startswith("https://files.example.com/public/transcription/"))
+                    return "remote-uploaded-job-001"
+
+                with patch.object(
+                    transcription_router.transcription_service,
+                    "_submit_remote_job_from_url",
+                    new=fake_submit_remote_job_from_url,
+                ):
+                    created = self._request(
+                        "POST",
+                        "/api/transcription/jobs",
+                        files={"file": ("meeting.wav", b"RIFFdemo", "audio/wav")},
+                    )
+                self.assertEqual(created.status_code, 200)
+                payload = created.json()
+                self.assertEqual(payload["status"], "submitted")
+                self.assertEqual(payload["remote_job_id"], "remote-uploaded-job-001")
+            finally:
+                transcription_router.transcription_service.jobs_dir = original_jobs_dir
+                transcription_router.transcription_service.config = original_config
+
+    def test_transcription_job_list_endpoint(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            jobs_dir = Path(tmp_dir) / "jobs"
+            jobs_dir.mkdir(parents=True, exist_ok=True)
+            original_jobs_dir = transcription_router.transcription_service.jobs_dir
+            transcription_router.transcription_service.jobs_dir = jobs_dir
+            try:
+                first = asyncio.run(
+                    transcription_router.transcription_service.prepare_long_transcription_url_job(
+                        "https://example.com/audio/failed.wav"
+                    )
+                )
+                second = asyncio.run(
+                    transcription_router.transcription_service.prepare_long_transcription_url_job(
+                        "https://example.com/audio/completed.wav"
+                    )
+                )
+                transcription_router.transcription_service.update_job(
+                    first.job_id or "",
+                    status="failed",
+                    error="network error",
+                )
+                transcription_router.transcription_service.update_job(
+                    second.job_id or "",
+                    status="completed",
+                )
+
+                response = self._request(
+                    "GET",
+                    "/api/transcription/jobs",
+                    params={"status": "completed,failed", "limit": 10},
+                )
+                self.assertEqual(response.status_code, 200)
+                payload = response.json()
+                self.assertEqual(payload["count"], 2)
+                self.assertEqual(payload["jobs"][0]["job_id"], second.job_id)
+                self.assertEqual(payload["jobs"][1]["job_id"], first.job_id)
+            finally:
+                transcription_router.transcription_service.jobs_dir = original_jobs_dir
+
+    def test_transcription_retry_url_job_endpoint(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            jobs_dir = Path(tmp_dir) / "jobs"
+            jobs_dir.mkdir(parents=True, exist_ok=True)
+            original_jobs_dir = transcription_router.transcription_service.jobs_dir
+            transcription_router.transcription_service.jobs_dir = jobs_dir
+            try:
+                job = asyncio.run(
+                    transcription_router.transcription_service.prepare_long_transcription_url_job(
+                        "https://example.com/audio/demo.wav"
+                    )
+                )
+                transcript_path = jobs_dir / "stale.txt"
+                transcript_path.write_text("stale transcript", encoding="utf-8")
+                transcription_router.transcription_service.update_job(
+                    job.job_id or "",
+                    status="failed",
+                    transcript_path=str(transcript_path),
+                    error="previous failure",
+                    remote_job_id="remote-old",
+                    memory_saved=True,
+                )
+
+                async def fake_submit_remote_job_from_url(file_url: str) -> str:
+                    self.assertEqual(file_url, "https://example.com/audio/demo.wav")
+                    return "remote-new"
+
+                with patch.object(
+                    transcription_router.transcription_service,
+                    "_submit_remote_job_from_url",
+                    new=fake_submit_remote_job_from_url,
+                ):
+                    response = self._request(
+                        "POST",
+                        f"/api/transcription/jobs/{job.job_id}/retry",
+                    )
+
+                self.assertEqual(response.status_code, 200)
+                payload = response.json()
+                self.assertEqual(payload["status"], "submitted")
+                self.assertEqual(payload["remote_job_id"], "remote-new")
+                self.assertFalse(payload["memory_saved"])
+                self.assertIsNone(payload["transcript"])
+                self.assertFalse(payload["has_transcript"])
+                self.assertFalse(transcript_path.exists())
+            finally:
+                transcription_router.transcription_service.jobs_dir = original_jobs_dir
+
+    def test_transcription_job_transcript_download_endpoint(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            jobs_dir = Path(tmp_dir) / "jobs"
+            jobs_dir.mkdir(parents=True, exist_ok=True)
+            original_jobs_dir = transcription_router.transcription_service.jobs_dir
+            transcription_router.transcription_service.jobs_dir = jobs_dir
+            try:
+                job = asyncio.run(
+                    transcription_router.transcription_service.prepare_long_transcription_url_job(
+                        "https://example.com/audio/demo.wav"
+                    )
+                )
+                transcript_path = jobs_dir / f"{job.job_id}.txt"
+                transcript_path.write_text("已完成 transcript", encoding="utf-8")
+                transcription_router.transcription_service.update_job(
+                    job.job_id or "",
+                    status="completed",
+                    transcript_path=str(transcript_path),
+                )
+
+                loaded = self._request("GET", f"/api/transcription/jobs/{job.job_id}")
+                self.assertEqual(loaded.status_code, 200)
+                payload = loaded.json()
+                self.assertTrue(payload["has_transcript"])
+                self.assertEqual(
+                    payload["transcript_download_url"],
+                    f"/api/transcription/jobs/{job.job_id}/transcript.txt",
+                )
+                self.assertEqual(payload["source_url"], "https://example.com/audio/demo.wav")
+
+                download = self._request(
+                    "GET",
+                    f"/api/transcription/jobs/{job.job_id}/transcript.txt",
+                )
+                self.assertEqual(download.status_code, 200)
+                self.assertIn("text/plain", download.headers.get("content-type", ""))
+                self.assertIn("已完成 transcript", download.text)
+            finally:
+                transcription_router.transcription_service.jobs_dir = original_jobs_dir
+
+    def test_transcription_async_url_job_endpoint(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            jobs_dir = Path(tmp_dir) / "jobs"
+            jobs_dir.mkdir(parents=True, exist_ok=True)
+            original_jobs_dir = transcription_router.transcription_service.jobs_dir
+            transcription_router.transcription_service.jobs_dir = jobs_dir
+            try:
+                async def fake_submit_remote_job_from_url(file_url: str) -> str:
+                    self.assertEqual(file_url, "https://example.com/audio/demo.wav")
+                    return "remote-url-job-001"
+
+                with patch.object(
+                    transcription_router.transcription_service,
+                    "_submit_remote_job_from_url",
+                    new=fake_submit_remote_job_from_url,
+                ):
+                    created = self._request(
+                        "POST",
+                        "/api/transcription/jobs/from-url",
+                        json={"file_url": "https://example.com/audio/demo.wav"},
+                    )
+                self.assertEqual(created.status_code, 200)
+                payload = created.json()
+                self.assertEqual(payload["status"], "submitted")
+                self.assertEqual(payload["remote_job_id"], "remote-url-job-001")
+            finally:
+                transcription_router.transcription_service.jobs_dir = original_jobs_dir
+
+    def test_transcription_service_normalizes_async_base_url(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            config_path = Path(tmp_dir) / "config.json"
+            config_path.write_text(
+                json.dumps(
+                    {
+                        "api_keys": {"dashscope_api_key": "test-key"},
+                        "api_urls": {"DashScope": "https://dashscope.aliyuncs.com/compatible-mode/v1"},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            service = TranscriptionService(config=BackendConfig(config_path))
+            self.assertEqual(
+                service._dashscope_async_base_url(),
+                "https://dashscope.aliyuncs.com/api/v1",
+            )
 
     def test_chat_completion_endpoint(self) -> None:
         async def fake_chat_completion(**kwargs: Any) -> dict[str, Any]:
@@ -382,6 +1112,48 @@ class ApiSmokeTests(unittest.TestCase):
             finally:
                 settings_router.settings_service = original_service
 
+    def test_settings_memory_aliases_are_normalized(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            config_path = Path(tmp_dir) / "config.json"
+            config_path.write_text("{}", encoding="utf-8")
+            test_service = SettingsService(config=BackendConfig(config_path))
+
+            original_service = settings_router.settings_service
+            settings_router.settings_service = test_service
+            try:
+                r_put = self._request(
+                    "PUT",
+                    "/api/settings/",
+                    json={
+                        "merge": True,
+                        "settings": {
+                            "memory_settings": {
+                                "enabled": True,
+                                "url": "https://api.example.test",
+                                "key": "memory-key",
+                                "tempSession": True,
+                                "sceneChat": False,
+                                "sceneVoiceChat": True,
+                                "sceneTranscription": False,
+                                "scenePodcast": True,
+                                "sceneTts": True,
+                            },
+                        },
+                    },
+                )
+                self.assertEqual(r_put.status_code, 200)
+                payload = r_put.json()["settings"]["memory_settings"]
+                self.assertEqual(payload["api_url"], "https://api.example.test")
+                self.assertEqual(payload["api_key"], "memory-key")
+                self.assertTrue(payload["temporary_session"])
+                self.assertFalse(payload["remember_chat"])
+                self.assertTrue(payload["remember_voice_chat"])
+                self.assertFalse(payload["remember_recordings"])
+                self.assertTrue(payload["remember_podcast"])
+                self.assertTrue(payload["remember_tts"])
+            finally:
+                settings_router.settings_service = original_service
+
     def test_audio_overview_endpoints(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             db_path = Path(tmp_dir) / "voice_spirit_test.db"
@@ -397,8 +1169,10 @@ class ApiSmokeTests(unittest.TestCase):
                     turn_count: int = 10,
                     provider: str = "DashScope",
                     model: str | None = None,
+                    request_headers: dict[str, Any] | None = None,
                 ) -> dict[str, Any]:
                     _ = model
+                    headers = request_headers or {}
                     return {
                         "topic": topic,
                         "language": language,
@@ -410,6 +1184,8 @@ class ApiSmokeTests(unittest.TestCase):
                             {"role": "B", "text": "今天我们聊 AI"},
                         ],
                         "raw_reply": "",
+                        "memories_retrieved": 2 if headers.get("x-evermem-enabled") == "true" else 0,
+                        "memory_saved": headers.get("x-evermem-key") == "test-key",
                     }
 
                 async def fake_synthesize(
@@ -483,6 +1259,10 @@ class ApiSmokeTests(unittest.TestCase):
                     r_generate = self._request(
                         "POST",
                         "/api/audio-overview/scripts/generate",
+                        headers={
+                            "X-EverMem-Enabled": "true",
+                            "X-EverMem-Key": "test-key",
+                        },
                         json={
                             "topic": "AI Podcast Demo",
                             "language": "zh",
@@ -492,6 +1272,8 @@ class ApiSmokeTests(unittest.TestCase):
                     )
                 self.assertEqual(r_generate.status_code, 200)
                 self.assertEqual(len(r_generate.json()["script_lines"]), 2)
+                self.assertEqual(r_generate.json()["memories_retrieved"], 2)
+                self.assertTrue(r_generate.json()["memory_saved"])
 
                 with patch.object(test_service, "synthesize_podcast_audio", new=fake_synthesize):
                     r_synth = self._request(

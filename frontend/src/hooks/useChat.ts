@@ -1,18 +1,102 @@
-import { FormEvent, KeyboardEvent, useMemo, useState } from "react";
+import { FormEvent, KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
 import { streamChatCompletion, type ChatMessage } from "../api";
 import type { FormatErrorMessage } from "../utils/errorFormatting";
 
 type Options = {
   formatErrorMessage: FormatErrorMessage;
+  providerOptions?: string[];
+  providerModelCatalog?: Record<
+    string,
+    {
+      defaultModel: string;
+      availableModels: string[];
+    }
+  >;
+  preferredProvider?: string;
 };
 
-export default function useChat({ formatErrorMessage }: Options) {
-  const [chatProvider, setChatProvider] = useState("Google");
-  const [chatModel, setChatModel] = useState("");
+function resolveProvider(
+  preferredProvider: string | undefined,
+  providerOptions: string[],
+): string {
+  if (preferredProvider && providerOptions.includes(preferredProvider)) {
+    return preferredProvider;
+  }
+  if (providerOptions.length > 0) {
+    return providerOptions[0];
+  }
+  return "Google";
+}
+
+function resolveDefaultModel(
+  provider: string,
+  providerModelCatalog: Options["providerModelCatalog"],
+): string {
+  const providerMeta = providerModelCatalog?.[provider];
+  if (!providerMeta) {
+    return "";
+  }
+  return providerMeta.defaultModel || providerMeta.availableModels[0] || "";
+}
+
+export default function useChat({
+  formatErrorMessage,
+  providerOptions = [],
+  providerModelCatalog = {},
+  preferredProvider,
+}: Options) {
+  const initialProvider = resolveProvider(preferredProvider, providerOptions);
+  const [chatProvider, setChatProvider] = useState(initialProvider);
+  const [chatModel, setChatModel] = useState(
+    resolveDefaultModel(initialProvider, providerModelCatalog)
+  );
   const [chatInput, setChatInput] = useState("");
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [chatBusy, setChatBusy] = useState(false);
   const [chatError, setChatError] = useState("");
+  const lastPreferredProviderRef = useRef(preferredProvider);
+
+  const chatProviderOptions = providerOptions.length > 0 ? providerOptions : ["Google"];
+  const chatModelOptions = providerModelCatalog[chatProvider]?.availableModels || [];
+
+  useEffect(() => {
+    const preferredProviderChanged = lastPreferredProviderRef.current !== preferredProvider;
+    lastPreferredProviderRef.current = preferredProvider;
+
+    const nextProvider = resolveProvider(preferredProvider, chatProviderOptions);
+    if (preferredProviderChanged && chatProvider !== nextProvider) {
+      setChatProvider(nextProvider);
+      setChatModel(resolveDefaultModel(nextProvider, providerModelCatalog));
+      return;
+    }
+
+    if (!chatProviderOptions.includes(chatProvider)) {
+      setChatProvider(nextProvider);
+      setChatModel(resolveDefaultModel(nextProvider, providerModelCatalog));
+      return;
+    }
+
+    const defaultModel = resolveDefaultModel(chatProvider, providerModelCatalog);
+    const hasOptions = chatModelOptions.length > 0;
+    const currentModelStillValid =
+      !hasOptions || !chatModel.trim() || chatModelOptions.includes(chatModel.trim());
+
+    if (!chatModel.trim() || !currentModelStillValid) {
+      setChatModel(defaultModel);
+    }
+  }, [
+    chatModel,
+    chatModelOptions,
+    chatProvider,
+    chatProviderOptions,
+    preferredProvider,
+    providerModelCatalog,
+  ]);
+
+  function onProviderChange(nextProvider: string) {
+    setChatProvider(nextProvider);
+    setChatModel(resolveDefaultModel(nextProvider, providerModelCatalog));
+  }
 
   const chatHistoryItems = useMemo(() => {
     const items: Array<{ id: string; content: string }> = [];
@@ -129,14 +213,16 @@ export default function useChat({ formatErrorMessage }: Options) {
 
   return {
     chatProvider,
+    chatProviderOptions,
     chatModel,
+    chatModelOptions,
     chatInput,
     chatMessages,
     chatBusy,
     chatError,
     chatHistoryItems,
     onSubmit,
-    onProviderChange: setChatProvider,
+    onProviderChange,
     onModelChange: setChatModel,
     onInputChange: setChatInput,
     onQuickAction: setChatInput,

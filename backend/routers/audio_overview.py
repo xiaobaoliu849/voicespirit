@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
@@ -51,6 +51,8 @@ class ScriptGenerateResponse(BaseModel):
     provider: str
     model: str
     script_lines: list[dict[str, str]] = Field(default_factory=list)
+    memories_retrieved: int = 0
+    memory_saved: bool = False
 
 
 class PodcastResponse(BaseModel):
@@ -386,7 +388,7 @@ async def save_podcast_script(podcast_id: int, payload: ScriptUpdateRequest) -> 
         500: {"description": "Failed to generate script.", "model": StructuredErrorResponse},
     },
 )
-async def generate_script(payload: ScriptGenerateRequest) -> ScriptGenerateResponse:
+async def generate_script(payload: ScriptGenerateRequest, request: Request) -> ScriptGenerateResponse:
     try:
         result = await audio_overview_service.generate_script(
             topic=payload.topic,
@@ -394,6 +396,7 @@ async def generate_script(payload: ScriptGenerateRequest) -> ScriptGenerateRespo
             turn_count=payload.turn_count,
             provider=payload.provider,
             model=payload.model,
+            request_headers=dict(request.headers),
         )
     except ValueError as exc:
         _raise_structured(400, code="AUDIO_SCRIPT_GENERATE_BAD_REQUEST", message=str(exc))
@@ -409,6 +412,8 @@ async def generate_script(payload: ScriptGenerateRequest) -> ScriptGenerateRespo
         provider=result["provider"],
         model=result["model"],
         script_lines=result["script_lines"],
+        memories_retrieved=int(result.get("memories_retrieved", 0)),
+        memory_saved=bool(result.get("memory_saved", False)),
     )
 
 

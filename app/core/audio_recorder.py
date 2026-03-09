@@ -142,7 +142,8 @@ class AudioRecorder(QObject):
             with wave.open(file_path, 'wb') as wf:
                 wf.setnchannels(1)
                 wf.setsampwidth(2) # 16-bit
-                wf.setframerate(24000)
+                # Persist the real input sample rate so downstream ASR sees valid WAV metadata.
+                wf.setframerate(self.format.sampleRate())
                 wf.writeframes(self.buffer.data())
             return file_path
         except Exception as e:

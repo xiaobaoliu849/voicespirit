@@ -9,6 +9,7 @@ import useAudioOverview from "./hooks/useAudioOverview";
 import useSettings from "./hooks/useSettings";
 import useTts from "./hooks/useTts";
 import useTranslate from "./hooks/useTranslate";
+import useVoiceChat from "./hooks/useVoiceChat";
 import useVoiceManagement from "./hooks/useVoiceManagement";
 import AudioOverviewPage from "./pages/AudioOverviewPage";
 import ChatPage from "./pages/ChatPage";
@@ -17,14 +18,29 @@ import TtsPage from "./pages/TtsPage";
 import TranslatePage from "./pages/TranslatePage";
 import VoiceClonePage from "./pages/VoiceClonePage";
 import VoiceDesignPage from "./pages/VoiceDesignPage";
+import { TranscriptionPage } from "./pages/TranscriptionPage";
 import { formatErrorMessage } from "./utils/errorFormatting";
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<ActiveTab>("chat");
-  const tts = useTts({ defaultText: DEFAULT_TEXT, formatErrorMessage });
-  const chat = useChat({ formatErrorMessage });
-  const audioOverview = useAudioOverview({ voices: tts.voices, formatErrorMessage });
+  const isDesktopEmbedded =
+    typeof window !== "undefined" &&
+    Object.prototype.hasOwnProperty.call(window, "pywebview");
   const settings = useSettings({ formatErrorMessage });
+  const tts = useTts({ defaultText: DEFAULT_TEXT, formatErrorMessage });
+  const chat = useChat({
+    formatErrorMessage,
+    providerOptions: settings.providerOptions,
+    providerModelCatalog: settings.providerModelCatalog,
+    preferredProvider: settings.settingsProvider,
+  });
+  const voiceChat = useVoiceChat({
+    formatErrorMessage,
+    providerOptions: settings.providerOptions,
+    providerModelCatalog: settings.providerModelCatalog,
+    preferredProvider: settings.settingsProvider,
+  });
+  const audioOverview = useAudioOverview({ voices: tts.voices, formatErrorMessage });
   const voiceManagement = useVoiceManagement({ formatErrorMessage });
   const { errorRuntimeContext } = settings;
 
@@ -41,7 +57,7 @@ export default function App() {
   }
 
   return (
-    <main className="vsApp">
+    <main className={isDesktopEmbedded ? "vsApp desktopEmbedded" : "vsApp"}>
       <AppSidebar
         activeTab={activeTab}
         chatHistoryItems={chat.chatHistoryItems}
@@ -52,7 +68,11 @@ export default function App() {
 
       <section className="legacyMain">
         {activeTab === "chat" ? (
-          <ChatPage chat={chat} errorRuntimeContext={errorRuntimeContext} />
+          <ChatPage
+            chat={chat}
+            voiceChat={voiceChat}
+            errorRuntimeContext={errorRuntimeContext}
+          />
         ) : null}
 
         {activeTab === "tts" ? (
@@ -79,6 +99,10 @@ export default function App() {
 
         {activeTab === "audio_overview" ? (
           <AudioOverviewPage audioOverview={audioOverview} errorRuntimeContext={errorRuntimeContext} />
+        ) : null}
+
+        {activeTab === "transcription" ? (
+          <TranscriptionPage />
         ) : null}
 
         {activeTab === "settings" ? <SettingsPage settings={settings} /> : null}

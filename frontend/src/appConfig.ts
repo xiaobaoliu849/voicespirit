@@ -5,6 +5,7 @@ export type ActiveTab =
   | "voice_design"
   | "voice_clone"
   | "audio_overview"
+  | "transcription"
   | "settings";
 
 export type SidebarItem = {
@@ -39,8 +40,11 @@ export const SIDEBAR_ITEMS: SidebarItem[] = [
   { tab: "chat", label: "聊天", icon: "聊" },
   { tab: "translate", label: "翻译", icon: "译" },
   { tab: "tts", label: "语音", icon: "声" },
-  { tab: "audio_overview", label: "播客", icon: "播" },
-  { tab: "settings", label: "设置", icon: "设" }
+  { tab: "voice_design", label: "设计音色", icon: "设" },
+  { tab: "voice_clone", label: "音色克隆", icon: "克" },
+  { tab: "audio_overview", label: "播客/多人对话", icon: "播" },
+  { tab: "transcription", label: "转写", icon: "转" },
+  { tab: "settings", label: "设置", icon: "置" }
 ];
 
 export const CHAT_QUICK_ACTIONS: QuickAction[] = [
