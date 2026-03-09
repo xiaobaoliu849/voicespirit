@@ -38,3 +38,19 @@ nul
 # Frontend
 frontend/node_modules/
 frontend/dist/
+frontend/*.log
+frontend/test_output.log
+frontend/*.tsbuildinfo
+
+# Desktop local runtime
+.desktop-venv/
+.desktop-libs/
+.voicespirit-state/
+desktop_window.json
+desktop.lock
+
+# Test/cache
+tests/__pycache__/
+
+# Downloaded packages
+*.deb

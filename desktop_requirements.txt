@@ -1,2 +1,4 @@
 -r backend/requirements.txt
 pywebview>=5.1
+# Optional for transcription upload_mode=s3:
+# boto3>=1.35.0

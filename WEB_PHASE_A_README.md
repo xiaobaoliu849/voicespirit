@@ -94,10 +94,23 @@ Install desktop dependencies:
 pip install -r desktop_requirements.txt
 ```
 
+Optional object storage support for transcription async upload:
+
+```bash
+cd backend
+pip install boto3
+```
+
 Launch desktop window:
 
 ```bash
 python run_web_desktop.py
+```
+
+Optional preflight:
+
+```bash
+python run_web_desktop.py --check
 ```
 
 Windows one-click launcher:
@@ -112,6 +125,12 @@ Notes:
 - The desktop launcher enforces single-instance mode to avoid duplicate windows and backend contention.
 - Window size/position and WebView storage are persisted between launches.
 - A native desktop menu is available for reload, reset window layout, opening the browser/runtime folder, and quitting the app.
+- Desktop quickstart:
+  - `docs/Desktop_Quickstart.md`
+- `Transcription Async Upload` settings now support:
+  - `static`
+  - `s3` (requires `boto3`)
+  - `disabled`
 
 ### 3) Optional auth token
 

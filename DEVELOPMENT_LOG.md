@@ -1086,3 +1086,768 @@ d:\conda\envs\whisperx\python.exe main_new.py
 ### 结论
 - 这次中断是 CLI 进程异常退出，不是代码执行卡死。
 - 当前前端改动已完成收尾验证，可以从这个状态继续下一步开发。
+
+## 2026-03-09 续做记录（VoiceSpirit 记忆分层 + 桌面语音链路）
+
+### 本次完成
+- Web 端长期记忆继续向语音场景延伸：
+  - 播客脚本生成接入 EverMem 检索与写回。
+  - TTS 语音合成成功后回写语音偏好摘要。
+- 桌面端新增本地记忆策略层：
+  - 新增 `app/core/desktop_memory.py`
+  - 将长期记忆拆分为“本地 transcript 资产”与“结构化长期记忆”
+  - 语音聊天、录音转写、普通文本聊天都接入同一策略入口
+- 本地数据库扩展：
+  - `app/core/database.py` 新增 `voice_transcripts` 表，用于保存原始语音转写资产
+- 配置模板扩展：
+  - `app/core/config.py`
+  - `backend/services/settings_service.py`
+  - 新增 `memory_settings`，包括：
+    - `enabled`
+    - `temporary_session`
+    - `remember_chat / remember_voice_chat / remember_recordings / remember_podcast / remember_tts`
+    - `store_transcript_fulltext`
+- 桌面设置页接线：
+  - `app/ui/pages/settings_page.py` 新增 Memory Settings 区块
+  - 可直接配置 EverMem URL/Key/Scope，以及桌面端场景开关
+  - `app/core/translation.py` 补齐中英文文案
+
+### 当前策略
+- 录音转写默认不把全文写入长期记忆，只保存本地 transcript 资产。
+- 实时语音与桌面聊天只在识别到“偏好 / 语音偏好 / 任务上下文”时才写入 EverMem。
+- `temporary_session=true` 时不检索也不写入长期记忆。
+
+### 验证结果
+- Python 语法检查通过：
+  - `python3 -m py_compile app/core/desktop_memory.py app/core/database.py app/core/config.py app/ui/pages/chat_page.py app/ui/pages/settings_page.py app/core/translation.py`
+- 后端测试：
+  - `cd backend && .venv/bin/python -m unittest discover -s tests -p 'test_*.py' -v` 通过（15/15）
+- 前端测试：
+  - `cd frontend && npm run test:run` 通过（19 files / 45 tests）
+- 前端构建：
+  - `cd frontend && npm run build` 通过
+
+## 2026-03-09 续做补记（记忆抽取器收紧 + 配置字段归一化）
+
+### 本次完成
+- `app/core/desktop_memory.py`
+  - 将原本“命中关键词就整句写入”的策略升级成按句分段、去重、按优先级筛选的结构化提炼。
+  - 只在明确识别到 `用户偏好 / 语音偏好 / 当前任务上下文` 时写入 EverMem。
+  - `store_transcript_fulltext` 现在只对语音 transcript 生效，不会把普通文本聊天误当成全文记忆写入。
+- `backend/services/settings_service.py`
+  - 为 `memory_settings` 增加字段别名归一化：
+    - `url -> api_url`
+    - `key -> api_key`
+    - `tempSession -> temporary_session`
+    - `sceneChat -> remember_chat`
+    - `sceneVoiceChat -> remember_voice_chat`
+    - `sceneTranscription -> remember_recordings`
+    - `scenePodcast -> remember_podcast`
+    - `sceneTts -> remember_tts`
+- `app/core/config.py`
+  - 桌面端加载 `config.json` 时同步兼容上述别名，避免前端写入后桌面端读不到。
+- `backend/tests/test_api_smoke.py`
+  - 新增 `memory_settings` 别名归一化回归测试。
+
+### 当前效果
+- Web 前端保存到 `/api/settings/` 的 Memory Center 字段，即使还没完全统一命名，也会被后端落成桌面端能识别的规范字段。
+- 桌面端的长期记忆写入比之前更保守，误记概率显著下降。
+
+### 验证结果
+- Python 语法检查通过：
+  - `python3 -m py_compile app/core/desktop_memory.py app/core/config.py backend/services/settings_service.py backend/tests/test_api_smoke.py`
+- 后端测试：
+  - `cd backend && .venv/bin/python -m unittest discover -s tests -p 'test_*.py' -v` 通过（16/16）
+
+## 2026-03-09 续做补记（待办 / 约束 / 摘要抽取 + 单测覆盖）
+
+### 本次完成
+- `app/core/desktop_memory.py`
+  - 在原有 `用户偏好 / 语音偏好 / 当前任务上下文` 之外，新增：
+    - `待办事项`
+    - `约束条件`
+    - `会话摘要`
+  - 将 transcript 提炼粒度从“整句”收紧到“分句 + 分逗号子句”，更适合从口语输入里提炼明确的行动项和限制条件。
+  - 保留保守策略：
+    - 问句不进入长期记忆
+    - 普通文本聊天不会走 transcript 全文兜底
+    - transcript 全文兜底仍仅对语音来源生效
+- `backend/tests/test_desktop_memory.py`
+  - 新增桌面记忆提炼单测，覆盖：
+    - 语音偏好抽取
+    - 待办事项抽取
+    - 约束条件抽取
+    - 显式摘要抽取
+    - 问句过滤
+    - transcript 全文兜底仅限语音来源
+
+### 验证结果
+- Python 语法检查通过：
+  - `python3 -m py_compile app/core/desktop_memory.py backend/tests/test_desktop_memory.py`
+- 后端测试：
+  - `cd backend && .venv/bin/python -m unittest discover -s tests -p 'test_*.py' -v` 通过（21/21）
+
+## 2026-03-09 续做补记（任务上下文 vs 摘要边界收紧）
+
+### 本次完成
+- `app/core/desktop_memory.py`
+  - 新增 `task_context` 专用模式，只认更稳定的项目上下文表述，例如：
+    - `当前在做`
+    - `最近在做`
+    - `主要在`
+    - `正在`
+    - `项目是 / 项目叫 / 主题是`
+  - 增加抽取后处理：
+    - 如果同一段内容里已经有 `待办事项` 或 `约束条件`，则不再额外保留泛化的 `会话摘要`
+    - 避免把同一条行动项同时重复记成 `任务上下文`
+- `backend/tests/test_desktop_memory.py`
+  - 新增边界回归：
+    - `待办事项` 优先于重叠的 `会话摘要`
+    - 稳定项目上下文可被正确提炼为 `当前任务上下文`
+
+### 验证结果
+- Python 语法检查通过：
+  - `python3 -m py_compile app/core/desktop_memory.py backend/tests/test_desktop_memory.py`
+- 后端测试：
+  - `cd backend && .venv/bin/python -m unittest discover -s tests -p 'test_*.py' -v` 通过（23/23）
+
+## 2026-03-09 续做补记（近期重复记忆去重）
+
+### 本次完成
+- `app/core/desktop_memory.py`
+  - 新增近期记忆去重缓存，避免用户在多轮聊天、实时语音、录音转写里重复说同一偏好或同一行动项时，短时间内连续写入 EverMem。
+  - 当前策略：
+    - 去重窗口：10 分钟
+    - 最大缓存条目：64
+    - 去重粒度：按最终写入的记忆文本内容归一化后判重
+- `backend/tests/test_desktop_memory.py`
+  - 新增回归：
+    - 同一条记忆在窗口内重复出现会被抑制
+    - 不同内容的记忆不会被误杀
+
+### 验证结果
+- Python 语法检查通过：
+  - `python3 -m py_compile app/core/desktop_memory.py backend/tests/test_desktop_memory.py`
+- 后端测试：
+  - `cd backend && .venv/bin/python -m unittest discover -s tests -p 'test_*.py' -v` 通过（25/25）
+
+## 2026-03-09 续做补记（录音转写主链切到 Qwen-ASR）
+
+### 本次完成
+- `backend/services/transcription_service.py`
+  - 新增共享转写服务，统一封装 DashScope `Qwen-ASR-Flash` 的短音频同步转写调用。
+  - 支持自动识别本地音频 MIME 类型，并从多模态响应里抽取 transcript 文本。
+- `app/core/api_client.py`
+  - 桌面端录音转写不再直接调用旧的 `sensevoice-v1 Recognition` 逻辑。
+  - 现已改为走共享 `TranscriptionService`，为后续独立的 `Transcription Center` 和 Web API 复用打底。
+- `backend/tests/test_api_smoke.py`
+  - 新增转写结果解析单测，覆盖多模态响应中 transcript 文本提取。
+
+### 当前状态
+- 聊天页录音转写主链已经从旧 SenseVoice 方向切换到 Qwen-ASR 主线。
+- 这一步先解决“主实现老旧、难维护、后续难扩展”的问题；长音频异步转写和独立转写工作台放到下一阶段接。
+
+### 验证结果
+- Python 语法检查通过：
+  - `python3 -m py_compile backend/services/transcription_service.py app/core/api_client.py backend/tests/test_api_smoke.py`
+- 后端测试：
+  - `cd backend && .venv/bin/python -m unittest discover -s tests -p 'test_*.py' -v` 通过（26/26）
+
+## 2026-03-09 续做补记（转写稳定性补丁）
+
+### 本次完成
+- `app/core/audio_recorder.py`
+  - 修正录音 WAV 文件头采样率，保存时不再错误写成 `24000Hz`。
+  - 现在会写入真实输入采样率 `16000Hz`，避免 downstream ASR 因文件元数据错误而识别异常。
+- `backend/services/transcription_service.py`
+  - 增加音频文件格式校验，先拒绝不支持的后缀。
+  - 预留 `prepare_long_transcription_job()`，作为长音频异步转写入口骨架。
+- `backend/tests/test_api_smoke.py`
+  - 新增不支持格式的转写校验回归。
+
+### 验证结果
+- Python 语法检查通过：
+  - `python3 -m py_compile backend/services/transcription_service.py app/core/audio_recorder.py backend/tests/test_api_smoke.py`
+- 后端测试：
+  - `cd backend && .venv/bin/python -m unittest discover -s tests -p 'test_*.py' -v` 通过（27/27）
+
+## 2026-03-09 续做补记（长音频异步任务骨架）
+
+### 本次完成
+- `backend/services/transcription_service.py`
+  - 为长音频异步转写补了可持久化的任务骨架：
+    - `TranscriptionJob`
+    - `prepare_long_transcription_job()`
+    - `get_job()`
+    - `update_job()`
+  - 任务状态会落到本地 JSON 文件，包含：
+    - `job_id`
+    - `file_path`
+    - `mode`
+    - `status`
+    - `created_at / updated_at`
+    - `transcript_path`
+    - `error`
+- `backend/tests/test_api_smoke.py`
+  - 新增异步转写任务持久化回归，覆盖创建、读取、更新状态。
+
+### 当前意义
+- 这一步还不是完整的长音频转写任务流，但已经把前端真正需要消费的最小状态模型搭出来了。
+- 后续只需要再把“提交到 Qwen 异步接口 / 轮询远端状态 / 落 transcript 文件”补进去，就能直接接 `Transcription Center`。
+
+### 验证结果
+- Python 语法检查通过：
+  - `python3 -m py_compile backend/services/transcription_service.py backend/tests/test_api_smoke.py`
+- 后端测试：
+  - `cd backend && .venv/bin/python -m unittest discover -s tests -p 'test_*.py' -v` 通过（28/28）
+
+## 2026-03-09 续做补记（异步提交 / 刷新状态流）
+
+### 本次完成
+- `backend/services/transcription_service.py`
+  - 为长音频任务补上了更接近真实产品流的服务接口：
+    - `submit_long_transcription_job()`
+    - `refresh_long_transcription_job()`
+  - 新增状态字段：
+    - `remote_job_id`
+  - 新增远端状态映射与 transcript 落盘逻辑：
+    - `submitted -> running -> completed/failed`
+    - 任务完成后会把 transcript 写到本地 `.txt`
+- `backend/tests/test_api_smoke.py`
+  - 新增异步提交与刷新回归，覆盖：
+    - 提交后拿到 `remote_job_id`
+    - 刷新后进入 `completed`
+    - transcript 文件真实落盘
+
+### 当前状态
+- 这一步仍是服务层骨架，但已经不是“空任务对象”了。
+- 前端现在理论上已经可以消费：
+  - 本地 `job_id`
+  - 远端 `remote_job_id`
+  - 轮询后的状态变化
+  - transcript 文件路径
+
+### 验证结果
+- Python 语法检查通过：
+  - `python3 -m py_compile backend/services/transcription_service.py backend/tests/test_api_smoke.py`
+- 后端测试：
+  - `cd backend && .venv/bin/python -m unittest discover -s tests -p 'test_*.py' -v` 通过（29/29）
+
+## 2026-03-09 续做补记（转写正式 API）
+
+### 本次完成
+- `backend/routers/transcription.py`
+  - 将转写服务正式暴露为 API：
+    - `POST /api/transcription/`：同步短音频转写
+    - `POST /api/transcription/jobs`：创建并提交长音频异步任务
+    - `GET /api/transcription/jobs/{job_id}`：查询任务状态，并在完成后直接返回 transcript 文本
+  - 统一了上传校验、结构化错误响应和上传文件持久化策略。
+- `backend/tests/test_api_smoke.py`
+  - 新增同步转写接口回归
+  - 新增异步任务接口回归
+
+### 当前状态
+- 现在前端不必直接依赖本地类了，`Transcription Center` 已经有真实后端 API 可以接：
+  - 同步转写适合短音频
+  - 异步任务适合长音频和轮询状态
+
+### 验证结果
+- Python 语法检查通过：
+  - `python3 -m py_compile backend/routers/transcription.py backend/tests/test_api_smoke.py`
+- 后端测试：
+  - `cd backend && .venv/bin/python -m unittest discover -s tests -p 'test_*.py' -v` 通过（31/31）
+
+## 2026-03-09 续做补记（URL 型真异步入口）
+
+### 本次完成
+- `backend/services/transcription_service.py`
+  - 新增 `prepare_long_transcription_url_job()`，支持基于 `http/https/oss` 的远端音频地址创建长音频异步任务。
+  - 新增 DashScope 异步基础 URL 归一化逻辑：
+    - 会把现有 `compatible-mode/v1` 配置自动转换为 `api/v1`
+  - 新增真实远端异步提交和状态查询方法骨架：
+    - `_submit_remote_job_from_url()`
+    - `_fetch_remote_job_status()`
+    - `_download_remote_transcript()`
+- `backend/routers/transcription.py`
+  - 新增 `POST /api/transcription/jobs/from-url`
+  - 现在长音频异步转写有两条入口：
+    - 本地上传任务接口（当前仍主要用于产品联调）
+    - URL 型真异步接口（更贴近 DashScope 官方约束）
+- `backend/tests/test_api_smoke.py`
+  - 新增 URL 型异步任务接口回归
+  - 新增异步基础 URL 归一化回归
+
+### 当前状态
+- 现在后端已经能同时支撑：
+  - 短音频同步转写
+  - 长音频异步任务状态流
+  - 面向 DashScope 官方约束的 URL 型真异步入口
+
+### 验证结果
+- Python 语法检查通过：
+  - `python3 -m py_compile backend/services/transcription_service.py backend/routers/transcription.py backend/tests/test_api_smoke.py`
+- 后端测试：
+  - `cd backend && .venv/bin/python -m unittest discover -s tests -p 'test_*.py' -v` 通过（33/33）
+
+## 2026-03-09 续做补记（转写 -> EverMem 记忆链）
+
+### 本次完成
+- `backend/services/transcription_service.py`
+  - 新增 `maybe_save_memory()`，支持把转写结果提炼成简短记忆条目后写入 EverMem。
+  - 新增转写记忆摘要构建逻辑，默认将 transcript 压缩成简短摘要后写入。
+  - `TranscriptionJob` 增加 `memory_saved` 字段，避免异步任务每次轮询都重复写记忆。
+- `backend/routers/transcription.py`
+  - `POST /api/transcription/` 现在会在成功转写后尝试写入 EverMem，并返回 `memory_saved`
+  - `GET /api/transcription/jobs/{job_id}` 在异步任务第一次完成时会尝试写入 EverMem，之后不会重复写入
+- `backend/tests/test_api_smoke.py`
+  - 新增同步转写写入记忆回归
+  - 新增异步任务完成后只写一次记忆的回归
+
+### 当前状态
+- 现在转写链已经不只是“拿 transcript”：
+  - 同步转写可选写入长期记忆
+  - 异步转写在完成时也能沉淀为长期记忆
+  - 且异步轮询不会重复记忆污染
+
+### 验证结果
+- Python 语法检查通过：
+  - `python3 -m py_compile backend/services/transcription_service.py backend/routers/transcription.py backend/tests/test_api_smoke.py`
+- 后端测试：
+  - `cd backend && .venv/bin/python -m unittest discover -s tests -p 'test_*.py' -v` 通过（34/34）
+
+## 2026-03-09 续做补记（前端 API 任务流补线）
+
+### 本次完成
+- `frontend/src/api.ts`
+  - 新增正式的转写任务类型：
+    - `TranscriptionResponse`
+    - `TranscriptionJobResponse`
+  - 新增长音频任务 API：
+    - `createTranscriptionJob(file)`
+    - `createTranscriptionJobFromUrl(fileUrl)`
+    - `fetchTranscriptionJob(jobId, { refresh })`
+- `frontend/src/App.interactions.test.tsx`
+  - 补齐上述 API 的 mock 接线，保证前端在接长音频任务流前不会先因测试或类型断掉。
+
+### 当前状态
+- 前端 API 层已经具备消费长音频任务流的能力。
+- 下一步可以直接把 `TranscriptionPage` 从“同步上传一次拿结果”升级成“支持 async job + 轮询”。
+
+### 验证结果
+- 前端测试：
+  - `cd frontend && npm run test:run -- --reporter=dot` 通过（19 files / 45 tests）
+- 前端构建：
+  - `cd frontend && npm run build` 通过
+
+## 2026-03-09 续做补记（本地异步上传状态纠偏）
+
+### 本次完成
+- `backend/services/transcription_service.py`
+  - 移除了对本地文件异步远端提交的伪造 stub。
+  - 现在 `submit_long_transcription_job()` 对本地路径会明确报错：
+    - DashScope 真异步要求公网 `file_url`
+    - 本地上传不能再假装已经拿到远端任务
+- `backend/routers/transcription.py`
+  - `POST /api/transcription/jobs` 改为“本地文件已接收 / staged”语义：
+    - 返回 `uploaded` 状态
+    - 明确提示应改用 `/api/transcription/jobs/from-url` 才能走真异步
+- `backend/tests/test_api_smoke.py`
+  - 回归更新为匹配上述真实约束
+
+### 当前状态
+- 转写链现在更诚实：
+  - 本地短音频：同步转写
+  - 本地长音频：已接收/待后续对象存储方案
+  - URL 长音频：真异步
+
+### 验证结果
+- Python 语法检查通过：
+  - `python3 -m py_compile backend/services/transcription_service.py backend/routers/transcription.py backend/tests/test_api_smoke.py`
+- 后端测试：
+  - `cd backend && .venv/bin/python -m unittest discover -s tests -p 'test_*.py' -v` 通过（33/33）
+
+### 下一步建议
+- 将关键词级别的结构化抽取升级为更稳的“摘要 / 偏好 / 待办 / 约束”提炼器。
+- 修复前端 Memory Center 当前仅存本地状态、尚未真正约束请求头的问题。
+- 为桌面端补一份记忆功能说明文档，供 `Memory Docs` 菜单直接打开。
+
+## 2026-03-09 续做补记（Web 转写中心接入异步任务流）
+
+### 本次完成
+- `frontend/src/pages/TranscriptionPage.tsx`
+  - 将转写中心从“单次同步上传”升级为双通道工作台：
+    - 本地音频：同步转写
+    - 远端 URL：真实异步 job + 自动轮询
+  - 页面现在会展示：
+    - 本地文件信息
+    - 异步任务 `job_id / remote_job_id / status`
+    - 转写结果区
+    - `memory_saved` 状态提示
+  - 保留了 `复制文本 / 导出 TXT / 预留后续动作` 能力
+- `frontend/src/components/AudioDropZone.tsx`
+  - 增加 `inputLabel` 和 `isProcessing`，便于测试和页面状态控制
+- `frontend/src/pages/TranscriptionPage.test.tsx`
+  - 新增页面级回归：
+    - 本地同步转写
+    - URL 异步任务轮询完成
+- `frontend/src/App.interactions.test.tsx`
+  - 保留 App 级转写入口 smoke test，避免整 App 交互测试被轮询定时器干扰
+
+### 当前状态
+- Web 转写中心已经能直接消费现有后端转写链：
+  - 本地短音频同步转写
+  - URL 长音频异步任务轮询
+- 前端已能显示转写结果是否写入 EverMem
+
+### 验证结果
+- 前端测试：
+  - `cd frontend && npm run test:run -- --reporter=dot` 通过（20 files / 48 tests）
+- 前端构建：
+  - `cd frontend && npm run build` 通过
+
+### 下一步建议
+- 继续把本地长音频接到对象存储/可访问 URL 适配层，避免只能 staged。
+- 在转写中心补任务历史列表和失败重试入口。
+
+## 2026-03-09 续做补记（转写任务历史与重试后端）
+
+### 本次完成
+- `backend/services/transcription_service.py`
+  - 新增 `list_jobs()`：
+    - 支持按状态筛选
+    - 按 `updated_at / created_at` 倒序返回
+  - 新增 `retry_long_transcription_job()`：
+    - 仅支持 URL 型异步任务
+    - 重试前会清理旧 transcript 文件
+    - 会重置 `error / remote_job_id / memory_saved`
+- `backend/routers/transcription.py`
+  - 新增 `GET /api/transcription/jobs`
+    - 支持 `status=completed,failed` 这种逗号分隔筛选
+    - 支持 `limit`
+  - 新增 `POST /api/transcription/jobs/{job_id}/retry`
+    - 供前端历史面板和失败恢复 UI 直接调用
+- `backend/tests/test_api_smoke.py`
+  - 新增服务层与 API 层回归：
+    - 任务列表排序/筛选
+    - URL 异步任务重试
+
+### 当前状态
+- 转写主链不再只有“创建任务 / 查单个任务”
+- 现在已经具备：
+  - 任务列表
+  - 状态筛选
+  - URL 异步任务重试
+- 前端后续可以直接做 `Transcription History` 和 `Retry` 按钮，无需再发明后端协议
+
+### 验证结果
+- Python 语法检查通过：
+  - `python3 -m py_compile backend/services/transcription_service.py backend/routers/transcription.py backend/tests/test_api_smoke.py`
+- 后端测试：
+  - `cd backend && .venv/bin/python -m unittest discover -s tests -p 'test_*.py' -v` 通过（37/37）
+
+### 下一步建议
+- 为任务列表补“是否有 transcript / 是否已写入 memory”的快速标识字段。
+- 继续推进本地长音频 -> 可访问 URL / 对象存储适配层。
+
+## 2026-03-09 续做补记（本地长音频公开 URL 适配）
+
+### 本次完成
+- `backend/services/settings_service.py`
+  - 新增 `transcription_settings.public_base_url`
+  - 后端配置现在可以显式声明“本地上传转写文件的公开访问基址”
+- `backend/services/transcription_service.py`
+  - 新增 `published_dir`
+  - 新增 `can_publish_local_async()`
+  - 新增 `publish_local_job_for_async()`
+    - 将本地上传文件复制到公开目录
+    - 基于 `public_base_url` 生成 `/public/transcription/...` URL
+- `backend/main.py`
+  - 新增静态挂载：
+    - `/public/transcription`
+  - 供公开转写上传文件使用
+- `backend/routers/transcription.py`
+  - `POST /api/transcription/jobs`
+    - 当未配置 `transcription_settings.public_base_url` 时：
+      - 继续返回 `uploaded`，保持 staged 语义
+    - 当已配置 `public_base_url` 时：
+      - 自动发布本地长音频
+      - 自动提交远端异步任务
+      - 直接返回 `submitted`
+- `backend/tests/test_api_smoke.py`
+  - 新增回归：
+    - 服务层发布本地文件
+    - 路由在配置 `public_base_url` 时自动提交本地长音频异步任务
+
+### 当前状态
+- 本地长音频链不再永远卡在 staged：
+  - 无 `public_base_url`：诚实 staged
+  - 有 `public_base_url`：自动发布并提交异步任务
+- 后续如果接 OSS / S3 / 自建文件服务，只需要继续沿这条适配层扩展，不用重写转写主链
+
+### 验证结果
+- Python 语法检查通过：
+  - `python3 -m py_compile backend/main.py backend/services/transcription_service.py backend/routers/transcription.py backend/services/settings_service.py backend/tests/test_api_smoke.py`
+- 后端测试：
+  - `cd backend && .venv/bin/python -m unittest discover -s tests -p 'test_*.py' -v` 通过（39/39）
+
+### 下一步建议
+- 把 `public_base_url` 暴露到前端设置页和文档里。
+- 继续做 OSS / S3 / 对象存储适配，替代“仅靠静态目录公开”这条过渡方案。
+
+## 2026-03-09 续做补记（前端设置页接入 public_base_url）
+
+### 本次完成
+- `frontend/src/api.ts`
+  - `AppSettings` 增加 `transcription_settings`
+- `frontend/src/hooks/useSettings.ts`
+  - 增加 `transcriptionPublicBaseUrl` 状态
+  - 读取后端 `transcription_settings.public_base_url`
+  - 保存设置时一并提交 `transcription_settings.public_base_url`
+- `frontend/src/pages/SettingsPage.tsx`
+  - 新增 `Transcription Async Upload` 设置区
+  - 允许直接填写 `Public Base URL`
+  - 明确说明：
+    - 配置后，本地长音频会先发布到 `/public/transcription/*`
+    - 然后自动走异步转写
+    - 留空则继续 staged
+- `frontend/src/App.interactions.test.tsx`
+  - 保存设置时新增 `transcription_settings.public_base_url` 断言
+- `frontend/src/hooks/useSettings.test.ts`
+  - 测试 mock 更新为包含 `transcription_settings`
+
+### 当前状态
+- 本地长音频自动异步提交链已经不是“只能后端手改 config.json”
+- 用户现在可以直接在 Web 设置页配置 `public_base_url`
+
+### 验证结果
+- 前端测试：
+  - `cd frontend && npm run test:run -- --reporter=dot` 通过（20 files / 48 tests）
+- 前端构建：
+  - `cd frontend && npm run build` 通过
+
+### 下一步建议
+- 为 `public_base_url` 增加格式校验和保存成功后的提示文案优化。
+- 继续推进 OSS / S3 / 对象存储适配，替代静态目录公开方案。
+
+## 2026-03-09 续做补记（转写任务元数据与 transcript 下载）
+
+### 本次完成
+- `backend/routers/transcription.py`
+  - `TranscriptionJobResponse` 新增：
+    - `has_transcript`
+    - `transcript_download_url`
+    - `source_url`
+  - 新增 `GET /api/transcription/jobs/{job_id}/transcript.txt`
+    - 直接下载已完成任务的 transcript 文本
+- `frontend/src/api.ts`
+  - `TranscriptionJobResponse` 类型同步补齐上述字段
+- `backend/tests/test_api_smoke.py`
+  - 新增 transcript 下载接口回归
+  - 钉住 `has_transcript / transcript_download_url / source_url`
+
+### 当前状态
+- 转写任务接口现在不只是“返回 transcript 字符串”
+- 还具备了历史面板需要的关键元数据：
+  - 是否已有 transcript
+  - transcript 下载入口
+  - 原始 source URL
+
+### 验证结果
+- Python 语法检查通过：
+  - `python3 -m py_compile backend/routers/transcription.py backend/tests/test_api_smoke.py`
+- 后端测试：
+  - `cd backend && .venv/bin/python -m unittest discover -s tests -p 'test_*.py' -v` 通过（40/40）
+- 前端构建：
+  - `cd frontend && npm run build` 通过
+
+### 下一步建议
+- 让前端转写历史列表直接消费这些元数据，补下载和载入结果按钮。
+- 继续推进对象存储适配，减少对静态公开目录的依赖。
+
+## 2026-03-09 续做补记（转写发布适配器抽离）
+
+### 本次完成
+- 新增 `backend/services/transcription_publish_adapter.py`
+  - 抽出了转写文件发布适配层
+  - 当前支持：
+    - `upload_mode=static`
+    - `upload_mode=disabled/off/none`
+  - 对不支持的模式会明确返回 disabled，而不是把逻辑硬编码在转写服务里
+- `backend/services/transcription_service.py`
+  - 本地长音频发布逻辑改为通过适配器执行
+  - `can_publish_local_async()` 和 `publish_local_job_for_async()` 不再自己拼 URL 和拷贝文件
+- `backend/services/settings_service.py`
+  - `transcription_settings` 新增 `upload_mode`
+  - 当前默认值为 `static`
+- `backend/tests/test_api_smoke.py`
+  - 新增适配器回归：
+    - `upload_mode=oss` 这类未支持模式会被显式禁用
+
+### 当前状态
+- 本地长音频的“公开发布”已经不是散落在转写服务里的特例
+- 后续接 OSS / S3 / MinIO 时，只需要新增 publisher，不用重写主链
+
+### 验证结果
+- Python 语法检查通过：
+  - `python3 -m py_compile backend/services/transcription_publish_adapter.py backend/services/transcription_service.py backend/services/settings_service.py backend/tests/test_api_smoke.py`
+- 后端测试：
+  - `cd backend && .venv/bin/python -m unittest discover -s tests -p 'test_*.py' -v` 通过（41/41）
+
+### 下一步建议
+- 增加真正的 OSS / S3 publisher。
+- 将 `upload_mode` 和后续存储配置暴露到前端设置页。
+
+## 2026-03-09 续做补记（S3 转写发布适配）
+
+### 本次完成
+- `backend/services/transcription_publish_adapter.py`
+  - 新增 `S3TranscriptionPublisher`
+  - 采用可选依赖方式接入：
+    - 装了 `boto3` 才启用
+    - 没装时不会影响当前 `static` 主链
+  - 支持配置：
+    - `upload_mode=s3`
+    - `public_base_url`
+    - `s3_bucket`
+    - `s3_region`
+    - `s3_endpoint_url`
+    - `s3_access_key_id`
+    - `s3_secret_access_key`
+    - `s3_key_prefix`
+- `backend/services/settings_service.py`
+  - `transcription_settings` 默认模板补齐了上述 S3 字段
+- `backend/tests/test_api_smoke.py`
+  - 新增两条回归：
+    - 未安装 `boto3` 时，`s3` 模式会安全禁用
+    - `s3` 模式下会正确调用上传客户端，并返回 `public_base_url/key`
+
+### 当前状态
+- 转写发布适配层现在已经不只是“为将来做准备”
+- 已经具备两条发布模式：
+  - `static`
+  - `s3`（可选依赖）
+
+### 验证结果
+- Python 语法检查通过：
+  - `python3 -m py_compile backend/services/transcription_publish_adapter.py backend/services/settings_service.py backend/tests/test_api_smoke.py`
+- 后端测试：
+  - `cd backend && .venv/bin/python -m unittest discover -s tests -p 'test_*.py' -v` 通过（43/43）
+
+### 下一步建议
+- 将 `upload_mode` 和 S3 参数暴露到前端设置页。
+- 在 `backend/requirements.txt` 中补充 `boto3` 安装说明或可选依赖说明。
+
+## 2026-03-09 续做补记（前端设置页接入 upload_mode 与 S3 配置）
+
+### 本次完成
+- `frontend/src/hooks/useSettings.ts`
+  - 新增转写发布相关状态：
+    - `transcriptionUploadMode`
+    - `transcriptionS3Bucket`
+    - `transcriptionS3Region`
+    - `transcriptionS3EndpointUrl`
+    - `transcriptionS3AccessKeyId`
+    - `transcriptionS3SecretAccessKey`
+    - `transcriptionS3KeyPrefix`
+  - 设置保存时会把这些字段一起提交到 `transcription_settings`
+- `frontend/src/pages/SettingsPage.tsx`
+  - `Transcription Async Upload` 区块新增：
+    - `Upload Mode`
+    - `Public Base URL`
+    - S3 条件字段表单
+- `frontend/src/App.interactions.test.tsx`
+  - 保存设置时新增 `upload_mode=s3` 和 S3 参数断言
+
+### 当前状态
+- 对象存储链已经不再停留在后端配置层
+- 前端设置页现在可以直接配置：
+  - `static`
+  - `s3`
+  - `disabled`
+
+### 验证结果
+- 前端测试：
+  - `cd frontend && npm run test:run -- --reporter=dot` 通过（20 files / 48 tests）
+- 前端构建：
+  - `cd frontend && npm run build` 通过
+
+### 下一步建议
+- 为 `upload_mode` 增加更友好的说明文档。
+- 补 `boto3` 可选依赖说明，并考虑桌面端设置页同步这一组参数。
+
+## 2026-03-09 续做补记（桌面快速上手文档与帮助入口）
+
+### 本次完成
+- 新增 `docs/Desktop_Quickstart.md`
+  - 覆盖：
+    - 推荐桌面入口
+    - 首次安装步骤
+    - 转写模式说明
+    - `upload_mode`
+    - `s3` 可选依赖
+    - 常见故障排查
+- `WEB_PHASE_A_README.md`
+  - 补充了桌面 quickstart 文档入口
+  - 补充了 `boto3` 可选安装说明
+  - 补充了 `Transcription Async Upload` 三种模式说明
+- `desktop_requirements.txt`
+  - 增加 `boto3` 可选依赖说明注释
+- `run_web_desktop.py`
+  - 帮助菜单新增：
+    - `打开桌面使用说明 (Desktop Guide)`
+  - 优先打开 `docs/Desktop_Quickstart.md`
+
+### 当前状态
+- 桌面端不再只有“能启动”
+- 现在已经有完整的本地使用说明和菜单入口
+- 对象存储配置也有明确文档可查
+
+### 验证结果
+- Python 语法检查通过：
+  - `python3 -m py_compile run_web_desktop.py`
+- 前端构建：
+  - `cd frontend && npm run build` 通过
+
+### 下一步建议
+- 进入桌面端最终收口：
+  - 联调一遍完整使用路径
+  - 整理一版“桌面测试版使用清单”
+
+## 2026-03-09 续做补记（桌面预检模式）
+
+### 本次完成
+- `run_web_desktop.py`
+  - 新增 `--check` 预检模式
+  - 现在可以在不开 GUI 的情况下验证：
+    - `frontend/dist`
+    - `pywebview`
+    - desktop docs
+    - backend process startup
+    - desktop app route readiness
+  - 启动链拆成：
+    - 启动后端进程
+    - 等待健康检查
+  - 预检在受限环境下会回退到“进程级判断”，避免误判
+- `docs/Desktop_Quickstart.md`
+  - 补充 `python run_web_desktop.py --check`
+- `WEB_PHASE_A_README.md`
+  - 补充桌面预检说明
+
+### 当前状态
+- 在当前环境里执行 `python run_web_desktop.py --check`
+  - 已确认：
+    - `frontend/dist` 存在
+    - backend 能启动
+    - desktop docs 存在
+  - 当前唯一明确缺口是：
+    - `pywebview` 未安装
+
+### 验证结果
+- Python 语法检查通过：
+  - `python3 -m py_compile run_web_desktop.py`
+- 预检执行结果：
+  - `python3 run_web_desktop.py --check`
+  - 当前显示 `pywebview` 缺失，其余核心启动链已通过
+
+### 下一步建议
+- 安装 `pywebview` 后，直接拉起一次桌面窗口做最终联调。
