@@ -16,7 +16,7 @@ export default function VoiceChatPage({ voiceChat, errorRuntimeContext }: Props)
             <div>
               <h2 className="vsTtsPrimaryTitle">语音聊天工作台</h2>
               <p className="vsFieldHint">
-                现在直接走后端代理的 Google native realtime，会持续收音、实时出字并即时回音。
+                通过后端代理直接连接 {voiceChat.voiceChatProvider} 实时语音服务，支持持续收音和即时回传。
               </p>
             </div>
             <div className="vsTtsPrimaryStats">
@@ -58,7 +58,7 @@ export default function VoiceChatPage({ voiceChat, errorRuntimeContext }: Props)
             </div>
 
             <div className="vsField">
-              <label className="vsFieldLabel">Google 实时音色</label>
+              <label className="vsFieldLabel">{voiceChat.voiceChatProvider} 实时音色</label>
               <select
                 className="vsSelect"
                 value={voiceChat.voiceChatVoice}
@@ -118,7 +118,7 @@ export default function VoiceChatPage({ voiceChat, errorRuntimeContext }: Props)
           <div className="vsCardSection">
             <h3 className="vsCardSubTitle">实时会话说明</h3>
             <p className="vsFieldHint">
-              当前先恢复 Google native realtime。
+              支持 Google Native Realtime 和 DashScope Qwen Omni 实时分流。
               连接后会持续监听麦克风，用户讲话会实时转成文字，模型语音和文字会同步回传。
             </p>
           </div>
@@ -127,11 +127,15 @@ export default function VoiceChatPage({ voiceChat, errorRuntimeContext }: Props)
             <h3 className="vsCardSubTitle">本轮语音内容</h3>
             <div className="vsField">
               <label className="vsFieldLabel">识别结果</label>
-              <textarea className="vsTextarea" rows={4} value={voiceChat.voiceChatTranscript} readOnly />
+              <div className="vsRealtimeContent" style={{ border: "1px solid var(--line)", borderRadius: 10, padding: 12, background: "white" }}>
+                {voiceChat.voiceChatTranscript || "转录将显示在这里..."}
+              </div>
             </div>
             <div className="vsField" style={{ marginTop: 12 }}>
               <label className="vsFieldLabel">助手回复</label>
-              <textarea className="vsTextarea" rows={5} value={voiceChat.voiceChatReply} readOnly />
+              <div className="vsRealtimeContent" style={{ border: "1px solid var(--line)", borderRadius: 10, padding: 12, background: "white" }}>
+                {voiceChat.voiceChatReply || "回复将显示在这里..."}
+              </div>
             </div>
             <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 12 }}>
               <button type="button" className="vsBtnSecondary" onClick={voiceChat.onResetSession}>

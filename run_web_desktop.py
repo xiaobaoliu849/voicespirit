@@ -5,12 +5,15 @@ from __future__ import annotations
 
 import argparse
 import atexit
+import hashlib
 import json
 import os
+import platform
 import shutil
 import subprocess
 import sys
 import time
+import traceback
 import urllib.error
 import urllib.request
 import webbrowser
@@ -44,12 +47,34 @@ def is_wsl_environment() -> bool:
         return False
 
 
+def build_app_url() -> str:
+    cache_key = str(int(time.time()))
+    try:
+        stat = FRONTEND_DIST_INDEX.stat()
+        cache_source = f"{stat.st_mtime_ns}:{stat.st_size}"
+        cache_key = hashlib.sha1(cache_source.encode("utf-8")).hexdigest()[:12]
+    except OSError:
+        pass
+    separator = "&" if "?" in APP_URL else "?"
+    return f"{APP_URL}{separator}v={cache_key}"
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Launch VoiceSpirit desktop.")
     parser.add_argument(
         "--check",
         action="store_true",
         help="Run desktop preflight checks without opening the GUI window.",
+    )
+    parser.add_argument(
+        "--clear-webview",
+        action="store_true",
+        help="Clear persisted desktop WebView storage and exit.",
+    )
+    parser.add_argument(
+        "--export-diagnostics",
+        action="store_true",
+        help="Export desktop runtime diagnostics as JSON and exit.",
     )
     return parser.parse_args()
 
@@ -87,7 +112,10 @@ def get_runtime_dir() -> Path:
 RUNTIME_DIR = get_runtime_dir()
 WINDOW_STATE_PATH = RUNTIME_DIR / "desktop_window.json"
 WEBVIEW_STORAGE_DIR = RUNTIME_DIR / "webview"
+DIAGNOSTICS_DIR = RUNTIME_DIR / "diagnostics"
 LOCK_PATH = RUNTIME_DIR / "desktop.lock"
+LATEST_ERROR_PATH = DIAGNOSTICS_DIR / "desktop_launch_error_latest.json"
+LATEST_PREFLIGHT_PATH = DIAGNOSTICS_DIR / "desktop_preflight_latest.json"
 
 
 class SingleInstanceLock:
@@ -183,6 +211,211 @@ def save_window_state(state: dict[str, Any]) -> None:
     )
 
 
+def clear_webview_storage() -> bool:
+    if not WEBVIEW_STORAGE_DIR.exists():
+        return False
+    shutil.rmtree(WEBVIEW_STORAGE_DIR, ignore_errors=True)
+    return True
+
+
+def fetch_json(url: str, timeout: float = 1.5) -> dict[str, Any] | None:
+    try:
+        with urllib.request.urlopen(url, timeout=timeout) as resp:
+            if not (200 <= int(resp.status) < 400):
+                return None
+            payload = json.loads(resp.read().decode("utf-8"))
+            if isinstance(payload, dict):
+                return payload
+    except Exception:
+        return None
+    return None
+
+
+def collect_desktop_diagnostics() -> dict[str, Any]:
+    frontend_exists = FRONTEND_DIST_INDEX.is_file()
+    frontend_assets_dir = FRONTEND_DIST_INDEX.parent / "assets"
+    frontend_assets = []
+    if frontend_assets_dir.is_dir():
+        frontend_assets = sorted(path.name for path in frontend_assets_dir.iterdir() if path.is_file())
+
+    diagnostics: dict[str, Any] = {
+        "app_name": APP_NAME,
+        "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+        "platform": {
+            "system": platform.system(),
+            "release": platform.release(),
+            "version": platform.version(),
+            "machine": platform.machine(),
+            "python": sys.version,
+            "executable": sys.executable,
+            "is_wsl": is_wsl_environment(),
+        },
+        "paths": {
+            "project_root": str(PROJECT_ROOT),
+            "runtime_dir": str(RUNTIME_DIR),
+            "window_state_path": str(WINDOW_STATE_PATH),
+            "webview_storage_dir": str(WEBVIEW_STORAGE_DIR),
+            "diagnostics_dir": str(DIAGNOSTICS_DIR),
+            "frontend_dist_index": str(FRONTEND_DIST_INDEX),
+        },
+        "frontend": {
+            "dist_exists": frontend_exists,
+            "dist_mtime_ns": FRONTEND_DIST_INDEX.stat().st_mtime_ns if frontend_exists else None,
+            "dist_size": FRONTEND_DIST_INDEX.stat().st_size if frontend_exists else None,
+            "assets": frontend_assets,
+        },
+        "desktop_runtime": {
+            "app_url": APP_URL,
+            "cache_busted_url": build_app_url(),
+            "health_url": HEALTH_URL,
+            "pywebview_installed": find_spec("webview") is not None,
+            "window_state": load_window_state(),
+            "webview_storage_exists": WEBVIEW_STORAGE_DIR.exists(),
+            "webview_storage_entries": sorted(path.name for path in WEBVIEW_STORAGE_DIR.iterdir()) if WEBVIEW_STORAGE_DIR.exists() else [],
+        },
+        "backend": {
+            "health_reachable": is_url_available(HEALTH_URL),
+            "app_reachable": is_url_available(APP_URL),
+            "root_info": fetch_json("http://127.0.0.1:8000/"),
+        },
+        "environment": {
+            "LD_LIBRARY_PATH": os.environ.get("LD_LIBRARY_PATH", ""),
+            "QTWEBENGINE_DISABLE_GPU": os.environ.get("QTWEBENGINE_DISABLE_GPU", ""),
+            "LIBGL_ALWAYS_SOFTWARE": os.environ.get("LIBGL_ALWAYS_SOFTWARE", ""),
+            "QT_QUICK_BACKEND": os.environ.get("QT_QUICK_BACKEND", ""),
+            "QT_SCALE_FACTOR": os.environ.get("QT_SCALE_FACTOR", ""),
+            "QT_FONT_DPI": os.environ.get("QT_FONT_DPI", ""),
+            "PYWEBVIEW_GUI": os.environ.get("PYWEBVIEW_GUI", ""),
+            "FONTCONFIG_FILE": os.environ.get("FONTCONFIG_FILE", ""),
+        },
+    }
+    return diagnostics
+
+
+def export_desktop_diagnostics() -> Path:
+    DIAGNOSTICS_DIR.mkdir(parents=True, exist_ok=True)
+    timestamp = time.strftime("%Y%m%d_%H%M%S")
+    target = DIAGNOSTICS_DIR / f"desktop_diagnostics_{timestamp}.json"
+    payload = collect_desktop_diagnostics()
+    target.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    return target
+
+
+def collect_preflight_report() -> dict[str, Any]:
+    checks: list[dict[str, Any]] = []
+    frontend_ready = FRONTEND_DIST_INDEX.is_file()
+    checks.append(
+        {
+            "name": "frontend_dist",
+            "ok": frontend_ready,
+            "detail": str(FRONTEND_DIST_INDEX) if frontend_ready else "frontend/dist/index.html missing",
+        }
+    )
+
+    pywebview_ready = find_spec("webview") is not None
+    checks.append(
+        {
+            "name": "pywebview",
+            "ok": pywebview_ready,
+            "detail": "installed" if pywebview_ready else "missing: pip install -r desktop_requirements.txt",
+        }
+    )
+
+    docs_ready = (PROJECT_ROOT / "docs" / "Desktop_Quickstart.md").is_file()
+    checks.append(
+        {
+            "name": "desktop_docs",
+            "ok": docs_ready,
+            "detail": "docs/Desktop_Quickstart.md" if docs_ready else "desktop quickstart doc missing",
+        }
+    )
+
+    backend_proc: Optional[subprocess.Popen[str]] = None
+    backend_proc_alive = False
+    backend_ok = False
+    app_ok = False
+    backend_detail = ""
+    app_detail = ""
+    startup_error = ""
+    try:
+        if frontend_ready:
+            backend_proc = start_backend(wait_for_health=False)
+            backend_proc_alive = backend_proc is None or backend_proc.poll() is None
+            backend_ok = wait_for_url(HEALTH_URL, timeout_seconds=5)
+            app_ok = wait_for_url(APP_URL, timeout_seconds=5)
+            backend_detail = HEALTH_URL if backend_ok else "backend health probe unavailable"
+            app_detail = APP_URL if app_ok else "/app route probe unavailable"
+    except Exception as exc:
+        startup_error = str(exc)
+        checks.append({"name": "backend_start", "ok": False, "detail": startup_error})
+    finally:
+        stop_backend(backend_proc)
+
+    if frontend_ready:
+        checks.append(
+            {
+                "name": "backend_process",
+                "ok": backend_proc_alive,
+                "detail": "backend process started" if backend_proc_alive else "backend process did not stay alive",
+            }
+        )
+        if backend_proc_alive and not backend_ok:
+            backend_ok = True
+            backend_detail = "backend process started; HTTP probe skipped or unavailable in current environment"
+        if backend_proc_alive and not app_ok:
+            app_ok = True
+            app_detail = "/app route assumed from running backend + built frontend in current environment"
+        checks.append(
+            {
+                "name": "backend_health",
+                "ok": backend_ok,
+                "detail": backend_detail or "backend health check failed",
+            }
+        )
+        checks.append(
+            {
+                "name": "desktop_app_route",
+                "ok": app_ok,
+                "detail": app_detail or "/app route is not reachable",
+            }
+        )
+
+    all_ok = all(check["ok"] for check in checks)
+    return {
+        "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+        "ok": all_ok,
+        "checks": checks,
+        "startup_error": startup_error,
+    }
+
+
+def write_preflight_report(report: dict[str, Any]) -> Path:
+    DIAGNOSTICS_DIR.mkdir(parents=True, exist_ok=True)
+    timestamp = time.strftime("%Y%m%d_%H%M%S")
+    target = DIAGNOSTICS_DIR / f"desktop_preflight_{timestamp}.json"
+    payload = {
+        **report,
+        "diagnostics": collect_desktop_diagnostics(),
+    }
+    text = json.dumps(payload, indent=2, ensure_ascii=False)
+    target.write_text(text, encoding="utf-8")
+    LATEST_PREFLIGHT_PATH.write_text(text, encoding="utf-8")
+    return target
+
+
+def write_launch_error_snapshot(err: Exception) -> Path:
+    DIAGNOSTICS_DIR.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+        "error_type": err.__class__.__name__,
+        "message": str(err),
+        "traceback": traceback.format_exc(),
+        "diagnostics": collect_desktop_diagnostics(),
+    }
+    LATEST_ERROR_PATH.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    return LATEST_ERROR_PATH
+
+
 def attach_window_state_tracking(window: Any, state: dict[str, Any]) -> None:
     def on_resized(width: int, height: int) -> None:
         if state["maximized"]:
@@ -223,26 +456,10 @@ def open_path_in_file_manager(path: Path) -> None:
 
 
 def is_url_available(url: str, timeout: float = 1.0) -> bool:
-    curl_path = shutil.which("curl")
-    if curl_path:
-        result = subprocess.run(
-            [curl_path, "-sS", "-o", "/dev/null", "-w", "%{http_code}", url],
-            capture_output=True,
-            text=True,
-            timeout=max(timeout, 1.0),
-            check=False,
-        )
-        if result.returncode == 0:
-            try:
-                status_code = int((result.stdout or "0").strip() or "0")
-            except ValueError:
-                status_code = 0
-            return 200 <= status_code < 400
-
     try:
         with urllib.request.urlopen(url, timeout=timeout) as resp:
             return 200 <= int(resp.status) < 400
-    except (urllib.error.URLError, TimeoutError):
+    except Exception:
         return False
 
 
@@ -256,10 +473,11 @@ def wait_for_url(url: str, timeout_seconds: float) -> bool:
 
 
 def resolve_backend_python() -> str:
-    candidates = [
-        BACKEND_DIR / ".venv" / "Scripts" / "python.exe",
-        BACKEND_DIR / ".venv" / "bin" / "python",
-    ]
+    if sys.platform == "win32":
+        candidates = [BACKEND_DIR / ".venv" / "Scripts" / "python.exe"]
+    else:
+        candidates = [BACKEND_DIR / ".venv" / "bin" / "python"]
+        
     for candidate in candidates:
         if candidate.is_file():
             return str(candidate)
@@ -324,6 +542,8 @@ def print_startup_info() -> None:
     print("3. 找不到前端文件 (No Dist):  cd frontend && npm install && npm run build")
     print("4. 桌面版启动冲突 (Locked):   删除数据目录下的 desktop.lock 文件")
     print("5. 端口占用 (Port In Use):    排查 8000 端口是否被其他程序占用")
+    print("6. 缓存异常 (Cache Issues):   使用 --clear-webview 或菜单重置桌面缓存")
+    print("7. 诊断导出 (Diagnostics):    使用 --export-diagnostics 或菜单导出 JSON")
     print("=" * 60)
 
 
@@ -375,90 +595,14 @@ def configure_linux_qt_runtime() -> None:
 
 def run_preflight_checks() -> int:
     print("[Preflight] Running desktop readiness checks...")
-    checks: list[tuple[str, bool, str]] = []
+    report = collect_preflight_report()
+    report_path = write_preflight_report(report)
+    for check in report["checks"]:
+        status = "OK" if check["ok"] else "FAIL"
+        print(f"[Preflight] {check['name']}: {status} - {check['detail']}")
+    print(f"[Preflight] report: {report_path}")
 
-    frontend_ready = FRONTEND_DIST_INDEX.is_file()
-    checks.append(
-        (
-            "frontend_dist",
-            frontend_ready,
-            str(FRONTEND_DIST_INDEX) if frontend_ready else "frontend/dist/index.html missing",
-        )
-    )
-
-    pywebview_ready = find_spec("webview") is not None
-    checks.append(
-        (
-            "pywebview",
-            pywebview_ready,
-            "installed" if pywebview_ready else "missing: pip install -r desktop_requirements.txt",
-        )
-    )
-
-    docs_ready = (PROJECT_ROOT / "docs" / "Desktop_Quickstart.md").is_file()
-    checks.append(
-        (
-            "desktop_docs",
-            docs_ready,
-            "docs/Desktop_Quickstart.md" if docs_ready else "desktop quickstart doc missing",
-        )
-    )
-
-    backend_proc: Optional[subprocess.Popen[str]] = None
-    backend_proc_alive = False
-    backend_ok = False
-    app_ok = False
-    backend_detail = ""
-    app_detail = ""
-    try:
-        if frontend_ready:
-            backend_proc = start_backend(wait_for_health=False)
-            backend_proc_alive = backend_proc is None or backend_proc.poll() is None
-            backend_ok = wait_for_url(HEALTH_URL, timeout_seconds=5)
-            app_ok = wait_for_url(APP_URL, timeout_seconds=5)
-            backend_detail = HEALTH_URL if backend_ok else "backend health probe unavailable"
-            app_detail = APP_URL if app_ok else "/app route probe unavailable"
-    except Exception as exc:
-        checks.append(("backend_start", False, str(exc)))
-    finally:
-        stop_backend(backend_proc)
-
-    if frontend_ready:
-        checks.append(
-            (
-                "backend_process",
-                backend_proc_alive,
-                "backend process started" if backend_proc_alive else "backend process did not stay alive",
-            )
-        )
-        if backend_proc_alive and not backend_ok:
-            backend_ok = True
-            backend_detail = "backend process started; HTTP probe skipped or unavailable in current environment"
-        if backend_proc_alive and not app_ok:
-            app_ok = True
-            app_detail = "/app route assumed from running backend + built frontend in current environment"
-        checks.append(
-            (
-                "backend_health",
-                backend_ok,
-                backend_detail or "backend health check failed",
-            )
-        )
-        checks.append(
-            (
-                "desktop_app_route",
-                app_ok,
-                app_detail or "/app route is not reachable",
-            )
-        )
-
-    all_ok = True
-    for name, ok, detail in checks:
-        status = "OK" if ok else "FAIL"
-        print(f"[Preflight] {name}: {status} - {detail}")
-        all_ok = all_ok and ok
-
-    if all_ok:
+    if report["ok"]:
         print("[Preflight] Desktop is ready.")
         return 0
 
@@ -471,6 +615,9 @@ class DesktopController:
         self.window_state = window_state
         self.window: Any | None = None
         self.webview_module: Any | None = None
+        self.app_url = build_app_url()
+        self.restart_requested = False
+        self.clear_webview_requested = False
 
     def attach_window(self, window: Any, webview_module: Any) -> None:
         self.window = window
@@ -479,7 +626,8 @@ class DesktopController:
     def reload_app(self) -> None:
         if self.window is None:
             return
-        self.window.load_url(APP_URL)
+        self.app_url = build_app_url()
+        self.window.load_url(self.app_url)
 
     def reset_window_layout(self) -> None:
         self.window_state.clear()
@@ -492,7 +640,7 @@ class DesktopController:
         self.window.restore()
         self.window.resize(DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT)
         if self.webview_module is not None:
-            screens = self.webview_module.screens()
+            screens = self.webview_module.screens
             if screens:
                 screen = screens[0]
                 x = screen.x + max((screen.width - DEFAULT_WINDOW_WIDTH) // 2, 0)
@@ -504,10 +652,18 @@ class DesktopController:
         save_window_state(self.window_state)
 
     def open_in_browser(self) -> None:
-        webbrowser.open(APP_URL)
+        webbrowser.open(self.app_url)
 
     def open_desktop_data_dir(self) -> None:
         open_path_in_file_manager(RUNTIME_DIR)
+
+    def open_webview_storage_dir(self) -> None:
+        WEBVIEW_STORAGE_DIR.mkdir(parents=True, exist_ok=True)
+        open_path_in_file_manager(WEBVIEW_STORAGE_DIR)
+
+    def open_diagnostics_dir(self) -> None:
+        DIAGNOSTICS_DIR.mkdir(parents=True, exist_ok=True)
+        open_path_in_file_manager(DIAGNOSTICS_DIR)
 
     def open_memory_docs(self) -> None:
         docs_path = PROJECT_ROOT / "docs" / "EverMem_Memory_Center_User_Guide.md"
@@ -545,6 +701,23 @@ class DesktopController:
     def open_project_dir(self) -> None:
         open_path_in_file_manager(PROJECT_ROOT)
 
+    def reset_webview_cache_and_restart(self) -> None:
+        self.clear_webview_requested = True
+        self.restart_requested = True
+        self.quit_app()
+
+    def export_desktop_diagnostics(self) -> None:
+        path = export_desktop_diagnostics()
+        print(f"[VoiceSpirit Desktop] Diagnostics exported: {path}")
+        open_path_in_file_manager(path.parent)
+
+    def run_desktop_preflight(self) -> None:
+        report = collect_preflight_report()
+        path = write_preflight_report(report)
+        status = "OK" if report["ok"] else "FAIL"
+        print(f"[VoiceSpirit Desktop] Preflight {status}: {path}")
+        open_path_in_file_manager(path.parent)
+
     def quit_app(self) -> None:
         if self.window is None:
             return
@@ -565,8 +738,14 @@ def build_application_menu(
                 menu_action_cls("在浏览器中打开 (Open In Browser)", controller.open_in_browser),
                 menu_separator_cls(),
                 menu_action_cls("打开桌面数据目录 (Data Dir)", controller.open_desktop_data_dir),
+                menu_action_cls("打开 WebView 缓存目录 (WebView Dir)", controller.open_webview_storage_dir),
+                menu_action_cls("运行桌面预检 (Run Preflight)", controller.run_desktop_preflight),
+                menu_action_cls("导出桌面诊断 (Export Diagnostics)", controller.export_desktop_diagnostics),
+                menu_action_cls("打开诊断目录 (Diagnostics Dir)", controller.open_diagnostics_dir),
                 menu_action_cls("打开音频输出目录 (Output Dir)", controller.open_audio_output_dir),
                 menu_action_cls("打开项目根目录 (Project Dir)", controller.open_project_dir),
+                menu_separator_cls(),
+                menu_action_cls("重置桌面缓存并重启 (Reset Cache)", controller.reset_webview_cache_and_restart),
                 menu_separator_cls(),
                 menu_action_cls("退出 (Quit)", controller.quit_app),
             ],
@@ -594,6 +773,22 @@ def main() -> int:
     args = parse_args()
     print_startup_info()
     configure_linux_qt_runtime()
+    if LATEST_ERROR_PATH.is_file():
+        try:
+            LATEST_ERROR_PATH.unlink()
+        except OSError:
+            pass
+    if args.clear_webview:
+        removed = clear_webview_storage()
+        if removed:
+            print(f"[VoiceSpirit Desktop] Cleared WebView storage: {WEBVIEW_STORAGE_DIR}")
+        else:
+            print(f"[VoiceSpirit Desktop] WebView storage already clean: {WEBVIEW_STORAGE_DIR}")
+        return 0
+    if args.export_diagnostics:
+        path = export_desktop_diagnostics()
+        print(f"[VoiceSpirit Desktop] Diagnostics exported: {path}")
+        return 0
     if args.check:
         return run_preflight_checks()
     ensure_frontend_dist()
@@ -626,7 +821,7 @@ def main() -> int:
     controller = DesktopController(window_state)
     window = webview.create_window(
         title="VoiceSpirit",
-        url=APP_URL,
+        url=controller.app_url,
         width=window_state["width"],
         height=window_state["height"],
         x=window_state["x"],
@@ -646,12 +841,62 @@ def main() -> int:
         )
     finally:
         stop_backend(backend_proc)
+    if controller.clear_webview_requested:
+        clear_webview_storage()
+    if controller.restart_requested:
+        instance_lock.release()
+        os.execvpe(sys.executable, [sys.executable, *sys.argv], os.environ.copy())
     return 0
+
+
+def format_launcher_error(err: Exception) -> str:
+    message = str(err).strip() or err.__class__.__name__
+    hints: list[str] = []
+
+    if isinstance(err, FileNotFoundError) and "frontend/dist/index.html" in message:
+        hints.extend([
+            "构建前端：cd frontend && npm install && npm run build",
+            "Windows 桌面入口优先使用 run_web_desktop.bat",
+        ])
+    elif "already running" in message.lower():
+        hints.extend([
+            f"确认是否已有桌面实例在运行：{LOCK_PATH}",
+            "若确认无实例存活，再删除 desktop.lock 后重试",
+        ])
+    elif "pywebview is not installed" in message.lower():
+        hints.extend([
+            "安装桌面依赖：pip install -r desktop_requirements.txt",
+            "Windows 下可直接运行 run_web_desktop.bat 触发自动安装",
+        ])
+    elif "failed to start on http://127.0.0.1:8000" in message.lower():
+        hints.extend([
+            "检查 8000 端口是否被占用",
+            "运行桌面预检：python run_web_desktop.py --check",
+            "查看 backend/.venv 是否完整可用",
+        ])
+    elif "/app is not reachable" in message.lower():
+        hints.extend([
+            "确认 backend/main.py 仍挂载了 /app 和 /assets",
+            "重新构建前端后重试：npm --prefix frontend run build",
+            "必要时清理桌面缓存：python run_web_desktop.py --clear-webview",
+        ])
+    else:
+        hints.extend([
+            "运行桌面预检：python run_web_desktop.py --check",
+            "导出诊断：python run_web_desktop.py --export-diagnostics",
+        ])
+
+    lines = [f"[VoiceSpirit Desktop] {message}", "Recovery hints:"]
+    lines.extend(f"- {hint}" for hint in hints)
+    return "\n".join(lines)
 
 
 if __name__ == "__main__":
     try:
         raise SystemExit(main())
     except Exception as err:  # pragma: no cover - launcher runtime fallback
-        print(f"[VoiceSpirit Desktop] {err}")
+        error_snapshot = write_launch_error_snapshot(err)
+        print(format_launcher_error(err))
+        print(f"Error snapshot: {error_snapshot}")
+        traceback.print_exc()
         raise SystemExit(1)

@@ -6,6 +6,16 @@ echo.
 
 cd /d %~dp0
 
+set "RESET_CACHE=0"
+if /I "%~1"=="--reset-cache" (
+  set "RESET_CACHE=1"
+  shift
+)
+if /I "%~1"=="/reset-cache" (
+  set "RESET_CACHE=1"
+  shift
+)
+
 set "PYEXE="
 set "PYARGS="
 if exist backend\.venv\Scripts\python.exe (
@@ -29,13 +39,16 @@ echo Using Python launcher: %PYEXE% %PYARGS%
 call :ensure_pywebview
 if errorlevel 1 goto :fail
 
-if not exist frontend\dist\index.html (
-  echo frontend\dist not found. Building frontend...
-  call npm --prefix frontend run build
+call :build_frontend
+if errorlevel 1 goto :fail
+
+if "%RESET_CACHE%"=="1" (
+  echo Resetting desktop WebView cache before launch...
+  call "%PYEXE%" %PYARGS% run_web_desktop.py --clear-webview
   if errorlevel 1 goto :fail
 )
 
-call "%PYEXE%" %PYARGS% run_web_desktop.py
+call "%PYEXE%" %PYARGS% run_web_desktop.py %*
 if errorlevel 1 goto :fail
 
 echo VoiceSpirit Desktop exited.
@@ -68,6 +81,15 @@ if errorlevel 1 (
 )
 exit /b 0
 
+:build_frontend
+echo Building frontend before desktop launch...
+call npm --prefix frontend run build
+if errorlevel 1 (
+  echo Frontend build failed. Desktop launch cancelled.
+  exit /b 1
+)
+exit /b 0
+
 :fail
 echo.
 echo Desktop launcher exited with errors.
@@ -77,7 +99,8 @@ echo   "%PYEXE%" %PYARGS% -m ensurepip --upgrade
 echo   "%PYEXE%" %PYARGS% -m pip install --upgrade pip setuptools wheel
 echo   "%PYEXE%" %PYARGS% -m pip install -r desktop_requirements.txt
 echo   npm --prefix frontend run build
-echo   "%PYEXE%" %PYARGS% run_web_desktop.py
+echo   "%PYEXE%" %PYARGS% run_web_desktop.py --export-diagnostics
+echo   "%PYEXE%" %PYARGS% run_web_desktop.py %*
 echo.
 pause
 exit /b 1

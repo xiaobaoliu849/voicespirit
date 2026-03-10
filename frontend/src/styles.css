@@ -64,220 +64,6 @@ textarea {
   box-shadow: none;
 }
 
-.vsApp.desktopEmbedded .vsTopbar {
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
-  background: #fafbfe;
-  height: 64px;
-  padding: 0 20px;
-}
-
-.vsApp.desktopEmbedded .vsSidebar {
-  background: var(--sidebar-bg);
-  width: 200px;
-}
-
-.vsApp.desktopEmbedded .vsBrand {
-  padding: 16px 16px 12px;
-}
-
-.vsApp.desktopEmbedded .vsBrand h1 {
-  margin: 0;
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--sidebar-text-strong);
-  letter-spacing: 0;
-  white-space: nowrap;
-}
-
-.vsApp.desktopEmbedded .vsNewChatBtn {
-  width: 100%;
-  height: 36px;
-  border-radius: 8px;
-  border: 1px solid var(--line);
-  background: #ffffff;
-  color: var(--text);
-  font-weight: 500;
-  font-size: 13px;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
-  overflow: hidden;
-  transition: all 0.2s;
-}
-
-.vsApp.desktopEmbedded .vsSidebarSection {
-  padding: 0 10px;
-}
-
-.vsApp.desktopEmbedded .vsSectionLabel {
-  margin: 0 8px 6px;
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--muted);
-  white-space: nowrap;
-  transition: opacity 0.2s;
-}
-
-.vsApp.desktopEmbedded .vsNav {
-  gap: 6px;
-}
-
-.vsApp.desktopEmbedded .vsNavItem {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-  border: 0;
-  border-radius: 6px;
-  padding: 8px 10px;
-  text-align: left;
-  background: transparent;
-  color: var(--sidebar-text);
-  font-weight: 500;
-  font-size: 13px;
-  cursor: pointer;
-  transition: all 0.1s ease;
-  overflow: hidden;
-  white-space: nowrap;
-}
-
-.vsApp.desktopEmbedded .vsNavIcon,
-.vsApp.desktopEmbedded .vsQuickActionIcon {
-  display: none;
-}
-
-.vsApp.desktopEmbedded .vsHistoryItem,
-.vsApp.desktopEmbedded .vsHistoryEmpty,
-.vsApp.desktopEmbedded .vsHistoryClearBtn,
-.vsApp.desktopEmbedded .vsProfileName,
-.vsApp.desktopEmbedded .vsProfilePlan {
-  margin: 2px 0 0;
-  color: var(--muted);
-  font-size: 11px;
-  white-space: nowrap;
-}
-
-.vsApp.desktopEmbedded .vsTopbarLeft {
-  gap: 16px;
-}
-
-.vsApp.desktopEmbedded .vsTopbarField {
-  gap: 10px;
-  font-size: 13px;
-  white-space: nowrap;
-}
-
-.vsApp.desktopEmbedded .vsTopbarField>span {
-  min-width: auto;
-}
-
-.vsApp.desktopEmbedded .vsSelectShell,
-.vsApp.desktopEmbedded .vsInputShell {
-  height: 42px;
-  border-radius: 12px;
-}
-
-.vsApp.desktopEmbedded .vsSelectShell select,
-.vsApp.desktopEmbedded .vsInputShell input,
-.vsApp.desktopEmbedded .vsTopbarBtn,
-.vsApp.desktopEmbedded .vsTopbarIconBtn {
-  font-size: 14px;
-}
-
-.vsApp.desktopEmbedded .vsTopbarBtn,
-.vsApp.desktopEmbedded .vsTopbarIconBtn {
-  box-shadow: none;
-}
-
-.vsApp.desktopEmbedded .vsChatBody {
-  padding: 24px clamp(28px, 6vw, 72px);
-}
-
-.vsApp.desktopEmbedded .vsChatEmptyState {
-  margin-top: 72px;
-  max-width: 760px;
-}
-
-.vsApp.desktopEmbedded .vsChatEmptyState h2 {
-  font-size: 24px;
-}
-
-.vsApp.desktopEmbedded .vsChatEmptyState p {
-  font-size: 15px;
-}
-
-.vsApp.desktopEmbedded .vsQuickActions {
-  gap: 14px;
-}
-
-.vsApp.desktopEmbedded .vsQuickActionBtn {
-  min-height: 78px;
-  padding: 18px 18px;
-  border-radius: 16px;
-  font-size: 16px;
-  box-shadow: none;
-}
-
-.vsApp.desktopEmbedded .vsComposerWrap {
-  width: min(980px, calc(100% - 40px));
-  margin-bottom: 18px;
-}
-
-.vsApp.desktopEmbedded .vsComposer {
-  padding: 10px 12px;
-  border-radius: 18px;
-  box-shadow: none;
-}
-
-.vsApp.desktopEmbedded .vsComposer textarea {
-  min-height: 48px;
-  font-size: 15px;
-}
-
-.vsApp.desktopEmbedded .vsSendBtn,
-.vsApp.desktopEmbedded .vsAttachBtn {
-  min-height: 42px;
-}
-
-.vsApp.desktopEmbedded .vsChatDisclaimer {
-  font-size: 12px;
-}
-
-.vsApp.desktopEmbedded .vsNewChatBtn:hover,
-.vsApp.desktopEmbedded .vsTopbarBtn:hover,
-.vsApp.desktopEmbedded .vsQuickActionBtn:hover,
-.vsApp.desktopEmbedded .vsPodcastMenuTrigger:hover {
-  filter: none;
-}
-
-.vsApp.desktopEmbedded,
-.vsApp.desktopEmbedded .legacyMain,
-.vsApp.desktopEmbedded .vsChatWorkspace,
-.vsApp.desktopEmbedded .vsSidebar,
-.vsApp.desktopEmbedded .vsTopbar,
-.vsApp.desktopEmbedded .vsSectionLabel,
-.vsApp.desktopEmbedded .vsHistoryItem,
-.vsApp.desktopEmbedded .vsProfileName,
-.vsApp.desktopEmbedded .vsProfilePlan,
-.vsApp.desktopEmbedded h1,
-.vsApp.desktopEmbedded h2,
-.vsApp.desktopEmbedded h3,
-.vsApp.desktopEmbedded p,
-.vsApp.desktopEmbedded span,
-.vsApp.desktopEmbedded label,
-.vsApp.desktopEmbedded button,
-.vsApp.desktopEmbedded input,
-.vsApp.desktopEmbedded select,
-.vsApp.desktopEmbedded textarea {
-  font-family: "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", "WenQuanYi Micro Hei", sans-serif;
-  text-shadow: none;
-  letter-spacing: normal;
-}
-
 .vsSidebar {
   display: flex;
   flex-direction: column;
@@ -290,16 +76,7 @@ textarea {
   overflow: hidden;
 }
 
-.vsApp.desktopEmbedded .vsSidebar {
-  background: var(--sidebar-bg);
-  width: 200px;
-}
-
 .vsSidebar.collapsed {
-  width: 72px;
-}
-
-.vsApp.desktopEmbedded .vsSidebar.collapsed {
   width: 72px;
 }
 
@@ -744,22 +521,23 @@ button:focus-visible {
 }
 
 .vsTopbar {
-  height: 58px;
+  height: 52px;
   border-bottom: 1px solid #eaedf5;
-  background: rgba(252, 252, 254, 0.92);
+  background: rgba(252, 252, 254, 0.95);
   backdrop-filter: blur(10px);
-  padding: 0 18px;
+  padding: 0 20px;
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 12px;
 }
 
 .vsTopbarLeft {
   min-width: 0;
+  flex: 1;
   display: flex;
   align-items: center;
   gap: 12px;
+  overflow: visible;
 }
 
 .vsTopbarField {
@@ -767,9 +545,38 @@ button:focus-visible {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 11px;
-  color: #9097aa;
-  font-weight: 700;
+  font-size: 12px;
+  color: #8e96ab;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.vsTopbarField select,
+.vsTopbarField input {
+  border: 1px solid #e8ebf2;
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 13px;
+  color: #3b4255;
+  background: #fff;
+  outline: none;
+  min-width: 0;
+}
+
+.vsTopbarField select:focus,
+.vsTopbarField input:focus {
+  border-color: #c4b5fd;
+  box-shadow: 0 0 0 2px rgba(124, 92, 255, 0.08);
+}
+
+.vsTopbarModelField {
+  flex: 1;
+  min-width: 0;
+}
+
+.vsTopbarModelField input {
+  width: 100%;
+  min-width: 0;
 }
 
 .vsSelectShell,
@@ -836,47 +643,24 @@ button:focus-visible {
   color: #68708b;
 }
 
+.vsTopbarVoiceField {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: #8e96ab;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.vsTopbarVoiceField select {
+  max-width: 140px;
+}
+
 .vsTopbarDivider {
   width: 1px;
   height: 16px;
   background: #e3e6ef;
-}
-
-.vsTopbarActions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.vsTopbarBtn {
-  border: 1px solid #eee7ff;
-  background: #faf7ff;
-  color: #6f52ec;
-  border-radius: 10px;
-  padding: 7px 11px;
-  font-weight: 700;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.vsTopbarBtn:hover {
-  background: #f4eeff;
-}
-
-.vsTopbarIconBtn {
-  border: 1px solid #eceff5;
-  background: #fff;
-  color: #7a8195;
-  border-radius: 10px;
-  width: 34px;
-  height: 34px;
-  padding: 7px;
-  font-weight: 700;
-}
-
-.vsTopbarIconBtn:hover {
-  background: #f4f6fb;
 }
 
 .vsChatBody {
@@ -885,97 +669,15 @@ button:focus-visible {
   padding: 32px clamp(22px, 8vw, 110px);
 }
 
-.vsChatEmptyState {
-  max-width: 650px;
-  margin: 120px auto 0;
-  text-align: center;
+.vsChatBody.empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 clamp(22px, 8vw, 110px);
 }
 
-.vsEmptyLogo {
-  width: 72px;
-  height: 72px;
-  border-radius: 20px;
-  margin: 0 auto 18px;
-  display: grid;
-  place-items: center;
-  background: linear-gradient(180deg, #f6f5fc, #f2f2fa);
-  border: 1px solid #ececf4;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85);
-}
 
-.vsEmptyLogoInner {
-  width: 54px;
-  height: 54px;
-  border-radius: 16px;
-  display: grid;
-  place-items: center;
-  background: linear-gradient(180deg, #f7f6ff, #f1eeff);
-  color: #7c5cff;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9);
-}
 
-.vsChatEmptyState h2 {
-  margin: 0 0 10px;
-  color: #2b3143;
-  font-size: 18px;
-  font-weight: 800;
-}
-
-.vsChatEmptyState p {
-  margin: 0;
-  color: #9aa2b5;
-  font-size: 13px;
-}
-
-.vsQuickActions {
-  margin-top: 24px;
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
-}
-
-.vsQuickActionBtn {
-  border: 1px solid #e8ebf4;
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.78);
-  color: #3c4358;
-  min-height: 62px;
-  text-align: left;
-  padding: 14px 15px;
-  display: grid;
-  gap: 8px;
-  justify-items: start;
-  align-content: center;
-  box-shadow: 0 2px 12px rgba(116, 124, 151, 0.05);
-}
-
-.vsQuickActionBtn:hover {
-  background: #fff;
-  border-color: #d7dbeb;
-}
-
-.vsQuickActionIcon {
-  width: 20px;
-  height: 20px;
-  display: grid;
-  place-items: center;
-}
-
-.vsQuickActionBtn.indigo .vsQuickActionIcon {
-  color: #6b4cf6;
-}
-
-.vsQuickActionBtn.violet .vsQuickActionIcon {
-  color: #8b5cf6;
-}
-
-.vsQuickActionBtn.blue .vsQuickActionIcon {
-  color: #4b82f1;
-}
-
-.vsQuickActionBtn.emerald .vsQuickActionIcon {
-  color: #17a56d;
-}
 
 .vsMessageList {
   width: min(860px, 100%);
@@ -984,77 +686,264 @@ button:focus-visible {
   gap: 14px;
 }
 
+.vsRealtimeContent {
+  font-size: 15px;
+  line-height: 1.6;
+  color: #1e2330;
+  white-space: pre-wrap;
+  word-break: break-word;
+  min-height: 72px;
+  text-align: left;
+}
+
+/* ── Streaming Bubbles UI ── */
+.bubble.live {
+  border: 1px dashed var(--primary-color) !important;
+  opacity: 0.95;
+  animation: vsFadePulse 2s infinite ease-in-out;
+}
+
+.vsStreamingIndicator {
+  font-size: 10px;
+  font-weight: normal;
+  color: var(--primary-color);
+  margin-left: 6px;
+  background: rgba(124, 92, 255, 0.1);
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+
+@keyframes vsFadePulse {
+  0% {
+    opacity: 0.7;
+  }
+
+  50% {
+    opacity: 1;
+  }
+
+  100% {
+    opacity: 0.7;
+  }
+}
+
+
+/* ═══ Empty state: centered like Claude / Gemini ═══ */
+.vsChatCentered {
+  width: min(680px, calc(100% - 48px));
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  animation: fadeUp 0.45s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes fadeUp {
+  0% {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.vsWelcome {
+  text-align: center;
+  margin-bottom: 4px;
+}
+
+.vsWelcome h2 {
+  margin: 0;
+  font-size: 28px;
+  font-weight: 700;
+  color: #1a1e2e;
+  letter-spacing: -0.5px;
+  line-height: 1.3;
+}
+
+/* ═══ Composer card (shared between empty & chat modes) ═══ */
+.vsComposerWrapCentered {
+  width: 100%;
+}
+
 .vsComposerWrap {
-  width: min(900px, calc(100% - 36px));
-  margin: 0 auto 14px;
+  width: min(800px, calc(100% - 40px));
+  margin: 0 auto 16px;
+  position: relative;
 }
 
 .vsComposer {
-  border: 1px solid #eceef4;
-  border-radius: 16px;
-  background: rgba(255, 255, 255, 0.97);
-  box-shadow: 0 8px 26px rgba(45, 65, 128, 0.06);
-  padding: 8px 10px;
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  border: 1px solid #e0e3ed;
+  border-radius: 22px;
+  background: #ffffff;
+  box-shadow: 0 2px 20px rgba(0, 0, 0, 0.04);
+  padding: 16px 20px 12px;
+  display: flex;
+  flex-direction: column;
   gap: 8px;
-  align-items: end;
+  transition: border-color 0.2s, box-shadow 0.2s;
 }
 
-.vsAttachBtn {
-  width: 38px;
-  height: 38px;
-  border-radius: 12px;
-  border: 0;
-  background: transparent;
-  color: #8a92a6;
-  padding: 8px;
-}
-
-.vsAttachBtn:hover {
-  background: #f3f5fa;
+.vsComposer:focus-within {
+  border-color: #c7c0f0;
+  box-shadow: 0 0 0 3px rgba(124, 92, 255, 0.08), 0 2px 16px rgba(0, 0, 0, 0.04);
 }
 
 .vsComposer textarea {
-  border: 0;
-  background: transparent;
-  padding: 9px 2px 8px;
-  min-height: 40px;
-  max-height: 200px;
+  border: 0 !important;
+  background: transparent !important;
+  padding: 2px 4px !important;
+  min-height: 52px;
+  max-height: 240px;
   resize: none;
-  box-shadow: none;
-  line-height: 1.55;
-  color: #444d65;
-  font-size: 14px;
+  box-shadow: none !important;
+  line-height: 1.6;
+  color: #1e2330;
+  font-size: 15px;
+  outline: none !important;
+  border-radius: 0 !important;
 }
 
-.vsComposer textarea:focus {
-  outline: none;
+.vsComposer textarea::placeholder {
+  color: #a0a8ba;
+}
+
+.vsComposerToolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.vsComposerToolbarLeft {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.vsComposerToolbarRight {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.vsToolbarBtn {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  border: 0;
+  background: transparent;
+  color: #8b94aa;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.15s;
+  padding: 0;
+}
+
+.vsToolbarBtn:hover {
+  background: #f0f2f7;
+  color: #555e74;
+}
+
+.vsToolbarBtn.recording {
+  background: #fef2f2;
+  color: #ef4444;
 }
 
 .vsSendBtn {
+  width: 36px;
+  height: 36px;
   border: 0;
-  border-radius: 12px;
-  padding: 10px 14px;
-  background: linear-gradient(180deg, #7b5cff, #6b45f3);
-  color: #fff;
-  font-weight: 700;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #7c5cff, #6366f1);
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 3px 10px rgba(99, 102, 241, 0.3);
+  transition: all 0.2s;
+  padding: 0;
+}
+
+.vsSendBtn:hover:not(:disabled) {
+  transform: scale(1.05);
+  box-shadow: 0 5px 14px rgba(99, 102, 241, 0.4);
+}
+
+.vsSendBtn:disabled {
+  background: #dde0e8;
+  color: #aeb5c5;
+  box-shadow: none;
+  cursor: not-allowed;
+}
+
+.vsSpin {
+  animation: vsSpin 1s linear infinite;
+}
+
+@keyframes vsSpin {
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ═══ Quick action pills (horizontal row below composer) ═══ */
+.vsQuickActions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.vsQuickActionPill {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  box-shadow: 0 10px 20px rgba(103, 77, 241, 0.28);
+  padding: 8px 16px;
+  border: 1px solid #e4e7f0;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #3b4255;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
 }
 
-.vsSendBtn:hover {
-  filter: brightness(1.04);
+.vsQuickActionPill:hover {
+  background: #f8f8fc;
+  border-color: #d0d4e2;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.06);
+}
+
+.vsQuickActionPill .vsQuickActionIcon {
+  font-size: 14px;
+  line-height: 1;
 }
 
 .vsChatDisclaimer {
-  margin: 10px 0 0;
+  margin: 8px 0 0;
   text-align: center;
   color: #b3b9c9;
   font-size: 11px;
 }
+
+
+
+
+
 
 .vsToolWorkspace {
   min-height: 100%;
@@ -1192,6 +1081,7 @@ button:focus-visible {
   font-size: 13px;
   outline: none;
 }
+
 .vsTranslateField input:focus,
 .vsTranslateField select:focus {
   border-color: var(--brand);
@@ -2192,29 +2082,29 @@ button.danger:focus-visible {
 
 @media (max-width: 900px) {
   .vsApp {
-  width: min(100%, 1940px);
-  min-height: calc(100vh - 24px);
-  margin: 12px auto;
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  overflow: hidden;
-  background: var(--panel);
-  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
-}
+    width: min(100%, 1940px);
+    min-height: calc(100vh - 24px);
+    margin: 12px auto;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    overflow: hidden;
+    background: var(--panel);
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  }
 
   .vsSidebar {
-  display: flex;
-  flex-direction: column;
-  background: var(--sidebar-bg);
-  border-right: 1px solid var(--sidebar-line);
-  color: var(--sidebar-text);
-  min-height: 100%;
-  transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  width: 220px;
-  overflow: hidden;
-}
+    display: flex;
+    flex-direction: column;
+    background: var(--sidebar-bg);
+    border-right: 1px solid var(--sidebar-line);
+    color: var(--sidebar-text);
+    min-height: 100%;
+    transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    width: 220px;
+    overflow: hidden;
+  }
 
   .vsHistorySection {
     max-height: 200px;
@@ -2269,16 +2159,16 @@ button.danger:focus-visible {
   }
 
   .vsTranslateTopbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 12px 16px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--panel);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
-}
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 12px 16px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--panel);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+  }
 
   .vsTranslateToolbar {
     flex-wrap: wrap;
@@ -2286,11 +2176,11 @@ button.danger:focus-visible {
   }
 
   .vsTranslateTopbarActions {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-shrink: 0;
-}
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-shrink: 0;
+  }
 
   .vsTranslateModeBar {
     width: fit-content;
@@ -3529,20 +3419,6 @@ button.danger:focus-visible {
 }
 
 /* Make Settings Layout respond to tight embedded mode */
-.desktopEmbedded .vsSettingsLayout {
-  border-radius: 8px;
-  box-shadow: none;
-}
-
-.desktopEmbedded .vsSettingsNav {
-  width: 200px;
-  padding: 20px 12px;
-}
-
-.desktopEmbedded .vsSettingsContent {
-  padding: 24px 28px 40px;
-}
-
 /* =========================================================
    TTS Voice Workspace (Desktop UI)
    ========================================================= */
@@ -3714,23 +3590,4 @@ button.danger:focus-visible {
   font-size: 13px;
   color: #94a3b8;
   line-height: 1.5;
-}
-
-.desktopEmbedded .vsTtsLayout {
-  display: flex;
-  height: 100%;
-  background: var(--panel);
-  overflow: hidden;
-}
-
-.desktopEmbedded .vsTtsSecondary {
-  width: 380px;
-  background: var(--surface);
-  border-left: 1px solid var(--line);
-  padding: 24px;
-  display: flex;
-  flex-direction: column;
-  gap: 24px;
-  overflow-y: auto;
-  flex-shrink: 0;
 }

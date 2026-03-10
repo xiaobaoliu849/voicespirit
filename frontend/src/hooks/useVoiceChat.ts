@@ -19,6 +19,7 @@ type Options = {
   providerOptions?: string[];
   providerModelCatalog?: ProviderModelCatalog;
   preferredProvider?: string;
+  preferredModel?: string;
 };
 
 type AudioContextWindow = Window & {
@@ -26,7 +27,10 @@ type AudioContextWindow = Window & {
 };
 
 const GOOGLE_PROVIDER = "Google";
+const DASHSCOPE_PROVIDER = "DashScope";
 const DEFAULT_GOOGLE_MODEL = "gemini-2.5-flash-native-audio-preview-12-2025";
+const DEFAULT_DASHSCOPE_MODEL = "qwen3-omni-flash-realtime-2025-12-01";
+
 const GOOGLE_REALTIME_VOICES = [
   "Puck",
   "Aoede",
@@ -40,9 +44,27 @@ const GOOGLE_REALTIME_VOICES = [
   "Sadachbia",
 ].map((name) => ({ value: name, label: name }));
 
+const DASHSCOPE_REALTIME_VOICES = [
+  { value: "Cherry", label: "Cherry (Female)" },
+  { value: "Bella", label: "Bella (Female)" },
+  { value: "Luna", label: "Luna (Female)" },
+  { value: "Stella", label: "Stella (Female)" },
+  { value: "Raya", label: "Raya (Female)" },
+  { value: "Zita", label: "Zita (Female)" },
+  { value: "Arda", label: "Arda (Male)" },
+  { value: "Kall", label: "Kall (Male)" },
+  { value: "Ollo", label: "Ollo (Male)" },
+  { value: "Vrom", label: "Vrom (Male)" },
+  { value: "Bale", label: "Bale (Male)" },
+  { value: "Gale", label: "Gale (Male)" },
+];
+
 function resolveRealtimeProvider(preferredProvider: string | undefined, providerOptions: string[]): string {
-  if (preferredProvider === GOOGLE_PROVIDER && providerOptions.includes(GOOGLE_PROVIDER)) {
-    return GOOGLE_PROVIDER;
+  if (preferredProvider && (preferredProvider === GOOGLE_PROVIDER || preferredProvider === DASHSCOPE_PROVIDER) && providerOptions.includes(preferredProvider)) {
+    return preferredProvider;
+  }
+  if (providerOptions.includes(DASHSCOPE_PROVIDER)) {
+    return DASHSCOPE_PROVIDER;
   }
   if (providerOptions.includes(GOOGLE_PROVIDER)) {
     return GOOGLE_PROVIDER;
@@ -51,6 +73,9 @@ function resolveRealtimeProvider(preferredProvider: string | undefined, provider
 }
 
 function resolveDefaultModel(provider: string, providerModelCatalog: ProviderModelCatalog): string {
+  if (provider === DASHSCOPE_PROVIDER) {
+    return providerModelCatalog[provider]?.defaultModel || DEFAULT_DASHSCOPE_MODEL;
+  }
   if (provider !== GOOGLE_PROVIDER) {
     return providerModelCatalog[provider]?.defaultModel || "";
   }
@@ -136,17 +161,18 @@ export default function useVoiceChat({
   providerOptions = [],
   providerModelCatalog = {},
   preferredProvider,
+  preferredModel,
 }: Options) {
-  const resolvedProviders = providerOptions.includes(GOOGLE_PROVIDER)
-    ? [GOOGLE_PROVIDER]
-    : [resolveRealtimeProvider(preferredProvider, providerOptions)];
+  const resolvedProviders = [GOOGLE_PROVIDER, DASHSCOPE_PROVIDER].filter(p => providerOptions.includes(p));
 
   const initialProvider = resolveRealtimeProvider(preferredProvider, resolvedProviders);
   const [voiceChatProvider, setVoiceChatProvider] = useState(initialProvider);
   const [voiceChatModel, setVoiceChatModel] = useState(
     resolveDefaultModel(initialProvider, providerModelCatalog)
   );
-  const [voiceChatVoice, setVoiceChatVoice] = useState(GOOGLE_REALTIME_VOICES[0]?.value || "Puck");
+  const [voiceChatVoice, setVoiceChatVoice] = useState(
+    initialProvider === DASHSCOPE_PROVIDER ? "Cherry" : "Puck"
+  );
   const [voiceChatBusy, setVoiceChatBusy] = useState(false);
   const [voiceChatRecording, setVoiceChatRecording] = useState(false);
   const [voiceChatSupported, setVoiceChatSupported] = useState(true);
@@ -168,36 +194,63 @@ export default function useVoiceChat({
   const currentUserTurnRef = useRef("");
   const currentAssistantTurnRef = useRef("");
   const lastPreferredProviderRef = useRef(preferredProvider);
+  const lastPreferredModelRef = useRef(preferredModel);
 
   const voiceChatModelOptions = providerModelCatalog[voiceChatProvider]?.availableModels || [];
 
   useEffect(() => {
     const preferredProviderChanged = lastPreferredProviderRef.current !== preferredProvider;
     lastPreferredProviderRef.current = preferredProvider;
+    const preferredModelChanged = lastPreferredModelRef.current !== preferredModel;
+    lastPreferredModelRef.current = preferredModel;
 
     const nextProvider = resolveRealtimeProvider(preferredProvider, resolvedProviders);
     if (preferredProviderChanged && voiceChatProvider !== nextProvider) {
       setVoiceChatProvider(nextProvider);
-      setVoiceChatModel(resolveDefaultModel(nextProvider, providerModelCatalog));
+      const nextModel = preferredModel && (preferredModelChanged || nextProvider !== voiceChatProvider)
+        ? preferredModel
+        : resolveDefaultModel(nextProvider, providerModelCatalog);
+      setVoiceChatModel(nextModel);
       return;
     }
 
+    if (preferredModel && preferredModelChanged && preferredModel !== voiceChatModel) {
+      const availableModels = providerModelCatalog[voiceChatProvider]?.availableModels || [];
+      if (availableModels.length === 0 || availableModels.includes(preferredModel)) {
+        setVoiceChatModel(preferredModel);
+        return;
+      }
+    }
+
     const defaultModel = resolveDefaultModel(voiceChatProvider, providerModelCatalog);
+    const availableModels = providerModelCatalog[voiceChatProvider]?.availableModels || [];
     const currentModelValid =
-      voiceChatModelOptions.length === 0 ||
+      availableModels.length === 0 ||
       !voiceChatModel.trim() ||
-      voiceChatModelOptions.includes(voiceChatModel.trim());
+      availableModels.includes(voiceChatModel.trim());
     if (!voiceChatModel.trim() || !currentModelValid) {
       setVoiceChatModel(defaultModel);
     }
   }, [
     preferredProvider,
+    preferredModel,
     providerModelCatalog,
     resolvedProviders,
     voiceChatModel,
-    voiceChatModelOptions,
     voiceChatProvider,
   ]);
+
+  useEffect(() => {
+    if (voiceChatProvider === DASHSCOPE_PROVIDER) {
+      if (!DASHSCOPE_REALTIME_VOICES.some(v => v.value === voiceChatVoice)) {
+        setVoiceChatVoice("Cherry");
+      }
+    } else if (voiceChatProvider === GOOGLE_PROVIDER) {
+      if (!GOOGLE_REALTIME_VOICES.some(v => v.value === voiceChatVoice)) {
+        setVoiceChatVoice("Puck");
+      }
+    }
+  }, [voiceChatProvider, voiceChatVoice]);
 
   useEffect(() => {
     return () => {
@@ -244,7 +297,7 @@ export default function useVoiceChat({
     if (audioContextRef.current) {
       const context = audioContextRef.current;
       audioContextRef.current = null;
-      void context.close().catch(() => {});
+      void context.close().catch(() => { });
     }
 
     setVoiceChatConnected(false);
@@ -270,6 +323,8 @@ export default function useVoiceChat({
     });
     currentUserTurnRef.current = "";
     currentAssistantTurnRef.current = "";
+    setVoiceChatTranscript("");
+    setVoiceChatReply("");
   }
 
   async function playAssistantAudio(base64Audio: string, sampleRate: number) {
@@ -471,7 +526,7 @@ export default function useVoiceChat({
     voiceChatModel,
     voiceChatModelOptions,
     voiceChatVoice,
-    voiceChatVoiceOptions: GOOGLE_REALTIME_VOICES,
+    voiceChatVoiceOptions: voiceChatProvider === DASHSCOPE_PROVIDER ? DASHSCOPE_REALTIME_VOICES : GOOGLE_REALTIME_VOICES,
     voiceChatBusy,
     voiceChatRecording,
     voiceChatConnected,

@@ -169,6 +169,10 @@ export function createSettingsController(
     backendRuntimeRaw: '{\n  "name": "VoiceSpirit"\n}',
     backendRuntimeOpen: false,
     runtimeCopyStatus: "idle",
+    desktopRememberWindowPosition: true,
+    desktopAlwaysOnTop: false,
+    desktopShowTrayIcon: false,
+    desktopWakeShortcut: "Alt+Shift+S",
     errorRuntimeContext: {
       backend_phase: "B",
       backend_auth_mode: "write-only-with-admin-settings",
@@ -212,8 +216,30 @@ export function createSettingsController(
     desktopSection: {
       configPath: "/tmp/config.json",
       backendPhase: "B",
+      backendAuthMode: "write-only-with-admin-settings",
+      backendAuthEnabled: false,
       backendVersion: "test",
       backendStatus: "ok",
+      rememberWindowPosition: true,
+      alwaysOnTop: false,
+      showTrayIcon: false,
+      wakeShortcut: "Alt+Shift+S",
+      runtimeDir: "/tmp/voicespirit-runtime",
+      diagnosticsDir: "/tmp/voicespirit-runtime/diagnostics",
+      preflight: {
+        available: true,
+        ok: true,
+        timestamp: "2026-03-10T22:45:02+0800",
+        failed_checks: [],
+        failed_count: 0
+      },
+      latestError: {
+        available: false,
+        timestamp: "",
+        error_type: "",
+        message: "",
+        recovery_hints: []
+      },
       runtimeVisible: false,
       runtimeCopyStatus: "idle"
     },
@@ -244,6 +270,10 @@ export function createSettingsController(
     onEvermemRememberPodcastChange: vi.fn(),
     onEvermemRememberTtsChange: vi.fn(),
     onEvermemStoreTranscriptChange: vi.fn(),
+    onDesktopRememberWindowPositionChange: vi.fn(),
+    onDesktopAlwaysOnTopChange: vi.fn(),
+    onDesktopShowTrayIconChange: vi.fn(),
+    onDesktopWakeShortcutChange: vi.fn(),
     onToggleRuntimeOpen: vi.fn(),
     onCopyBackendRuntime: vi.fn(),
     ...overrides

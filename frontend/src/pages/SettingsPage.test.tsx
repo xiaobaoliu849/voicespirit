@@ -26,6 +26,9 @@ describe("SettingsPage", () => {
     fireEvent.click(screen.getByRole("button", { name: /系统与运行时/i }));
     expect(screen.getByText("系统与运行时状态")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "显示系统运行时日志" })).toBeInTheDocument();
+    expect(screen.getByText("桌面偏好")).toBeInTheDocument();
+    expect(screen.getByText("唤醒快捷键")).toBeInTheDocument();
+    expect(screen.getByText("最近一次桌面预检")).toBeInTheDocument();
   });
 
   it("wires desktop runtime actions to settings handlers", () => {
@@ -38,6 +41,52 @@ describe("SettingsPage", () => {
 
     expect(settings.onToggleRuntimeOpen).toHaveBeenCalledTimes(1);
     expect(settings.onCopyBackendRuntime).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows recovery hints for the latest desktop launch error", () => {
+    const base = createSettingsController();
+    render(
+      <SettingsPage
+        settings={createSettingsController({
+          desktopSection: {
+            ...base.desktopSection,
+            latestError: {
+              available: true,
+              timestamp: "2026-03-10T22:46:00+0800",
+              error_type: "RuntimeError",
+              message: "Backend is up, but /app is not reachable.",
+              recovery_hints: [
+                "确认 backend/main.py 仍挂载了 /app 和 /assets",
+                "必要时清理桌面缓存：python run_web_desktop.py --clear-webview"
+              ]
+            }
+          }
+        })}
+        errorRuntimeContext={{}}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /系统与运行时/i }));
+
+    expect(screen.getByText("恢复建议")).toBeInTheDocument();
+    expect(screen.getByText("确认 backend/main.py 仍挂载了 /app 和 /assets")).toBeInTheDocument();
+    expect(screen.getByText("必要时清理桌面缓存：python run_web_desktop.py --clear-webview")).toBeInTheDocument();
+  });
+
+  it("wires desktop preference controls to settings handlers", () => {
+    const settings = createSettingsController();
+    render(<SettingsPage settings={settings} errorRuntimeContext={{}} />);
+
+    fireEvent.click(screen.getByRole("button", { name: /系统与运行时/i }));
+    fireEvent.click(screen.getByText("记住窗口位置"));
+    fireEvent.click(screen.getByText("显示托盘图标"));
+    fireEvent.change(screen.getByDisplayValue("Alt+Shift+S"), {
+      target: { value: "Ctrl+Alt+V" }
+    });
+
+    expect(settings.onDesktopRememberWindowPositionChange).toHaveBeenCalledWith(false);
+    expect(settings.onDesktopShowTrayIconChange).toHaveBeenCalledWith(true);
+    expect(settings.onDesktopWakeShortcutChange).toHaveBeenCalledWith("Ctrl+Alt+V");
   });
 
   it("submits the settings form through the primary action", () => {

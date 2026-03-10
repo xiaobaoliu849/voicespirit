@@ -423,6 +423,45 @@ export default function SettingsPage({ settings, errorRuntimeContext }: Props) {
             <div className="vsSettingsCard vsDesktopSection">
               <div className="vsCardSection">
                 <h3 className="vsCardSubTitle">诊断与底层信息</h3>
+                <div className="vsFormRow">
+                  <label className="vsField">
+                    <span className="vsFieldLabel">后端阶段</span>
+                    <input
+                      className="vsInput"
+                      value={settings.desktopSection.backendPhase || "未上报"}
+                      readOnly
+                    />
+                  </label>
+                  <label className="vsField">
+                    <span className="vsFieldLabel">运行状态</span>
+                    <input
+                      className="vsInput"
+                      value={settings.desktopSection.backendStatus || "未知"}
+                      readOnly
+                    />
+                  </label>
+                </div>
+                <div className="vsFormRow">
+                  <label className="vsField">
+                    <span className="vsFieldLabel">鉴权模式</span>
+                    <input
+                      className="vsInput"
+                      value={settings.desktopSection.backendAuthMode || "未启用"}
+                      readOnly
+                    />
+                  </label>
+                  <label className="vsField">
+                    <span className="vsFieldLabel">版本号</span>
+                    <input
+                      className="vsInput"
+                      value={settings.desktopSection.backendVersion || "未上报"}
+                      readOnly
+                    />
+                  </label>
+                </div>
+                <div className="vsSettingsNotice">
+                  当前桌面壳已具备单实例、原生菜单和窗口状态保存。托盘、全局快捷键、置顶等原生能力先保存配置，后续再接壳层。
+                </div>
                 <div className="vsSystemActions">
                   <button type="button" className="vsBtnGhost" onClick={settings.onToggleRuntimeOpen}>
                     {settings.backendRuntimeOpen ? "隐藏系统运行时日志" : "显示系统运行时日志"}
@@ -448,6 +487,109 @@ export default function SettingsPage({ settings, errorRuntimeContext }: Props) {
                     <code className="vsCodeBlock">{settings.settingsConfigPath}</code>
                   </div>
                 )}
+
+                <div className="vsCardSection border-top">
+                  <h3 className="vsCardSubTitle">最近一次桌面预检</h3>
+                  <div className={`vsSettingsNotice ${settings.desktopSection.preflight.ok === false ? "warning" : "ok"}`}>
+                    {!settings.desktopSection.preflight.available && "尚未生成桌面预检结果。可在桌面菜单中运行预检。"}
+                    {settings.desktopSection.preflight.available && settings.desktopSection.preflight.ok === true &&
+                      `桌面预检通过。时间：${settings.desktopSection.preflight.timestamp || "未知"}。`}
+                    {settings.desktopSection.preflight.available && settings.desktopSection.preflight.ok === false &&
+                      `桌面预检存在 ${settings.desktopSection.preflight.failed_count} 个问题。时间：${settings.desktopSection.preflight.timestamp || "未知"}。`}
+                  </div>
+
+                  {settings.desktopSection.preflight.failed_checks.length ? (
+                    <div className="vsSystemPath">
+                      <span className="vsFieldLabel">失败项摘要</span>
+                      <code className="vsCodeBlock">
+                        {settings.desktopSection.preflight.failed_checks
+                          .map((item) => `${item.name}: ${item.detail}`)
+                          .join("\n")}
+                      </code>
+                    </div>
+                  ) : null}
+
+                  {settings.desktopSection.latestError.available ? (
+                    <div className="vsSystemPath">
+                      <span className="vsFieldLabel">最近一次启动错误</span>
+                      <code className="vsCodeBlock">
+                        {`${settings.desktopSection.latestError.error_type || "Error"}\n${settings.desktopSection.latestError.message || "未知错误"}\n${settings.desktopSection.latestError.timestamp || ""}`.trim()}
+                      </code>
+                    </div>
+                  ) : null}
+
+                  {settings.desktopSection.latestError.available &&
+                  settings.desktopSection.latestError.recovery_hints.length ? (
+                    <div className="vsSettingsNotice warning">
+                      <strong>恢复建议</strong>
+                      <ul style={{ margin: "8px 0 0 18px" }}>
+                        {settings.desktopSection.latestError.recovery_hints.map((item) => (
+                          <li key={item}>{item}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
+
+                  {settings.desktopSection.diagnosticsDir ? (
+                    <div className="vsSystemPath">
+                      <span className="vsFieldLabel">诊断目录</span>
+                      <code className="vsCodeBlock">{settings.desktopSection.diagnosticsDir}</code>
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+
+              <div className="vsCardSection border-top">
+                <h3 className="vsCardSubTitle">桌面偏好</h3>
+                <label className="vsToggleLabel">
+                  <div className="vsToggleInfo">
+                    <span className="vsToggleTitle">记住窗口位置</span>
+                    <span className="vsToggleDesc">将桌面窗口位置和尺寸写入配置，用于下次启动恢复。</span>
+                  </div>
+                  <input
+                    type="checkbox"
+                    className="vsSwitch"
+                    checked={settings.desktopRememberWindowPosition}
+                    onChange={(e) => settings.onDesktopRememberWindowPositionChange(e.target.checked)}
+                  />
+                </label>
+
+                <label className="vsToggleLabel">
+                  <div className="vsToggleInfo">
+                    <span className="vsToggleTitle">窗口始终置顶</span>
+                    <span className="vsToggleDesc">保存桌面置顶偏好，待原生壳层接线后可直接生效。</span>
+                  </div>
+                  <input
+                    type="checkbox"
+                    className="vsSwitch"
+                    checked={settings.desktopAlwaysOnTop}
+                    onChange={(e) => settings.onDesktopAlwaysOnTopChange(e.target.checked)}
+                  />
+                </label>
+
+                <label className="vsToggleLabel">
+                  <div className="vsToggleInfo">
+                    <span className="vsToggleTitle">显示托盘图标</span>
+                    <span className="vsToggleDesc">保留桌面托盘偏好，后续桌面壳补齐托盘能力时直接复用。</span>
+                  </div>
+                  <input
+                    type="checkbox"
+                    className="vsSwitch"
+                    checked={settings.desktopShowTrayIcon}
+                    onChange={(e) => settings.onDesktopShowTrayIconChange(e.target.checked)}
+                  />
+                </label>
+
+                <label className="vsField" style={{ marginTop: 20 }}>
+                  <span className="vsFieldLabel">唤醒快捷键</span>
+                  <input
+                    className="vsInput"
+                    value={settings.desktopWakeShortcut}
+                    onChange={(e) => settings.onDesktopWakeShortcutChange(e.target.value)}
+                    placeholder="例如：Alt+Shift+S"
+                  />
+                  <span className="vsFieldHint">当前先保存到全局配置，供后续原生全局快捷键接线使用。</span>
+                </label>
               </div>
             </div>
           )}
