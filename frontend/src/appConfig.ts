@@ -12,6 +12,7 @@ export type SidebarItem = {
   tab: ActiveTab;
   label: string;
   icon: string;
+  tooltip: string;
 };
 
 export type QuickAction = {
@@ -37,14 +38,14 @@ export const PROVIDERS = [
 ];
 
 export const SIDEBAR_ITEMS: SidebarItem[] = [
-  { tab: "chat", label: "聊天", icon: "聊" },
-  { tab: "translate", label: "翻译", icon: "译" },
-  { tab: "tts", label: "语音", icon: "声" },
-  { tab: "voice_design", label: "设计音色", icon: "设" },
-  { tab: "voice_clone", label: "音色克隆", icon: "克" },
-  { tab: "audio_overview", label: "播客/多人对话", icon: "播" },
-  { tab: "transcription", label: "转写", icon: "转" },
-  { tab: "settings", label: "设置", icon: "置" }
+  { tab: "chat", label: "聊天", icon: "Bot", tooltip: "AI 助理聊天" },
+  { tab: "translate", label: "翻译", icon: "Languages", tooltip: "多语言智能翻译" },
+  { tab: "tts", label: "语音", icon: "Volume2", tooltip: "文本转语音合成" },
+  { tab: "voice_design", label: "设计音色", icon: "Settings2", tooltip: "自定义设计新音色" },
+  { tab: "voice_clone", label: "音色克隆", icon: "Fingerprint", tooltip: "克隆您的专属音色" },
+  { tab: "audio_overview", label: "播客/多人对话", icon: "Mic2", tooltip: "制作多人播客音频" },
+  { tab: "transcription", label: "转写", icon: "FileAudio", tooltip: "音频转写文本" },
+  { tab: "settings", label: "设置", icon: "Settings", tooltip: "系统设置" }
 ];
 
 export const CHAT_QUICK_ACTIONS: QuickAction[] = [
