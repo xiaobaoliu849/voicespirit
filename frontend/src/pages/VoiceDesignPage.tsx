@@ -10,10 +10,10 @@ type Props = {
 
 export default function VoiceDesignPage({ design, errorRuntimeContext }: Props) {
   return (
-    <section className="legacyPanel" style={{ padding: 0, height: "100%" }}>
+    <section className="vsTtsWorkspace">
       <form className="vsTtsLayout" onSubmit={design.onSubmit} style={{ margin: 0 }}>
         {/* ── Left Pane: Design Input ── */}
-        <div className="vsTtsPrimary" style={{ flex: "1 1 50%" }}>
+        <div className="vsTtsPrimary" style={{ flex: 1, borderRight: "1px solid var(--line)" }}>
           <header className="vsTtsPrimaryHeader">
             <h2 className="vsTtsPrimaryTitle">音色设计工作室 (Voice Design)</h2>
             <div className="vsTtsPrimaryStats">
@@ -21,7 +21,7 @@ export default function VoiceDesignPage({ design, errorRuntimeContext }: Props) 
             </div>
           </header>
 
-          <div className="vsTtsEditorWrap" style={{ padding: "24px", display: "flex", flexDirection: "column", gap: "20px", overflowY: "auto" }}>
+          <div className="vsTtsEditorWrap" style={{ display: "flex", flexDirection: "column", gap: "20px", padding: "24px", overflowY: "auto" }}>
             <div className="vsFormRow">
               <label className="vsField">
                 <span className="vsFieldLabel">音色名称</span>
@@ -57,7 +57,7 @@ export default function VoiceDesignPage({ design, errorRuntimeContext }: Props) 
               />
             </label>
 
-            <label className="vsField" style={{ marginTop: "auto" }}>
+            <label className="vsField" style={{ marginTop: "16px" }}>
               <span className="vsFieldLabel">试听检验文本 (Preview Text)</span>
               <textarea
                 className="vsTextarea"
@@ -70,7 +70,7 @@ export default function VoiceDesignPage({ design, errorRuntimeContext }: Props) 
             </label>
           </div>
 
-          <div className="vsTtsEditorFooter" style={{ marginTop: "auto" }}>
+          <div className="vsTtsEditorFooter" style={{ marginTop: "16px" }}>
             <button
               type="button"
               className="vsBtnSecondary"
@@ -97,7 +97,7 @@ export default function VoiceDesignPage({ design, errorRuntimeContext }: Props) 
         </div>
 
         {/* ── Right Pane: Voice Catalog & Results ── */}
-        <div className="vsTtsSecondary" style={{ flex: "1 1 50%", width: "auto" }}>
+        <div className="vsTtsSecondary" style={{ width: "380px", flexShrink: 0 }}>
 
           <div className="vsCardSection">
             <h3 className="vsCardSubTitle">设计反馈与试听结果</h3>
@@ -114,14 +114,14 @@ export default function VoiceDesignPage({ design, errorRuntimeContext }: Props) 
             {design.designInfo ? <p className="vsSettingsNotice ok" style={{ marginBottom: 16 }}>{design.designInfo}</p> : null}
 
             {design.designPreviewAudio ? (
-              <div className="vsTtsAudioPlayer" style={{ marginBottom: 24 }}>
+              <div className="vsTtsAudioPlayer" style={{ marginBottom: "20px" }}>
                 <div style={{ marginBottom: 12, fontSize: 13, fontWeight: 600, color: "var(--brand)" }}>
                   ✨ 音色设计成功！这是新音色《{design.designName}》的试听：
                 </div>
                 <audio controls src={design.designPreviewAudio} className="vsAudioElement" />
               </div>
             ) : (
-              <div className="vsTtsEmptyResult" style={{ marginBottom: 24, padding: "20px 16px" }}>
+              <div className="vsTtsEmptyResult" style={{ marginBottom: "20px" }}>
                 <div className="vsEmptyIcon" style={{ fontSize: 24 }}>🪄</div>
                 <div className="vsEmptyTitle">暂无成果</div>
               </div>
