@@ -8,6 +8,13 @@ export type ActiveTab =
   | "transcription"
   | "settings";
 
+export type SidebarItem = {
+  tab: ActiveTab;
+  label: string;
+  icon: string;
+  tooltip: string;
+};
+
 export type QuickAction = {
   title: string;
   icon: string;
@@ -29,13 +36,6 @@ export const PROVIDERS = [
   "SiliconFlow",
   "Groq"
 ];
-
-export type SidebarItem = {
-  tab: ActiveTab;
-  label: string;
-  icon: string;
-  tooltip: string;
-};
 
 export const SIDEBAR_ITEMS: SidebarItem[] = [
   { tab: "chat", label: "聊天", icon: "Bot", tooltip: "AI 助理聊天" },
