@@ -1,18 +1,19 @@
 :root {
-  --text: #1e293b;
-  --muted: #7b849a;
-  --line: #dfe4f0;
-  --panel: #f7f8fc;
-  --brand: #6b4cf6;
-  --brand-dark: #5a3ff0;
-  --brand-soft: #efebff;
-  --user-bg: #ede9fe;
+  --text: #111827;
+  --muted: #6b7280;
+  --line: #e5e7eb;
+  --panel: #ffffff;
+  --surface: #f9fafb;
+  --brand: #2563eb;
+  --brand-dark: #1d4ed8;
+  --brand-soft: #eff6ff;
+  --user-bg: #f3f4f6;
   --assistant-bg: #ffffff;
-  --sidebar-bg: #12131b;
-  --sidebar-line: #1d2030;
-  --sidebar-text: #b0b6c9;
-  --sidebar-text-strong: #f6f7fb;
-  font-family: "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", "WenQuanYi Micro Hei", "Segoe UI", sans-serif;
+  --sidebar-bg: #f9fafb;
+  --sidebar-line: #e5e7eb;
+  --sidebar-text: #4b5563;
+  --sidebar-text-strong: #111827;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   color: var(--text);
 }
 
@@ -24,10 +25,8 @@ body {
   margin: 0;
   min-height: 100vh;
   color: var(--text);
-  font-family: "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", "WenQuanYi Micro Hei", "Segoe UI", sans-serif;
-  background:
-    radial-gradient(circle at top left, rgba(107, 76, 246, 0.16), transparent 22%),
-    linear-gradient(180deg, #eff1f7 0%, #f5f6fb 100%);
+  font-family: inherit;
+  background: #f3f4f6;
 }
 
 button,
@@ -45,24 +44,23 @@ textarea {
 .vsApp {
   width: min(100%, 1940px);
   min-height: calc(100vh - 24px);
-  margin: 12px;
+  margin: 12px auto;
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
-  border: 4px solid #6b63ff;
-  border-radius: 16px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
   overflow: hidden;
-  background: #fbfbfe;
-  box-shadow: 0 18px 60px rgba(58, 64, 92, 0.12);
+  background: var(--panel);
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
 }
 
 .vsApp.desktopEmbedded {
-  width: calc(100vw - 8px);
-  min-height: calc(100vh - 8px);
-  margin: 4px;
+  width: 100vw;
+  min-height: 100vh;
+  margin: 0;
   grid-template-columns: auto minmax(0, 1fr);
-  border-width: 1px;
-  border-color: #d8deea;
-  border-radius: 10px;
+  border-width: 0;
+  border-radius: 0;
   box-shadow: none;
 }
 
@@ -75,7 +73,8 @@ textarea {
 }
 
 .vsApp.desktopEmbedded .vsSidebar {
-  background: linear-gradient(180deg, #111521 0, #0d1019 100%);
+  background: var(--sidebar-bg);
+  width: 200px;
 }
 
 .vsApp.desktopEmbedded .vsBrand {
@@ -83,14 +82,31 @@ textarea {
 }
 
 .vsApp.desktopEmbedded .vsBrand h1 {
-  font-size: 16px;
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--sidebar-text-strong);
+  letter-spacing: 0;
+  white-space: nowrap;
 }
 
 .vsApp.desktopEmbedded .vsNewChatBtn {
-  min-height: 44px;
-  border-radius: 12px;
-  box-shadow: none;
-  font-size: 15px;
+  width: 100%;
+  height: 36px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: #ffffff;
+  color: var(--text);
+  font-weight: 500;
+  font-size: 13px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+  overflow: hidden;
+  transition: all 0.2s;
 }
 
 .vsApp.desktopEmbedded .vsSidebarSection {
@@ -98,8 +114,12 @@ textarea {
 }
 
 .vsApp.desktopEmbedded .vsSectionLabel {
-  margin: 0 6px 8px;
+  margin: 0 8px 6px;
   font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+  white-space: nowrap;
+  transition: opacity 0.2s;
 }
 
 .vsApp.desktopEmbedded .vsNav {
@@ -107,11 +127,22 @@ textarea {
 }
 
 .vsApp.desktopEmbedded .vsNavItem {
-  min-height: 44px;
-  justify-content: center;
-  padding: 10px 12px;
-  border-radius: 12px;
-  font-size: 15px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  border: 0;
+  border-radius: 6px;
+  padding: 8px 10px;
+  text-align: left;
+  background: transparent;
+  color: var(--sidebar-text);
+  font-weight: 500;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.1s ease;
+  overflow: hidden;
+  white-space: nowrap;
 }
 
 .vsApp.desktopEmbedded .vsNavIcon,
@@ -124,7 +155,10 @@ textarea {
 .vsApp.desktopEmbedded .vsHistoryClearBtn,
 .vsApp.desktopEmbedded .vsProfileName,
 .vsApp.desktopEmbedded .vsProfilePlan {
-  font-size: 13px;
+  margin: 2px 0 0;
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
 }
 
 .vsApp.desktopEmbedded .vsTopbarLeft {
@@ -247,18 +281,27 @@ textarea {
 .vsSidebar {
   display: flex;
   flex-direction: column;
-  background: linear-gradient(180deg, #11131b 0, #0f1017 100%);
+  background: var(--sidebar-bg);
   border-right: 1px solid var(--sidebar-line);
   color: var(--sidebar-text);
   min-height: 100%;
   transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+<<<<<<< HEAD
   width: 192px;
+=======
+  width: 220px;
+>>>>>>> origin/main
   overflow: hidden;
   position: relative;
 }
 
 .vsApp.desktopEmbedded .vsSidebar {
+<<<<<<< HEAD
   width: 192px;
+=======
+  background: var(--sidebar-bg);
+  width: 200px;
+>>>>>>> origin/main
 }
 
 .vsSidebar.collapsed {
@@ -275,7 +318,11 @@ textarea {
   gap: 8px;
   padding: 16px 16px 12px;
   position: relative;
+<<<<<<< HEAD
   height: 64px;
+=======
+  background: var(--sidebar-bg);
+>>>>>>> origin/main
 }
 
 .vsBrand {
@@ -297,38 +344,49 @@ textarea {
 }
 
 .vsBrandIcon {
-  width: 26px;
-  height: 26px;
-  border-radius: 999px;
-  background: linear-gradient(135deg, #7c5cff, #5941e8);
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  background: var(--brand);
   color: #fff;
   display: grid;
   place-items: center;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16);
+  font-size: 12px;
+  font-weight: bold;
   flex-shrink: 0;
 }
 
 .vsBrand h1 {
   margin: 0;
-  font-size: 14px;
-  font-weight: 700;
+  font-size: 15px;
+  font-weight: 600;
   color: var(--sidebar-text-strong);
   letter-spacing: 0;
   white-space: nowrap;
 }
 
 .vsCollapseBtn {
+<<<<<<< HEAD
   width: 32px;
   height: 32px;
   border-radius: 10px;
   background: rgba(255, 255, 255, 0.04);
   color: #8a94b8;
+=======
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--muted);
+>>>>>>> origin/main
   display: grid;
   place-items: center;
   cursor: pointer;
   line-height: 1;
   transition: all 0.2s;
   flex-shrink: 0;
+<<<<<<< HEAD
   z-index: 10;
   border: 1px solid transparent;
 }
@@ -341,6 +399,37 @@ textarea {
 
 .vsSidebar.collapsed .vsCollapseBtn {
   margin: 0 auto;
+=======
+  position: absolute;
+  right: 12px;
+  top: 16px;
+  z-index: 10;
+}
+
+.vsSidebar.collapsed .vsCollapseBtn {
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--muted);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  transition: all 0.2s;
+  flex-shrink: 0;
+  position: absolute;
+  right: 12px;
+  top: 16px;
+  z-index: 10;
+}
+
+.vsCollapseBtn:hover {
+  background: var(--line);
+  color: var(--text);
+>>>>>>> origin/main
 }
 
 .vsSidebarAction {
@@ -349,30 +438,64 @@ textarea {
 
 .vsNewChatBtn {
   width: 100%;
+<<<<<<< HEAD
   height: 44px;
   border-radius: 12px;
   border: 0;
   background: linear-gradient(180deg, #7f56ff, #6d43f4);
   color: #fff;
   font-weight: 600;
+=======
+  height: 36px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: #ffffff;
+  color: var(--text);
+  font-weight: 500;
+  font-size: 13px;
+>>>>>>> origin/main
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 8px;
+<<<<<<< HEAD
   box-shadow: 0 10px 22px rgba(93, 69, 241, 0.25);
+=======
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+>>>>>>> origin/main
   overflow: hidden;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: all 0.2s;
 }
 
 .vsNewChatBtn:hover {
-  filter: brightness(1.08);
+  background: #f9fafb;
+  border-color: #d1d5db;
 }
 
 .vsSidebar.collapsed .vsNewChatBtn {
+<<<<<<< HEAD
   width: 44px;
   margin: 0 auto;
   padding: 0;
+=======
+  width: 100%;
+  height: 36px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: #ffffff;
+  color: var(--text);
+  font-weight: 500;
+  font-size: 13px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+  overflow: hidden;
+  transition: all 0.2s;
+>>>>>>> origin/main
 }
 
 .vsNewChatIcon {
@@ -407,21 +530,21 @@ textarea {
 }
 
 .vsSectionLabel {
-  margin: 0 8px 8px;
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  color: #78809a;
+  margin: 0 8px 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
   white-space: nowrap;
   transition: opacity 0.2s;
 }
 
 .vsSidebar.collapsed .vsSectionLabel {
-  opacity: 0;
-  height: 0;
-  margin: 0;
-  overflow: hidden;
+  margin: 0 8px 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+  white-space: nowrap;
+  transition: opacity 0.2s;
 }
 
 .vsNav {
@@ -435,27 +558,41 @@ textarea {
   gap: 12px;
   width: 100%;
   border: 0;
+<<<<<<< HEAD
   border-radius: 12px;
   padding: 12px 14px;
+=======
+  border-radius: 6px;
+  padding: 8px 10px;
+>>>>>>> origin/main
   text-align: left;
   background: transparent;
   color: var(--sidebar-text);
   font-weight: 500;
+<<<<<<< HEAD
+=======
+  font-size: 13px;
+>>>>>>> origin/main
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all 0.1s ease;
   overflow: hidden;
   white-space: nowrap;
   position: relative;
 }
 
 .vsNavItem:hover {
-  background: rgba(255, 255, 255, 0.05);
-  color: #fff;
+  background: #e5e7eb;
+  color: var(--sidebar-text-strong);
 }
 
 .vsNavItem.active {
+<<<<<<< HEAD
   color: #e0e7ff;
   background: rgba(99, 102, 241, 0.15);
+=======
+  color: var(--brand-dark);
+  background: var(--brand-soft);
+>>>>>>> origin/main
   font-weight: 600;
 }
 
@@ -482,8 +619,27 @@ textarea {
 }
 
 .vsSidebar.collapsed .vsNavItem {
+<<<<<<< HEAD
   padding: 12px 0;
   justify-content: center;
+=======
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  border: 0;
+  border-radius: 6px;
+  padding: 8px 10px;
+  text-align: left;
+  background: transparent;
+  color: var(--sidebar-text);
+  font-weight: 500;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.1s ease;
+  overflow: hidden;
+  white-space: nowrap;
+>>>>>>> origin/main
 }
 
 .vsSidebar.collapsed .vsNavItemText {
@@ -517,7 +673,12 @@ textarea {
 }
 
 .vsHistoryHead .vsSectionLabel {
-  margin: 0;
+  margin: 0 8px 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+  white-space: nowrap;
+  transition: opacity 0.2s;
 }
 
 .vsHistoryClearBtn {
@@ -547,11 +708,19 @@ textarea {
 
 .vsHistoryItem {
   border: 0;
+<<<<<<< HEAD
   border-radius: 10px;
   padding: 10px 12px;
   text-align: left;
   background: transparent;
   color: #cbd5e1;
+=======
+  border-radius: 6px;
+  padding: 6px 10px;
+  text-align: left;
+  background: transparent;
+  color: var(--sidebar-text);
+>>>>>>> origin/main
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -562,6 +731,7 @@ textarea {
 }
 
 .vsHistoryItem:hover {
+<<<<<<< HEAD
   background: rgba(255, 255, 255, 0.06);
   color: #fff;
 }
@@ -569,6 +739,24 @@ textarea {
 .vsSidebar.collapsed .vsHistoryItem {
   padding: 10px 0;
   justify-content: center;
+=======
+  background: var(--line);
+}
+
+.vsSidebar.collapsed .vsHistoryItem {
+  border: 0;
+  border-radius: 6px;
+  padding: 6px 10px;
+  text-align: left;
+  background: transparent;
+  color: var(--sidebar-text);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  transition: background 0.2s;
+>>>>>>> origin/main
 }
 
 .vsHistoryIcon {
@@ -602,33 +790,34 @@ textarea {
 }
 
 .vsSidebarFooter {
-  background: rgba(0, 0, 0, 0.2);
-  border-top: 1px solid rgba(255, 255, 255, 0.04);
+  background: var(--sidebar-bg);
+  border-top: 1px solid var(--sidebar-line);
 }
 
 .vsProfileCard {
-  padding: 14px 12px;
+  padding: 12px 16px;
   display: flex;
   align-items: center;
   gap: 12px;
 }
 
 .vsSidebar.collapsed .vsProfileCard {
-  padding: 14px 0;
-  justify-content: center;
+  padding: 12px 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
 
 .vsProfileAvatar {
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
   display: grid;
   place-items: center;
-  font-size: 13px;
-  font-weight: 700;
-  background: linear-gradient(180deg, #ffdca8, #f3b670);
-  color: #503318;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.4), 0 2px 4px rgba(0, 0, 0, 0.2);
+  font-size: 12px;
+  font-weight: 600;
+  background: var(--brand-soft);
+  color: var(--brand-dark);
   flex-shrink: 0;
 }
 
@@ -643,9 +832,9 @@ textarea {
 
 .vsProfileName {
   margin: 0;
-  color: #eef1ff;
+  color: var(--text);
   font-size: 13px;
-  font-weight: 700;
+  font-weight: 500;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -653,7 +842,7 @@ textarea {
 
 .vsProfilePlan {
   margin: 2px 0 0;
-  color: #8a94b8;
+  color: var(--muted);
   font-size: 11px;
   white-space: nowrap;
 }
@@ -1038,15 +1227,15 @@ button:focus-visible {
 }
 
 .vsTranslateTopbar {
-  display: grid;
-  grid-template-columns: auto 1fr auto;
-  gap: 10px;
+  display: flex;
   align-items: center;
-  padding: 10px 12px;
-  border: 1px solid #d9dde5;
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.92);
-  box-shadow: 0 10px 28px rgba(25, 35, 52, 0.04);
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
 }
 
 .vsTranslateModeBar {
@@ -1082,27 +1271,29 @@ button:focus-visible {
 }
 
 .vsTranslateTopbarActions {
-  display: inline-flex;
+  display: flex;
   align-items: center;
-  justify-content: flex-end;
-  gap: 8px;
+  gap: 12px;
+  flex-shrink: 0;
 }
 
 .vsTranslateConfigHint {
-  min-width: 0;
-  height: 38px;
-  border-radius: 999px;
-  border: 1px solid #dde3eb;
-  background: #f8fafc;
+  height: 36px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: var(--surface);
   padding: 0 12px;
-  display: grid;
-  align-content: center;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
 }
 
 .vsTranslateConfigHint span {
   font-size: 11px;
-  color: #94a3b8;
-  font-weight: 700;
+  color: var(--muted);
+  font-weight: 600;
+  white-space: nowrap;
 }
 
 .vsTranslateConfigHint strong {
@@ -1112,27 +1303,34 @@ button:focus-visible {
 }
 
 .vsTranslateField {
-  display: grid;
+  display: flex;
+  flex-direction: column;
   gap: 4px;
   min-width: 0;
 }
 
 .vsTranslateField span {
   font-size: 11px;
-  color: #8b95a7;
-  font-weight: 700;
+  color: var(--muted);
+  font-weight: 600;
 }
 
 .vsTranslateField input,
 .vsTranslateField select {
-  height: 38px;
+  height: 36px;
   min-width: 0;
-  border-radius: 10px;
-  border: 1px solid #d8dee7;
+  border-radius: 6px;
+  border: 1px solid var(--line);
   background: #fff;
   padding: 0 12px;
-  color: #475569;
+  color: var(--text);
   font-size: 13px;
+  outline: none;
+}
+.vsTranslateField input:focus,
+.vsTranslateField select:focus {
+  border-color: var(--brand);
+  box-shadow: 0 0 0 2px var(--brand-soft);
 }
 
 .vsTranslateCombobox {
@@ -1245,16 +1443,22 @@ button:focus-visible {
 }
 
 .vsTranslateSubmitBtn {
-  height: 38px;
-  border-radius: 999px;
-  background: linear-gradient(135deg, #d87b57 0%, #cc6944 100%);
-  padding: 0 18px;
+  height: 36px;
+  border-radius: 6px;
+  background: var(--brand);
+  color: #fff;
+  border: none;
+  padding: 0 20px;
   font-size: 13px;
-  box-shadow: 0 8px 20px rgba(216, 123, 87, 0.24);
+  font-weight: 500;
+  cursor: pointer;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+  transition: all 0.2s;
+  white-space: nowrap;
 }
 
 .vsTranslateSubmitBtn:hover {
-  background: #c96f4b;
+  background: var(--brand-dark);
 }
 
 .vsTranslateEditorGrid {
@@ -1265,22 +1469,22 @@ button:focus-visible {
 }
 
 .vsTranslatePane {
-  display: grid;
-  grid-template-rows: auto 1fr auto;
+  display: flex;
+  flex-direction: column;
   min-height: 0;
-  border: 1px solid #d9dde5;
-  border-radius: 14px;
-  background: #ffffff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
   overflow: hidden;
-  box-shadow: 0 10px 28px rgba(25, 35, 52, 0.04);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
 }
 
 .vsTranslatePane.source {
-  background: linear-gradient(180deg, #ffffff 0%, #fbfcfe 100%);
+  background: var(--panel);
 }
 
 .vsTranslatePane.result {
-  background: linear-gradient(180deg, #ffffff 0%, #fdfdfd 100%);
+  background: var(--surface);
 }
 
 .vsTranslatePaneHead {
@@ -1354,15 +1558,16 @@ button:focus-visible {
 .vsTranslateTextarea,
 .vsTranslateResult {
   width: 100%;
+  flex: 1;
   min-height: 0;
   border: 0;
   outline: none;
   resize: none;
   background: transparent;
-  padding: 16px 18px 18px;
+  padding: 16px 20px;
   font-size: 15px;
-  color: #334155;
-  line-height: 1.75;
+  color: var(--text);
+  line-height: 1.6;
 }
 
 .vsTranslateResult {
@@ -2122,20 +2327,29 @@ button.danger:focus-visible {
 
 @media (max-width: 900px) {
   .vsApp {
-    margin: 0;
-    width: 100%;
-    min-height: 100vh;
-    grid-template-columns: 1fr;
-    border-width: 0;
-    border-radius: 0;
-  }
+  width: min(100%, 1940px);
+  min-height: calc(100vh - 24px);
+  margin: 12px auto;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--panel);
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+}
 
   .vsSidebar {
-    min-height: auto;
-    grid-template-rows: auto auto auto auto;
-    border-right: 0;
-    border-bottom: 1px solid var(--sidebar-line);
-  }
+  display: flex;
+  flex-direction: column;
+  background: var(--sidebar-bg);
+  border-right: 1px solid var(--sidebar-line);
+  color: var(--sidebar-text);
+  min-height: 100%;
+  transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  width: 220px;
+  overflow: hidden;
+}
 
   .vsHistorySection {
     max-height: 200px;
@@ -2190,9 +2404,16 @@ button.danger:focus-visible {
   }
 
   .vsTranslateTopbar {
-    grid-template-columns: 1fr;
-    justify-items: stretch;
-  }
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
 
   .vsTranslateToolbar {
     flex-wrap: wrap;
@@ -2200,9 +2421,11 @@ button.danger:focus-visible {
   }
 
   .vsTranslateTopbarActions {
-    flex-wrap: wrap;
-    justify-content: flex-start;
-  }
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
 
   .vsTranslateModeBar {
     width: fit-content;
@@ -3322,22 +3545,25 @@ button.danger:focus-visible {
 }
 
 .vsBtnPrimary {
-  background: linear-gradient(135deg, var(--brand), var(--brand-dark));
+  background: var(--brand);
   color: #fff;
   border: none;
-  padding: 0 20px;
-  height: 38px;
-  border-radius: 8px;
-  font-size: 14px;
-  font-weight: 600;
+  padding: 0 16px;
+  height: 36px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
   cursor: pointer;
-  box-shadow: 0 4px 12px rgba(107, 76, 246, 0.2);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
   transition: all 0.2s;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
 }
 
 .vsBtnPrimary:hover:not(:disabled) {
-  filter: brightness(1.1);
-  transform: translateY(-1px);
+  background: var(--brand-dark);
 }
 
 .vsBtnPrimary:disabled {
@@ -3348,21 +3574,25 @@ button.danger:focus-visible {
 
 .vsBtnSecondary {
   background: #fff;
-  color: #475569;
-  border: 1px solid #cbd5e1;
+  color: var(--text);
+  border: 1px solid var(--line);
   padding: 0 16px;
-  height: 38px;
-  border-radius: 8px;
-  font-size: 14px;
-  font-weight: 600;
+  height: 36px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
   cursor: pointer;
   transition: all 0.2s;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
 }
 
 .vsBtnSecondary:hover:not(:disabled) {
-  background: #f8fafc;
-  color: #1e293b;
-  border-color: #94a3b8;
+  background: var(--surface);
+  border-color: #d1d5db;
 }
 
 .vsBtnSecondary:disabled {
@@ -3461,9 +3691,7 @@ button.danger:focus-visible {
   display: flex;
   height: 100%;
   background: var(--panel);
-  border-radius: 12px;
   overflow: hidden;
-  box-shadow: 0 4px 20px rgba(15, 23, 42, 0.05);
 }
 
 .vsTtsPrimary {
@@ -3471,7 +3699,7 @@ button.danger:focus-visible {
   display: flex;
   flex-direction: column;
   min-width: 0;
-  background: #fff;
+  background: var(--panel);
 }
 
 .vsTtsPrimaryHeader {
@@ -3480,6 +3708,7 @@ button.danger:focus-visible {
   justify-content: space-between;
   padding: 20px 24px;
   border-bottom: 1px solid var(--line);
+  background: var(--panel);
 }
 
 .vsTtsPrimaryTitle {
@@ -3528,7 +3757,7 @@ button.danger:focus-visible {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  background: #fdfdfd;
+  background: var(--panel);
 }
 
 .vsTtsActionGroup {
@@ -3538,13 +3767,14 @@ button.danger:focus-visible {
 
 .vsTtsSecondary {
   width: 380px;
-  background: #fbfbfe;
+  background: var(--surface);
   border-left: 1px solid var(--line);
   padding: 24px;
   display: flex;
   flex-direction: column;
   gap: 24px;
   overflow-y: auto;
+  flex-shrink: 0;
 }
 
 .vsSelectWrapper {
@@ -3622,11 +3852,20 @@ button.danger:focus-visible {
 }
 
 .desktopEmbedded .vsTtsLayout {
-  border-radius: 8px;
-  box-shadow: none;
+  display: flex;
+  height: 100%;
+  background: var(--panel);
+  overflow: hidden;
 }
 
 .desktopEmbedded .vsTtsSecondary {
-  width: 320px;
-  padding: 16px;
+  width: 380px;
+  background: var(--surface);
+  border-left: 1px solid var(--line);
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  overflow-y: auto;
+  flex-shrink: 0;
 }
