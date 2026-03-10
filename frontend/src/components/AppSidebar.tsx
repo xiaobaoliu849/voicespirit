@@ -1,10 +1,35 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   SIDEBAR_ITEMS,
   type ActiveTab,
   type HistoryItem
 } from "../appConfig";
 import MemoryStatusPanel from "./MemoryStatusPanel";
+import {
+  Bot,
+  Languages,
+  Volume2,
+  Settings2,
+  Fingerprint,
+  Mic2,
+  FileAudio,
+  Settings,
+  ChevronLeft,
+  ChevronRight,
+  MessageSquarePlus,
+  MessageSquare
+} from "lucide-react";
+
+const IconMap: Record<string, React.ElementType> = {
+  Bot,
+  Languages,
+  Volume2,
+  Settings2,
+  Fingerprint,
+  Mic2,
+  FileAudio,
+  Settings
+};
 
 type Props = {
   activeTab: ActiveTab;
@@ -41,7 +66,14 @@ export default function AppSidebar({
   onNewChatSession,
   onHistorySelect
 }: Props) {
-  const [isCollapsed, setIsCollapsed] = useState(false);
+  const [isCollapsed, setIsCollapsed] = useState(() => {
+    const saved = localStorage.getItem("vs_sidebar_collapsed");
+    return saved === "true";
+  });
+
+  useEffect(() => {
+    localStorage.setItem("vs_sidebar_collapsed", String(isCollapsed));
+  }, [isCollapsed]);
 
   return (
     <aside className={`vsSidebar ${isCollapsed ? "collapsed" : ""}`}>
@@ -52,7 +84,7 @@ export default function AppSidebar({
           onClick={() => setIsCollapsed(!isCollapsed)}
           title={isCollapsed ? "展开侧边栏" : "收起侧边栏"}
         >
-          {isCollapsed ? "›" : "‹"}
+          {isCollapsed ? <ChevronRight size={18} /> : <ChevronLeft size={18} />}
         </button>
         <div className="vsBrand">
           <div className="vsBrandIcon">VS</div>
@@ -68,7 +100,9 @@ export default function AppSidebar({
           onClick={onNewChatSession}
           title={isCollapsed ? "新建对话" : undefined}
         >
-          <span className="vsNewChatIcon">+</span>
+          <span className="vsNewChatIcon">
+            <MessageSquarePlus size={18} />
+          </span>
           <span className="vsNewChatText">新建对话</span>
         </button>
       </div>
@@ -84,21 +118,27 @@ export default function AppSidebar({
             <section className="vsSidebarSection" key={group.title}>
               <p className="vsSectionLabel">{group.title}</p>
               <nav className="vsNav">
-                {items.map((item) => (
-                  <button
-                    key={item.tab}
-                    type="button"
-                    className={`vsNavItem ${activeTab === item.tab ? "active" : ""}`}
-                    onClick={() => onTabChange(item.tab)}
-                    title={isCollapsed ? item.label : undefined}
-                    data-testid={`nav-${item.tab}`}
-                  >
-                    <span className="vsNavIcon" aria-hidden="true">
-                      {item.icon}
-                    </span>
-                    <span className="vsNavItemText">{item.label}</span>
-                  </button>
-                ))}
+                {items.map((item) => {
+                  const IconComponent = IconMap[item.icon];
+                  return (
+                    <button
+                      key={item.tab}
+                      type="button"
+                      className={`vsNavItem ${activeTab === item.tab ? "active" : ""}`}
+                      onClick={() => onTabChange(item.tab as ActiveTab)}
+                      title={isCollapsed ? item.tooltip || item.label : undefined}
+                      data-testid={`nav-${item.tab}`}
+                    >
+                      <span className="vsNavIcon" aria-hidden="true">
+                        {IconComponent && <IconComponent size={20} />}
+                      </span>
+                      <span className="vsNavItemText">{item.label}</span>
+                      {activeTab === item.tab && (
+                        <div className="vsNavActiveIndicator" />
+                      )}
+                    </button>
+                  );
+                })}
               </nav>
             </section>
           );
@@ -126,7 +166,9 @@ export default function AppSidebar({
                 onClick={() => onHistorySelect(item.content)}
                 title={isCollapsed ? item.content : undefined}
               >
-                <span className="vsHistoryIcon">💬</span>
+                <span className="vsHistoryIcon">
+                  <MessageSquare size={16} />
+                </span>
                 <span className="vsHistoryText">{item.content}</span>
               </button>
             ))}
