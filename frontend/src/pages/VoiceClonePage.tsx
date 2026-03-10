@@ -10,10 +10,10 @@ type Props = {
 
 export default function VoiceClonePage({ clone, errorRuntimeContext }: Props) {
   return (
-    <section className="legacyPanel" style={{ padding: 0, height: "100%" }}>
+    <section className="vsTtsWorkspace">
       <form className="vsTtsLayout" onSubmit={clone.onSubmit} style={{ margin: 0 }}>
         {/* ── Left Pane: Clone Input ── */}
-        <div className="vsTtsPrimary" style={{ flex: "1 1 50%" }}>
+        <div className="vsTtsPrimary" style={{ flex: 1, borderRight: "1px solid var(--line)" }}>
           <header className="vsTtsPrimaryHeader">
             <h2 className="vsTtsPrimaryTitle">音色克隆工作室 (Voice Clone)</h2>
             <div className="vsTtsPrimaryStats">
@@ -21,7 +21,7 @@ export default function VoiceClonePage({ clone, errorRuntimeContext }: Props) {
             </div>
           </header>
 
-          <div className="vsTtsEditorWrap" style={{ padding: "24px", display: "flex", flexDirection: "column", gap: "24px", overflowY: "auto" }}>
+          <div className="vsTtsEditorWrap" style={{ display: "flex", flexDirection: "column", gap: "24px", padding: "24px", overflowY: "auto" }}>
             <label className="vsField">
               <span className="vsFieldLabel">新音色命名</span>
               <input
@@ -34,14 +34,14 @@ export default function VoiceClonePage({ clone, errorRuntimeContext }: Props) {
               <span className="vsFieldHint">请使用字母、数字或下划线，方便在模型调用时识别。</span>
             </label>
 
-            <div className="vsCardSection" style={{ background: "var(--brand-soft)", padding: "24px", borderRadius: "12px", border: "1px dashed var(--brand)" }}>
+            <div className="vsCardSection" style={{ background: "var(--surface)", padding: "24px", borderRadius: "8px", border: "1px dashed var(--brand)", textAlign: "center", cursor: "pointer" }}>
               <label className="vsField">
                 <span className="vsFieldLabel" style={{ fontSize: "15px", marginBottom: "8px" }}>🎙️ 上传音频样板 (Audio Sample)</span>
                 <input
                   type="file"
                   accept="audio/*"
                   className="vsInput"
-                  style={{ padding: "8px", background: "#fff" }}
+                  style={{ display: "block", margin: "0 auto 12px", width: "100%", maxWidth: "300px" }}
                   onChange={(e) => clone.onAudioFileChange(e.target.files?.[0] || null)}
                   required
                 />
@@ -72,7 +72,7 @@ export default function VoiceClonePage({ clone, errorRuntimeContext }: Props) {
             </div>
           </div>
 
-          <div className="vsTtsEditorFooter" style={{ marginTop: "auto" }}>
+          <div className="vsTtsEditorFooter" style={{ marginTop: "16px" }}>
             <button
               type="button"
               className="vsBtnSecondary"
@@ -99,7 +99,7 @@ export default function VoiceClonePage({ clone, errorRuntimeContext }: Props) {
         </div>
 
         {/* ── Right Pane: Voice Catalog ── */}
-        <div className="vsTtsSecondary" style={{ flex: "1 1 50%", width: "auto" }}>
+        <div className="vsTtsSecondary" style={{ width: "380px", flexShrink: 0 }}>
 
           <div className="vsCardSection">
             <h3 className="vsCardSubTitle">任务状态</h3>
