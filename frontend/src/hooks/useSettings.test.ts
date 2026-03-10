@@ -19,6 +19,29 @@ vi.mock('../api', () => ({
         store_transcript_fulltext: false
     }),
     fetchApiRuntimeInfo: vi.fn().mockResolvedValue({}),
+    fetchDesktopStatus: vi.fn().mockResolvedValue({
+        runtime_dir: '/tmp/voicespirit-runtime',
+        diagnostics_dir: '/tmp/voicespirit-runtime/diagnostics',
+        preflight: {
+            available: true,
+            ok: false,
+            timestamp: '2026-03-10T22:45:02+0800',
+            failed_checks: [
+                { name: 'desktop_app_route', detail: '/app route is not reachable' }
+            ],
+            failed_count: 1
+        },
+        latest_error: {
+            available: true,
+            timestamp: '2026-03-10T22:46:00+0800',
+            error_type: 'RuntimeError',
+            message: 'Backend is up, but /app is not reachable.',
+            recovery_hints: [
+                '确认 backend/main.py 仍挂载了 /app 和 /assets',
+                '必要时清理桌面缓存：python run_web_desktop.py --clear-webview'
+            ]
+        }
+    }),
     fetchSettings: vi.fn().mockResolvedValue({
         settings: {
             api_keys: { dashscope_api_key: 'sk-test' },
@@ -57,8 +80,14 @@ vi.mock('../api', () => ({
                 s3_key_prefix: 'transcription'
             },
             minimax: {},
-            ui_settings: {},
-            shortcuts: {}
+            ui_settings: {
+                remember_window_position: true,
+                always_on_top: true,
+                show_tray_icon: false
+            },
+            shortcuts: {
+                wake_app: 'Ctrl+Alt+V'
+            }
         },
         config_path: '',
         providers: ['DashScope']
@@ -93,5 +122,16 @@ describe('useSettings', () => {
             's3_access_key_id',
             's3_secret_access_key'
         ]);
+        expect(result.current.desktopSection.rememberWindowPosition).toBe(true);
+        expect(result.current.desktopSection.alwaysOnTop).toBe(true);
+        expect(result.current.desktopSection.showTrayIcon).toBe(false);
+        expect(result.current.desktopSection.wakeShortcut).toBe('Ctrl+Alt+V');
+        expect(result.current.desktopSection.preflight.ok).toBe(false);
+        expect(result.current.desktopSection.preflight.failed_count).toBe(1);
+        expect(result.current.desktopSection.latestError.available).toBe(true);
+        expect(result.current.desktopSection.latestError.recovery_hints).toContain(
+            '必要时清理桌面缓存：python run_web_desktop.py --clear-webview'
+        );
+        expect(result.current.desktopSection.diagnosticsDir).toBe('/tmp/voicespirit-runtime/diagnostics');
     });
 });

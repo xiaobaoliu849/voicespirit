@@ -1154,6 +1154,56 @@ class ApiSmokeTests(unittest.TestCase):
             finally:
                 settings_router.settings_service = original_service
 
+    def test_desktop_status_endpoint_returns_preflight_summary(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            runtime_dir = Path(tmp_dir) / "VoiceSpirit"
+            diagnostics_dir = runtime_dir / "diagnostics"
+            diagnostics_dir.mkdir(parents=True, exist_ok=True)
+            (diagnostics_dir / "desktop_preflight_latest.json").write_text(
+                json.dumps(
+                    {
+                        "timestamp": "2026-03-10T22:45:02+0800",
+                        "ok": False,
+                        "checks": [
+                            {"name": "frontend_dist", "ok": True, "detail": "ok"},
+                            {"name": "desktop_app_route", "ok": False, "detail": "/app route is not reachable"},
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (diagnostics_dir / "desktop_launch_error_latest.json").write_text(
+                json.dumps(
+                    {
+                        "timestamp": "2026-03-10T22:46:00+0800",
+                        "error_type": "RuntimeError",
+                        "message": "Backend is up, but /app is not reachable.",
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            original_service = settings_router.desktop_diagnostics_service
+            patched_service = settings_router.DesktopDiagnosticsService()
+            patched_service.runtime_dir = runtime_dir
+            patched_service.diagnostics_dir = diagnostics_dir
+            patched_service.preflight_path = diagnostics_dir / "desktop_preflight_latest.json"
+            patched_service.launch_error_path = diagnostics_dir / "desktop_launch_error_latest.json"
+            settings_router.desktop_diagnostics_service = patched_service
+            try:
+                response = self._request("GET", "/api/settings/desktop-status")
+                self.assertEqual(response.status_code, 200)
+                payload = response.json()
+                self.assertFalse(payload["preflight"]["ok"])
+                self.assertEqual(payload["preflight"]["failed_count"], 1)
+                self.assertEqual(payload["preflight"]["failed_checks"][0]["name"], "desktop_app_route")
+                self.assertTrue(payload["latest_error"]["available"])
+                self.assertEqual(payload["latest_error"]["error_type"], "RuntimeError")
+                self.assertIn("确认 backend/main.py 仍挂载了 /app 和 /assets", payload["latest_error"]["recovery_hints"])
+                self.assertIn("必要时清理桌面缓存：python run_web_desktop.py --clear-webview", payload["latest_error"]["recovery_hints"])
+            finally:
+                settings_router.desktop_diagnostics_service = original_service
+
     def test_audio_overview_endpoints(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             db_path = Path(tmp_dir) / "voice_spirit_test.db"

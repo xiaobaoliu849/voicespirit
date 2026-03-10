@@ -39,26 +39,6 @@ type Props = {
   onHistorySelect: (content: string) => void;
 };
 
-// Define logical groupings for the tabs based on vocabbook-modern's approach.
-const TAB_GROUPS = [
-  {
-    title: "AI 助理",
-    keys: ["chat", "translate"]
-  },
-  {
-    title: "声音引擎",
-    keys: ["tts", "voice_design", "voice_clone"]
-  },
-  {
-    title: "音频创作",
-    keys: ["audio_overview", "transcription"]
-  },
-  {
-    title: "系统",
-    keys: ["settings"]
-  }
-];
-
 export default function AppSidebar({
   activeTab,
   chatHistoryItems,
@@ -70,6 +50,8 @@ export default function AppSidebar({
     const saved = localStorage.getItem("vs_sidebar_collapsed");
     return saved === "true";
   });
+  const navigationItems = SIDEBAR_ITEMS.filter((item) => item.tab !== "chat");
+  const hasHistoryItems = chatHistoryItems.length > 0;
 
   useEffect(() => {
     localStorage.setItem("vs_sidebar_collapsed", String(isCollapsed));
@@ -107,76 +89,63 @@ export default function AppSidebar({
         </button>
       </div>
 
-      {/* ── Navigation Groups ── */}
+      {/* ── Navigation ── */}
       <div className="vsSidebarNavScroll custom-scrollbar">
-        {TAB_GROUPS.map((group) => {
-          // Filter actual items matching the group keys
-          const items = SIDEBAR_ITEMS.filter((item) => group.keys.includes(item.tab));
-          if (items.length === 0) return null;
-
-          return (
-            <section className="vsSidebarSection" key={group.title}>
-              <p className="vsSectionLabel">{group.title}</p>
-              <nav className="vsNav">
-                {items.map((item) => {
-                  const IconComponent = IconMap[item.icon];
-                  return (
-                    <button
-                      key={item.tab}
-                      type="button"
-                      className={`vsNavItem ${activeTab === item.tab ? "active" : ""}`}
-                      onClick={() => onTabChange(item.tab as ActiveTab)}
-                      title={isCollapsed ? item.tooltip || item.label : undefined}
-                      data-testid={`nav-${item.tab}`}
-                    >
-                      <span className="vsNavIcon" aria-hidden="true">
-                        {IconComponent && <IconComponent size={20} />}
-                      </span>
-                      <span className="vsNavItemText">{item.label}</span>
-                      {activeTab === item.tab && (
-                        <div className="vsNavActiveIndicator" />
-                      )}
-                    </button>
-                  );
-                })}
-              </nav>
-            </section>
-          );
-        })}
-
-        {/* ── Chat History (Only visible in chat tab intuitively, but kept here for app context) ── */}
-        <section className="vsSidebarSection vsHistorySection">
-          <div className="vsHistoryHead">
-            <p className="vsSectionLabel">最近对话</p>
-            <button
-              type="button"
-              className="vsHistoryClearBtn"
-              onClick={onNewChatSession}
-              title={isCollapsed ? "清除全部对话" : undefined}
-            >
-              {isCollapsed ? "✕" : "清除全部"}
-            </button>
-          </div>
-          <div className="vsHistoryList">
-            {chatHistoryItems.map((item) => (
+        <nav className="vsNav vsSidebarMainNav">
+          {navigationItems.map((item) => {
+            const IconComponent = IconMap[item.icon];
+            return (
               <button
-                key={item.id}
+                key={item.tab}
                 type="button"
-                className="vsHistoryItem"
-                onClick={() => onHistorySelect(item.content)}
-                title={isCollapsed ? item.content : undefined}
+                className={`vsNavItem ${activeTab === item.tab ? "active" : ""}`}
+                onClick={() => onTabChange(item.tab as ActiveTab)}
+                title={isCollapsed ? item.tooltip || item.label : undefined}
+                data-testid={`nav-${item.tab}`}
               >
-                <span className="vsHistoryIcon">
-                  <MessageSquare size={16} />
+                <span className="vsNavIcon" aria-hidden="true">
+                  {IconComponent && <IconComponent size={20} />}
                 </span>
-                <span className="vsHistoryText">{item.content}</span>
+                <span className="vsNavItemText">{item.label}</span>
+                {activeTab === item.tab ? (
+                  <div className="vsNavActiveIndicator" />
+                ) : null}
               </button>
-            ))}
-            {!chatHistoryItems.length ? (
-              <p className="vsHistoryEmpty">{isCollapsed ? "空" : "暂无历史会话"}</p>
-            ) : null}
-          </div>
-        </section>
+            );
+          })}
+        </nav>
+
+        {hasHistoryItems ? (
+          <section className="vsSidebarSection vsHistorySection">
+            <div className="vsHistoryHead">
+              <p className="vsSectionLabel">最近对话</p>
+              <button
+                type="button"
+                className="vsHistoryClearBtn"
+                onClick={onNewChatSession}
+                title={isCollapsed ? "清除全部对话" : undefined}
+              >
+                {isCollapsed ? "✕" : "清除全部"}
+              </button>
+            </div>
+            <div className="vsHistoryList">
+              {chatHistoryItems.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  className="vsHistoryItem"
+                  onClick={() => onHistorySelect(item.content)}
+                  title={isCollapsed ? item.content : undefined}
+                >
+                  <span className="vsHistoryIcon">
+                    <MessageSquare size={16} />
+                  </span>
+                  <span className="vsHistoryText">{item.content}</span>
+                </button>
+              ))}
+            </div>
+          </section>
+        ) : null}
       </div>
 
       {/* ── Footer ── */}

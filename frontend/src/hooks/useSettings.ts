@@ -1,11 +1,13 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import {
   configureEverMemRuntime,
+  fetchDesktopStatus,
   getEverMemRuntimeConfig,
   fetchApiRuntimeInfo,
   fetchSettings,
   updateSettings,
   type AppSettings,
+  type DesktopStatusResponse,
   type SettingsModelValue
 } from "../api";
 import type { FormatErrorMessage } from "../utils/errorFormatting";
@@ -94,13 +96,36 @@ export default function useSettings({ formatErrorMessage }: Options) {
   const [backendRuntimeRaw, setBackendRuntimeRaw] = useState("{}");
   const [backendRuntimeOpen, setBackendRuntimeOpen] = useState(false);
   const [runtimeCopyStatus, setRuntimeCopyStatus] = useState<"idle" | "ok" | "fail">("idle");
+  const [desktopRememberWindowPosition, setDesktopRememberWindowPosition] = useState(false);
+  const [desktopAlwaysOnTop, setDesktopAlwaysOnTop] = useState(false);
+  const [desktopShowTrayIcon, setDesktopShowTrayIcon] = useState(false);
+  const [desktopWakeShortcut, setDesktopWakeShortcut] = useState("Alt+Shift+S");
+  const [desktopPreflightStatus, setDesktopPreflightStatus] = useState<DesktopStatusResponse["preflight"]>({
+    available: false,
+    ok: null,
+    timestamp: "",
+    failed_checks: [],
+    failed_count: 0,
+  });
+  const [desktopLatestError, setDesktopLatestError] = useState<DesktopStatusResponse["latest_error"]>({
+    available: false,
+    timestamp: "",
+    error_type: "",
+    message: "",
+    recovery_hints: [],
+  });
+  const [desktopDiagnosticsDir, setDesktopDiagnosticsDir] = useState("");
+  const [desktopRuntimeDir, setDesktopRuntimeDir] = useState("");
 
   useEffect(() => {
     let disposed = false;
 
     async function loadApiRuntimeInfo() {
       try {
-        const info = await fetchApiRuntimeInfo();
+        const [info, desktopStatus] = await Promise.all([
+          fetchApiRuntimeInfo(),
+          fetchDesktopStatus().catch(() => null)
+        ]);
         if (disposed) {
           return;
         }
@@ -112,6 +137,22 @@ export default function useSettings({ formatErrorMessage }: Options) {
         setBackendVersion(typeof info.version === "string" ? info.version : "");
         setBackendStatus(typeof info.status === "string" ? info.status : "");
         setBackendRuntimeRaw(JSON.stringify(info.raw || {}, null, 2));
+        setDesktopPreflightStatus(desktopStatus?.preflight || {
+          available: false,
+          ok: null,
+          timestamp: "",
+          failed_checks: [],
+          failed_count: 0,
+        });
+        setDesktopLatestError(desktopStatus?.latest_error || {
+          available: false,
+          timestamp: "",
+          error_type: "",
+          message: "",
+          recovery_hints: [],
+        });
+        setDesktopDiagnosticsDir(desktopStatus?.diagnostics_dir || "");
+        setDesktopRuntimeDir(desktopStatus?.runtime_dir || "");
       } catch {
         if (disposed) {
           return;
@@ -122,6 +163,22 @@ export default function useSettings({ formatErrorMessage }: Options) {
         setBackendVersion("");
         setBackendStatus("");
         setBackendRuntimeRaw("{}");
+        setDesktopPreflightStatus({
+          available: false,
+          ok: null,
+          timestamp: "",
+          failed_checks: [],
+          failed_count: 0,
+        });
+        setDesktopLatestError({
+          available: false,
+          timestamp: "",
+          error_type: "",
+          message: "",
+          recovery_hints: [],
+        });
+        setDesktopDiagnosticsDir("");
+        setDesktopRuntimeDir("");
       }
     }
 
@@ -239,16 +296,36 @@ export default function useSettings({ formatErrorMessage }: Options) {
     return {
       configPath: settingsConfigPath,
       backendPhase,
+      backendAuthMode,
+      backendAuthEnabled,
       backendVersion,
       backendStatus,
+      rememberWindowPosition: desktopRememberWindowPosition,
+      alwaysOnTop: desktopAlwaysOnTop,
+      showTrayIcon: desktopShowTrayIcon,
+      wakeShortcut: trimOrEmpty(desktopWakeShortcut),
+      runtimeDir: desktopRuntimeDir,
+      diagnosticsDir: desktopDiagnosticsDir,
+      preflight: desktopPreflightStatus,
+      latestError: desktopLatestError,
       runtimeVisible: backendRuntimeOpen,
       runtimeCopyStatus
     };
   }, [
+    backendAuthEnabled,
+    backendAuthMode,
     backendPhase,
     backendRuntimeOpen,
     backendStatus,
     backendVersion,
+    desktopDiagnosticsDir,
+    desktopAlwaysOnTop,
+    desktopLatestError,
+    desktopPreflightStatus,
+    desktopRememberWindowPosition,
+    desktopRuntimeDir,
+    desktopShowTrayIcon,
+    desktopWakeShortcut,
     runtimeCopyStatus,
     settingsConfigPath
   ]);
@@ -343,6 +420,8 @@ export default function useSettings({ formatErrorMessage }: Options) {
 
     const memorySettings = settingsData.memory_settings || {};
     const transcriptionSettings = settingsData.transcription_settings || {};
+    const uiSettings = settingsData.ui_settings || {};
+    const shortcuts = settingsData.shortcuts || {};
     if (typeof memorySettings.enabled === "boolean") setEvermemEnabled(memorySettings.enabled);
     if (typeof memorySettings.api_url === "string") setEvermemApiUrl(memorySettings.api_url);
     if (typeof memorySettings.api_key === "string") setEvermemApiKey(memorySettings.api_key);
@@ -367,6 +446,18 @@ export default function useSettings({ formatErrorMessage }: Options) {
     if (typeof transcriptionSettings.s3_secret_access_key === "string") setTranscriptionS3SecretAccessKey(transcriptionSettings.s3_secret_access_key);
     if (typeof transcriptionSettings.s3_key_prefix === "string" && transcriptionSettings.s3_key_prefix.trim()) {
       setTranscriptionS3KeyPrefix(transcriptionSettings.s3_key_prefix);
+    }
+    if (typeof uiSettings.remember_window_position === "boolean") {
+      setDesktopRememberWindowPosition(uiSettings.remember_window_position);
+    }
+    if (typeof uiSettings.always_on_top === "boolean") {
+      setDesktopAlwaysOnTop(uiSettings.always_on_top);
+    }
+    if (typeof uiSettings.show_tray_icon === "boolean") {
+      setDesktopShowTrayIcon(uiSettings.show_tray_icon);
+    }
+    if (typeof shortcuts.wake_app === "string" && shortcuts.wake_app.trim()) {
+      setDesktopWakeShortcut(shortcuts.wake_app);
     }
 
     // push to runtime to keep consistent
@@ -452,6 +543,14 @@ export default function useSettings({ formatErrorMessage }: Options) {
           s3_access_key_id: transcriptionS3AccessKeyId.trim(),
           s3_secret_access_key: transcriptionS3SecretAccessKey.trim(),
           s3_key_prefix: transcriptionS3KeyPrefix.trim() || "transcription"
+        },
+        ui_settings: {
+          remember_window_position: desktopRememberWindowPosition,
+          always_on_top: desktopAlwaysOnTop,
+          show_tray_icon: desktopShowTrayIcon
+        },
+        shortcuts: {
+          wake_app: desktopWakeShortcut.trim()
         }
       });
       setSettingsData(result.settings);
@@ -498,6 +597,10 @@ export default function useSettings({ formatErrorMessage }: Options) {
     backendRuntimeRaw,
     backendRuntimeOpen,
     runtimeCopyStatus,
+    desktopRememberWindowPosition,
+    desktopAlwaysOnTop,
+    desktopShowTrayIcon,
+    desktopWakeShortcut,
     errorRuntimeContext,
     providerSection,
     providerModelCatalog,
@@ -533,6 +636,10 @@ export default function useSettings({ formatErrorMessage }: Options) {
     onEvermemRememberPodcastChange: setEvermemRememberPodcast,
     onEvermemRememberTtsChange: setEvermemRememberTts,
     onEvermemStoreTranscriptChange: setEvermemStoreTranscript,
+    onDesktopRememberWindowPositionChange: setDesktopRememberWindowPosition,
+    onDesktopAlwaysOnTopChange: setDesktopAlwaysOnTop,
+    onDesktopShowTrayIconChange: setDesktopShowTrayIcon,
+    onDesktopWakeShortcutChange: setDesktopWakeShortcut,
     onToggleRuntimeOpen: () => setBackendRuntimeOpen((value) => !value),
     onCopyBackendRuntime
   };

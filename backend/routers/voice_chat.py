@@ -3,6 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, WebSocket
 
 from services.realtime_voice_service import (
+    DEFAULT_DASHSCOPE_REALTIME_VOICE,
     DEFAULT_GOOGLE_REALTIME_VOICE,
     RealtimeVoiceService,
 )
@@ -16,16 +17,16 @@ async def voice_chat_ws(
     websocket: WebSocket,
     provider: str = "Google",
     model: str | None = None,
-    voice: str = DEFAULT_GOOGLE_REALTIME_VOICE,
+    voice: str | None = None,
 ) -> None:
     await websocket.accept()
 
-    selected_provider = provider.strip() or "Google"
-    if selected_provider != "Google":
+    selected_provider = (provider or "Google").strip()
+    if selected_provider not in {"Google", "DashScope"}:
         await websocket.send_json(
             {
                 "type": "error",
-                "message": "当前 Web 实时语音仅先支持 Google native realtime。",
+                "message": f"当前 Web 实时语音暂不支持 {selected_provider} 供应商。",
                 "provider": selected_provider,
             }
         )
@@ -33,11 +34,18 @@ async def voice_chat_ws(
         return
 
     try:
-        await voice_chat_service.stream_google_session(
-            websocket,
-            model=model,
-            voice=voice.strip() or DEFAULT_GOOGLE_REALTIME_VOICE,
-        )
+        if selected_provider == "DashScope":
+            await voice_chat_service.stream_dashscope_session(
+                websocket,
+                model=model,
+                voice=(voice or DEFAULT_DASHSCOPE_REALTIME_VOICE).strip(),
+            )
+        else:
+            await voice_chat_service.stream_google_session(
+                websocket,
+                model=model,
+                voice=(voice or DEFAULT_GOOGLE_REALTIME_VOICE).strip(),
+            )
     except Exception as exc:
         await websocket.send_json({"type": "error", "message": str(exc)})
         await websocket.close(code=1011)

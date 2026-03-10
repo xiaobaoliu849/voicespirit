@@ -5,10 +5,12 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
+from services.desktop_diagnostics_service import DesktopDiagnosticsService
 from services.settings_service import SettingsService
 
 router = APIRouter()
 settings_service = SettingsService()
+desktop_diagnostics_service = DesktopDiagnosticsService()
 
 
 class SettingsResponse(BaseModel):
@@ -32,6 +34,13 @@ class StructuredErrorResponse(BaseModel):
     detail: StructuredErrorDetail
 
 
+class DesktopStatusResponse(BaseModel):
+    runtime_dir: str
+    diagnostics_dir: str
+    preflight: dict[str, Any]
+    latest_error: dict[str, Any]
+
+
 @router.get(
     "/",
     response_model=SettingsResponse,
@@ -52,6 +61,28 @@ async def get_settings() -> SettingsResponse:
             },
         ) from exc
     return SettingsResponse(**result)
+
+
+@router.get(
+    "/desktop-status",
+    response_model=DesktopStatusResponse,
+    responses={
+        500: {"description": "Failed to load desktop status.", "model": StructuredErrorResponse},
+    },
+)
+async def get_desktop_status() -> DesktopStatusResponse:
+    try:
+        result = desktop_diagnostics_service.get_status()
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "code": "DESKTOP_STATUS_LOAD_FAILED",
+                "message": f"Load desktop status failed: {exc}",
+                "meta": {},
+            },
+        ) from exc
+    return DesktopStatusResponse(**result)
 
 
 @router.put(

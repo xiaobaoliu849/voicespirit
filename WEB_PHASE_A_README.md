@@ -113,18 +113,44 @@ Optional preflight:
 python run_web_desktop.py --check
 ```
 
+Latest preflight snapshot is also written to:
+
+```bash
+.voicespirit-state/VoiceSpirit/diagnostics/desktop_preflight_latest.json
+```
+
+Optional WebView cache reset:
+
+```bash
+python run_web_desktop.py --clear-webview
+```
+
+Optional desktop diagnostics export:
+
+```bash
+python run_web_desktop.py --export-diagnostics
+```
+
 Windows one-click launcher:
 
 ```bash
 run_web_desktop.bat
 ```
 
+Windows cache-reset relaunch:
+
+```bash
+run_web_desktop.bat --reset-cache
+```
+
 Notes:
 - The launcher starts backend automatically on `127.0.0.1:8000` if not already running.
+- `run_web_desktop.bat` now rebuilds `frontend/dist` before launch so desktop UI stays aligned with the latest frontend code.
+- `run_web_desktop.bat --reset-cache` clears persisted WebView cache before relaunching.
 - Desktop UI opens `http://127.0.0.1:8000/app/` (FastAPI serves `frontend/dist`).
 - The desktop launcher enforces single-instance mode to avoid duplicate windows and backend contention.
 - Window size/position and WebView storage are persisted between launches.
-- A native desktop menu is available for reload, reset window layout, opening the browser/runtime folder, and quitting the app.
+- A native desktop menu is available for reload, running desktop preflight, reset window layout, opening the browser/runtime folder, exporting diagnostics, resetting WebView cache, and quitting the app.
 - Desktop quickstart:
   - `docs/Desktop_Quickstart.md`
 - `Transcription Async Upload` settings now support:

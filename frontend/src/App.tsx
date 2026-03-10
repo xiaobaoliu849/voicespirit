@@ -38,7 +38,8 @@ export default function App() {
     formatErrorMessage,
     providerOptions: settings.providerOptions,
     providerModelCatalog: settings.providerModelCatalog,
-    preferredProvider: settings.settingsProvider,
+    preferredProvider: chat.chatProvider,
+    preferredModel: chat.chatModel,
   });
   const audioOverview = useAudioOverview({ voices: tts.voices, formatErrorMessage });
   const voiceManagement = useVoiceManagement({ formatErrorMessage });

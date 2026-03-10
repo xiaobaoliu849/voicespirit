@@ -1,0 +1,8 @@
+Python Executable: D:\conda\python.exe
+Python Path: ['D:\\voicespirit\\backend', 'D:\\conda\\python312.zip', 'D:\\conda\\DLLs', 'D:\\conda\\Lib', 'D:\\conda', 'C:\\Users\\WINDOWS\\AppData\\Roaming\\Python\\Python312\\site-packages', 'D:\\conda\\Lib\\site-packages', 'D:\\conda\\Lib\\site-packages\\win32', 'D:\\conda\\Lib\\site-packages\\win32\\lib', 'D:\\conda\\Lib\\site-packages\\Pythonwin']
+
+--- Checking DashScope ---
+DashScope Realtime Imports: SUCCESS
+
+--- Checking Google GenAI ---
+Google GenAI Import Error: cannot import name 'genai' from 'google' (unknown location)

@@ -119,6 +119,25 @@ export type SettingsResponse = {
   settings: AppSettings;
 };
 
+export type DesktopStatusResponse = {
+  runtime_dir: string;
+  diagnostics_dir: string;
+  preflight: {
+    available: boolean;
+    ok: boolean | null;
+    timestamp: string;
+    failed_checks: Array<{ name: string; detail: string }>;
+    failed_count: number;
+  };
+  latest_error: {
+    available: boolean;
+    timestamp: string;
+    error_type: string;
+    message: string;
+    recovery_hints: string[];
+  };
+};
+
 export type AudioOverviewScriptLine = {
   role: string;
   text: string;
@@ -770,6 +789,14 @@ export async function deleteCustomVoice(
 
 export async function fetchSettings(): Promise<SettingsResponse> {
   const response = await apiFetch(`${API_BASE_URL}/api/settings/`);
+  if (!response.ok) {
+    await throwApiError(response);
+  }
+  return response.json();
+}
+
+export async function fetchDesktopStatus(): Promise<DesktopStatusResponse> {
+  const response = await apiFetch(`${API_BASE_URL}/api/settings/desktop-status`);
   if (!response.ok) {
     await throwApiError(response);
   }

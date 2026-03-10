@@ -5,7 +5,14 @@
 VoiceSpirit desktop should be launched through the Web desktop wrapper:
 
 ```bash
-python run_web_desktop.py
+run_web_desktop.bat
+```
+
+On Windows, this is the preferred entry because it rebuilds `frontend/dist` before opening the desktop window.
+If stale desktop UI persists, use:
+
+```bash
+run_web_desktop.bat --reset-cache
 ```
 
 This starts:
@@ -41,7 +48,7 @@ pip install -r desktop_requirements.txt
 ### 4. Launch desktop
 
 ```bash
-python run_web_desktop.py
+run_web_desktop.bat
 ```
 
 ### Optional: run desktop preflight first
@@ -49,6 +56,25 @@ python run_web_desktop.py
 ```bash
 python run_web_desktop.py --check
 ```
+
+This also refreshes the latest preflight report:
+- `diagnostics/desktop_preflight_latest.json`
+
+### Optional: clear desktop WebView cache
+
+```bash
+python run_web_desktop.py --clear-webview
+```
+
+Use this when the desktop window keeps showing stale UI after frontend changes.
+
+### Optional: export desktop diagnostics
+
+```bash
+python run_web_desktop.py --export-diagnostics
+```
+
+This writes a JSON snapshot under the desktop runtime `diagnostics/` folder.
 
 This verifies:
 - frontend build exists
@@ -139,12 +165,28 @@ If `boto3` is not installed, VoiceSpirit will safely disable `s3` upload mode in
 - Check `http://127.0.0.1:8000/health`
 - Check `http://127.0.0.1:8000/app/`
 - Rebuild frontend if `frontend/dist` is missing
+- Clear desktop WebView cache with `python run_web_desktop.py --clear-webview`
 
 ### Desktop refuses to start
 
 - Check whether another instance is already running
 - Remove stale `desktop.lock` only if no desktop instance is active
 - Run `python run_web_desktop.py --check`
+
+### Desktop shows old UI after rebuild
+
+- Relaunch desktop through `run_web_desktop.bat`
+- Use menu item `系统 -> 重置桌面缓存并重启 (Reset Cache)`
+- Or run `python run_web_desktop.py --clear-webview`
+
+### Need a support bundle
+
+- Use menu item `系统 -> 运行桌面预检 (Run Preflight)` if you want a fresh readiness report
+- Use menu item `系统 -> 导出桌面诊断 (Export Diagnostics)`
+- Or run `python run_web_desktop.py --export-diagnostics`
+- Attach the exported JSON together with screenshots
+- Latest preflight snapshot is written to `diagnostics/desktop_preflight_latest.json`
+- If launch itself fails, the latest error snapshot is also written to `diagnostics/desktop_launch_error_latest.json`
 
 ### Transcription async upload stays staged
 

@@ -1,0 +1,247 @@
+diff --git a/frontend/src/styles.css b/frontend/src/styles.css
+index 3dd4608..3435df2 100644
+--- a/frontend/src/styles.css
++++ b/frontend/src/styles.css
+@@ -349,48 +349,29 @@ textarea {
+ }
+ 
+ .vsCollapseBtn {
+-  width: 24px;
+-  height: 24px;
+-  border-radius: 6px;
++  width: 32px;
++  height: 32px;
++  border-radius: 10px;
+   background: transparent;
+-  border: 1px solid transparent;
+-  color: var(--muted);
++  color: var(--sidebar-text);
+   display: grid;
+   place-items: center;
+   cursor: pointer;
+-  font-size: 16px;
+   line-height: 1;
+   transition: all 0.2s;
+   flex-shrink: 0;
+-  position: absolute;
+-  right: 12px;
+-  top: 16px;
+   z-index: 10;
+-}
+-
+-.vsSidebar.collapsed .vsCollapseBtn {
+-  width: 24px;
+-  height: 24px;
+-  border-radius: 6px;
+-  background: transparent;
+   border: 1px solid transparent;
+-  color: var(--muted);
+-  display: grid;
+-  place-items: center;
+-  cursor: pointer;
+-  font-size: 16px;
+-  line-height: 1;
+-  transition: all 0.2s;
+-  flex-shrink: 0;
+-  position: absolute;
+-  right: 12px;
+-  top: 16px;
+-  z-index: 10;
+ }
+ 
+ .vsCollapseBtn:hover {
+-  background: var(--line);
+-  color: var(--text);
++  background: rgba(0, 0, 0, 0.05);
++  color: var(--sidebar-text-strong);
++  border-color: rgba(0, 0, 0, 0.08);
++}
++
++.vsSidebar.collapsed .vsCollapseBtn {
++  margin: 0 auto;
+ }
+ 
+ .vsSidebarAction {
+@@ -493,20 +474,21 @@ textarea {
+ .vsNavItem {
+   display: flex;
+   align-items: center;
+-  gap: 10px;
++  gap: 12px;
+   width: 100%;
+   border: 0;
+-  border-radius: 6px;
+-  padding: 8px 10px;
++  border-radius: 12px;
++  padding: 12px 14px;
+   text-align: left;
+   background: transparent;
+   color: var(--sidebar-text);
+   font-weight: 500;
+   font-size: 13px;
+   cursor: pointer;
+-  transition: all 0.1s ease;
++  transition: all 0.2s ease;
+   overflow: hidden;
+   white-space: nowrap;
++  position: relative;
+ }
+ 
+ .vsNavItem:hover {
+@@ -521,43 +503,52 @@ textarea {
+ }
+ 
+ .vsNavIcon {
+-  width: 18px;
+-  height: 18px;
+-  display: grid;
+-  place-items: center;
++  display: flex;
++  align-items: center;
++  justify-content: center;
+   flex-shrink: 0;
+   transition: transform 0.2s;
++  color: var(--sidebar-text);
++  opacity: 0.8;
++}
++
++.vsNavItem.active .vsNavIcon {
++  color: var(--brand);
++  opacity: 1;
+ }
+ 
+ .vsNavItem:hover .vsNavIcon {
+-  transform: scale(1.1);
++  color: var(--sidebar-text-strong);
++  opacity: 1;
++  transform: scale(1.05);
+ }
+ 
+ .vsNavItemText {
+-  transition: opacity 0.2s;
++  transition: all 0.3s;
++  opacity: 1;
++  width: auto;
+ }
+ 
+ .vsSidebar.collapsed .vsNavItem {
+-  display: flex;
+-  align-items: center;
+-  gap: 10px;
+-  width: 100%;
+-  border: 0;
+-  border-radius: 6px;
+-  padding: 8px 10px;
+-  text-align: left;
+-  background: transparent;
+-  color: var(--sidebar-text);
+-  font-weight: 500;
+-  font-size: 13px;
+-  cursor: pointer;
+-  transition: all 0.1s ease;
+-  overflow: hidden;
+-  white-space: nowrap;
++  padding: 12px 0;
++  justify-content: center;
+ }
+ 
+ .vsSidebar.collapsed .vsNavItemText {
+-  display: none;
++  opacity: 0;
++  width: 0;
++  margin-left: 0;
++}
++
++.vsNavActiveIndicator {
++  position: absolute;
++  left: 0;
++  top: 50%;
++  transform: translateY(-50%);
++  width: 4px;
++  height: 24px;
++  background: var(--brand);
++  border-radius: 0 4px 4px 0;
+ }
+ 
+ .vsHistorySection {
+@@ -609,53 +600,50 @@ textarea {
+ 
+ .vsHistoryItem {
+   border: 0;
+-  border-radius: 6px;
+-  padding: 6px 10px;
++  border-radius: 10px;
++  padding: 10px 12px;
+   text-align: left;
+   background: transparent;
+   color: var(--sidebar-text);
+   cursor: pointer;
+   display: flex;
+   align-items: center;
+-  gap: 8px;
++  gap: 10px;
+   font-size: 13px;
+   transition: background 0.2s;
++  white-space: nowrap;
+ }
+ 
+ .vsHistoryItem:hover {
+-  background: var(--line);
++  background: #f1f5f9;
++  color: var(--sidebar-text-strong);
+ }
+ 
+ .vsSidebar.collapsed .vsHistoryItem {
+-  border: 0;
+-  border-radius: 6px;
+-  padding: 6px 10px;
+-  text-align: left;
+-  background: transparent;
+-  color: var(--sidebar-text);
+-  cursor: pointer;
+-  display: flex;
+-  align-items: center;
+-  gap: 8px;
+-  font-size: 13px;
+-  transition: background 0.2s;
++  padding: 10px 0;
++  justify-content: center;
+ }
+ 
+ .vsHistoryIcon {
+-  font-size: 14px;
++  display: flex;
++  align-items: center;
++  justify-content: center;
+   flex-shrink: 0;
+-  opacity: 0.6;
++  opacity: 0.7;
+ }
+ 
+ .vsHistoryText {
+   min-width: 0;
+   overflow: hidden;
+   text-overflow: ellipsis;
+-  white-space: nowrap;
++  transition: all 0.3s;
++  opacity: 1;
++  width: auto;
+ }
+ 
+ .vsSidebar.collapsed .vsHistoryText {
+-  display: none;
++  opacity: 0;
++  width: 0;
+ }
+ 
+ .vsHistoryEmpty {
+@@ -703,7 +691,8 @@ textarea {
+ }
+ 
+ .vsSidebar.collapsed .vsProfileInfo {
+-  display: none;
++  opacity: 0;
++  width: 0;
+ }
+ 
+ .vsProfileName {

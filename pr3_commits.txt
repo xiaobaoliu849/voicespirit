@@ -1,0 +1,9 @@
+89e4965 feat(sidebar): implement smooth, collapsible sidebar like vocabbook-modern
+a21e005 feat(sidebar): clean modern collapsible sidebar
+34f71ad feat(sidebar): modern clean collapsible sidebar
+3bab7b1 fix: force push clean implementation to overwrite conflicts
+df02e89 feat(sidebar): modernize sidebar with collapsible tooltips and lucide icons
+7c0bddd feat(sidebar): modernize sidebar with collapsible tooltips and lucide icons
+0fb7ddc chore: resolve merge conflicts with main branch
+9679f50 feat(sidebar): modernize sidebar with collapsible tooltips and lucide icons
+874330e feat(sidebar): modernize sidebar with collapsible tooltips and lucide icons
