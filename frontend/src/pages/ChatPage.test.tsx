@@ -15,7 +15,7 @@ describe('ChatPage', () => {
         expect(screen.getByText('你好，有什么可以帮你的？')).toBeInTheDocument();
         expect(screen.getByRole('button', { name: '发送' })).toBeInTheDocument();
         expect(screen.getByText('实时语音入口')).toBeInTheDocument();
-        expect(screen.getByText(/麦克风按钮当前使用 Google/)).toBeInTheDocument();
+        expect(screen.getByText(/麦克风按钮已同步/)).toBeInTheDocument();
     });
 
     it('shows voice chat startup errors even when the realtime session failed to open', () => {
