@@ -49,6 +49,7 @@ export default function App() {
 
   function handleNewChatSession() {
     chat.onNewSession();
+    voiceChat.onResetSession();
     setActiveTab("chat");
   }
 

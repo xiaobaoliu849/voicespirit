@@ -21,7 +21,17 @@ export default function VoiceChatPage({ voiceChat, errorRuntimeContext }: Props)
             </div>
             <div className="vsTtsPrimaryStats">
               <span>{voiceChat.voiceChatConnected ? "实时会话中" : "待机"}</span>
-            </div>
+            {voiceChat.voiceChatMemoriesRetrieved > 0 ? (
+              <span className="vsVoiceMemoryChip">
+                已回忆 {voiceChat.voiceChatMemoriesRetrieved} 条记忆
+              </span>
+            ) : null}
+            {voiceChat.voiceChatMemoryScope ? (
+              <span className="vsVoiceMemoryChip">
+                Scope: {voiceChat.voiceChatMemoryScope}
+              </span>
+            ) : null}
+          </div>
           </header>
 
           <div className="vsCardSection" style={{ display: "grid", gap: 16 }}>
@@ -137,6 +147,21 @@ export default function VoiceChatPage({ voiceChat, errorRuntimeContext }: Props)
                 {voiceChat.voiceChatReply || "回复将显示在这里..."}
               </div>
             </div>
+            {voiceChat.voiceChatMemoriesRetrieved > 0 ? (
+              <div className="vsVoiceMemoryNotice">
+                本轮已回忆 {voiceChat.voiceChatMemoriesRetrieved} 条长期记忆。
+              </div>
+            ) : null}
+            {voiceChat.voiceChatMemorySourceStatus ? (
+              <div className="vsVoiceMemoryNotice">
+                {voiceChat.voiceChatMemorySourceStatus}
+              </div>
+            ) : null}
+            {voiceChat.voiceChatMemoryWriteStatus ? (
+              <div className="vsVoiceMemoryNotice">
+                {voiceChat.voiceChatMemoryWriteStatus}
+              </div>
+            ) : null}
             <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 12 }}>
               <button type="button" className="vsBtnSecondary" onClick={voiceChat.onResetSession}>
                 清空本轮

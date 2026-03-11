@@ -72,6 +72,11 @@ def parse_args() -> argparse.Namespace:
         help="Clear persisted desktop WebView storage and exit.",
     )
     parser.add_argument(
+        "--reset-cache",
+        action="store_true",
+        help="Clear persisted desktop WebView storage and continue launch.",
+    )
+    parser.add_argument(
         "--export-diagnostics",
         action="store_true",
         help="Export desktop runtime diagnostics as JSON and exit.",
@@ -542,7 +547,7 @@ def print_startup_info() -> None:
     print("3. 找不到前端文件 (No Dist):  cd frontend && npm install && npm run build")
     print("4. 桌面版启动冲突 (Locked):   删除数据目录下的 desktop.lock 文件")
     print("5. 端口占用 (Port In Use):    排查 8000 端口是否被其他程序占用")
-    print("6. 缓存异常 (Cache Issues):   使用 --clear-webview 或菜单重置桌面缓存")
+    print("6. 缓存异常 (Cache Issues):   使用 --clear-webview / --reset-cache 或菜单重置桌面缓存")
     print("7. 诊断导出 (Diagnostics):    使用 --export-diagnostics 或菜单导出 JSON")
     print("=" * 60)
 
@@ -778,13 +783,14 @@ def main() -> int:
             LATEST_ERROR_PATH.unlink()
         except OSError:
             pass
-    if args.clear_webview:
+    if args.clear_webview or args.reset_cache:
         removed = clear_webview_storage()
         if removed:
             print(f"[VoiceSpirit Desktop] Cleared WebView storage: {WEBVIEW_STORAGE_DIR}")
         else:
             print(f"[VoiceSpirit Desktop] WebView storage already clean: {WEBVIEW_STORAGE_DIR}")
-        return 0
+        if args.clear_webview and not args.reset_cache:
+            return 0
     if args.export_diagnostics:
         path = export_desktop_diagnostics()
         print(f"[VoiceSpirit Desktop] Diagnostics exported: {path}")
@@ -879,6 +885,7 @@ def format_launcher_error(err: Exception) -> str:
             "确认 backend/main.py 仍挂载了 /app 和 /assets",
             "重新构建前端后重试：npm --prefix frontend run build",
             "必要时清理桌面缓存：python run_web_desktop.py --clear-webview",
+            "或重置缓存后直接启动：python run_web_desktop.py --reset-cache",
         ])
     else:
         hints.extend([

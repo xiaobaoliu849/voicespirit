@@ -19,6 +19,24 @@ def _clean_header_value(value: Any) -> str:
     return str(value).strip()
 
 
+def _get_header_value(headers: dict[str, Any], *names: str) -> str:
+    if not isinstance(headers, dict):
+        return ""
+
+    for name in names:
+        value = headers.get(name)
+        cleaned = _clean_header_value(value)
+        if cleaned:
+            return cleaned
+
+    normalized = {str(key).lower(): value for key, value in headers.items()}
+    for name in names:
+        cleaned = _clean_header_value(normalized.get(name.lower()))
+        if cleaned:
+            return cleaned
+    return ""
+
+
 def _hash_scope(prefix: str, raw: str) -> str:
     digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()[:24]
     return f"{prefix}_{digest}"
@@ -33,26 +51,30 @@ class EverMemConfig:
         self._service: EverMemService | None = None
 
     def _resolve_scope(self, headers: dict[str, Any]) -> str:
-        authorization = _clean_header_value(headers.get("Authorization"))
+        explicit_scope = _get_header_value(headers, "X-EverMem-Scope", "scope_id", "scopeId")
+        if explicit_scope:
+            return explicit_scope
+
+        authorization = _get_header_value(headers, "Authorization")
         if authorization.lower().startswith("bearer "):
             token = authorization[7:].strip()
             if token:
                 return _hash_scope("token", token)
 
-        client_id = _clean_header_value(headers.get("X-Client-ID"))
+        client_id = _get_header_value(headers, "X-Client-ID")
         if client_id:
             return _hash_scope("client", client_id)
 
-        request_id = _clean_header_value(headers.get("X-Request-ID"))
+        request_id = _get_header_value(headers, "X-Request-ID")
         if request_id:
             return _hash_scope("request", request_id)
 
         return "anonymous"
 
     def update_from_headers(self, headers: dict[str, Any]) -> None:
-        enabled_header = _clean_header_value(headers.get("X-EverMem-Enabled")).lower()
-        header_url = _clean_header_value(headers.get("X-EverMem-Url"))
-        header_key = _clean_header_value(headers.get("X-EverMem-Key"))
+        enabled_header = _get_header_value(headers, "X-EverMem-Enabled", "enabled").lower()
+        header_url = _get_header_value(headers, "X-EverMem-Url", "api_url", "url")
+        header_key = _get_header_value(headers, "X-EverMem-Key", "api_key", "key")
         env_key = os.getenv("EVERMEM_API_KEY", "").strip()
 
         self.enabled = enabled_header == "true"

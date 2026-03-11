@@ -22,6 +22,8 @@ export type ChatMessage = {
   content: string;
   memoriesUsed?: number;
   memorySaved?: boolean;
+  memorySourceSummary?: string;
+  memoryRetrievalAttempted?: boolean;
 };
 
 export type ChatRequest = {
@@ -244,6 +246,22 @@ export type TranscriptionJobListResponse = {
 
 export type VoiceChatServerEvent =
   | { type: "session_open"; provider: string; model: string; voice: string }
+  | { type: "memory_config"; enabled: boolean; scope: string }
+  | {
+      type: "memory_context";
+      memories_retrieved: number;
+      local_pending_count?: number;
+      cloud_count?: number;
+      attempted?: boolean;
+    }
+  | {
+      type: "memory_write";
+      attempted_count: number;
+      saved_count: number;
+      failed_count: number;
+      local_pending_count?: number;
+      reason?: string;
+    }
   | { type: "user_transcript"; text: string }
   | { type: "assistant_text"; text: string }
   | { type: "assistant_audio"; audio: string; encoding: string; sample_rate: number }
@@ -370,26 +388,50 @@ export function getEverMemRuntimeConfig() {
 
 export type EverMemScene = "chat" | "voice_chat" | "transcription" | "podcast" | "tts";
 
-function buildEverMemHeaders(useMemory: boolean, scene?: EverMemScene): Record<string, string> {
+type EverMemSceneConfig = {
+  enabled: true;
+  api_url: string;
+  api_key?: string;
+  scope_id?: string;
+};
+
+function buildEverMemSceneConfig(useMemory: boolean, scene?: EverMemScene): EverMemSceneConfig | null {
   if (!useMemory) {
-    return {};
+    return null;
   }
   const evermem = getEverMemRuntimeConfig();
   if (!evermem.enabled || evermem.temporary_session) {
-    return {};
+    return null;
   }
-  if (scene === "chat" && !evermem.remember_chat) return {};
-  if (scene === "voice_chat" && !evermem.remember_voice_chat) return {};
-  if (scene === "transcription" && !evermem.remember_recordings) return {};
-  if (scene === "podcast" && !evermem.remember_podcast) return {};
-  if (scene === "tts" && !evermem.remember_tts) return {};
+  if (scene === "chat" && !evermem.remember_chat) return null;
+  if (scene === "voice_chat" && !evermem.remember_voice_chat) return null;
+  if (scene === "transcription" && !evermem.remember_recordings) return null;
+  if (scene === "podcast" && !evermem.remember_podcast) return null;
+  if (scene === "tts" && !evermem.remember_tts) return null;
 
   return {
-    "X-EverMem-Enabled": "true",
-    "X-EverMem-Url": evermem.api_url || "",
-    ...(evermem.api_key ? { "X-EverMem-Key": evermem.api_key } : {}),
-    ...(evermem.scope_id ? { "X-EverMem-Scope": evermem.scope_id } : {})
+    enabled: true,
+    api_url: evermem.api_url || "",
+    ...(evermem.api_key ? { api_key: evermem.api_key } : {}),
+    ...(evermem.scope_id ? { scope_id: evermem.scope_id } : {}),
   };
+}
+
+function buildEverMemHeaders(useMemory: boolean, scene?: EverMemScene): Record<string, string> {
+  const config = buildEverMemSceneConfig(useMemory, scene);
+  if (!config) {
+    return {};
+  }
+  return {
+    "X-EverMem-Enabled": "true",
+    "X-EverMem-Url": config.api_url,
+    ...(config.api_key ? { "X-EverMem-Key": config.api_key } : {}),
+    ...(config.scope_id ? { "X-EverMem-Scope": config.scope_id } : {})
+  };
+}
+
+export function buildVoiceChatSessionConfig(): EverMemSceneConfig | null {
+  return buildEverMemSceneConfig(true, "voice_chat");
 }
 
 function apiFetch(
@@ -602,7 +644,8 @@ function parseSseBlock(block: string): { event: string; data: string } | null {
       continue;
     }
     if (line.startsWith("data:")) {
-      dataLines.push(line.slice(5).trim());
+      const rawData = line.slice(5);
+      dataLines.push(rawData.startsWith(" ") ? rawData.slice(1) : rawData);
     }
   }
 
@@ -903,6 +946,7 @@ export async function transcribeAudio(file: File): Promise<TranscriptionResponse
 
   const response = await apiFetch(`${API_BASE_URL}/api/transcription/`, {
     method: "POST",
+    headers: buildEverMemHeaders(true, "transcription"),
     body: formData,
   });
 
@@ -918,6 +962,7 @@ export async function createTranscriptionJob(file: File): Promise<TranscriptionJ
 
   const response = await apiFetch(`${API_BASE_URL}/api/transcription/jobs`, {
     method: "POST",
+    headers: buildEverMemHeaders(true, "transcription"),
     body: formData,
   });
 
@@ -930,7 +975,10 @@ export async function createTranscriptionJob(file: File): Promise<TranscriptionJ
 export async function createTranscriptionJobFromUrl(fileUrl: string): Promise<TranscriptionJobResponse> {
   const response = await apiFetch(`${API_BASE_URL}/api/transcription/jobs/from-url`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      ...buildEverMemHeaders(true, "transcription")
+    },
     body: JSON.stringify({ file_url: fileUrl }),
   });
 
@@ -967,7 +1015,10 @@ export async function fetchTranscriptionJob(
 ): Promise<TranscriptionJobResponse> {
   const refresh = options.refresh !== false;
   const response = await apiFetch(
-    `${API_BASE_URL}/api/transcription/jobs/${encodeURIComponent(jobId)}?refresh=${refresh ? "true" : "false"}`
+    `${API_BASE_URL}/api/transcription/jobs/${encodeURIComponent(jobId)}?refresh=${refresh ? "true" : "false"}`,
+    {
+      headers: buildEverMemHeaders(true, "transcription")
+    }
   );
 
   if (!response.ok) {
@@ -981,6 +1032,7 @@ export async function retryTranscriptionJob(jobId: string): Promise<Transcriptio
     `${API_BASE_URL}/api/transcription/jobs/${encodeURIComponent(jobId)}/retry`,
     {
       method: "POST",
+      headers: buildEverMemHeaders(true, "transcription")
     }
   );
 

@@ -36,7 +36,9 @@ class EverMemService:
 
         message_id = str(uuid.uuid4())
         create_time = datetime.datetime.now(datetime.timezone.utc).isoformat()
-        actual_sender = sender or user_id
+        # EverMind uses sender as part of memory ownership internally.
+        # Keep it aligned with user_id/scope so writes and reads land in the same namespace.
+        actual_sender = user_id
 
         url = f"{self.api_url}/api/v0/memories"
         headers = {
@@ -46,6 +48,7 @@ class EverMemService:
         payload = {
             "message_id": message_id,
             "create_time": create_time,
+            "user_id": user_id,
             "sender": actual_sender,
             "sender_name": sender_name,
             "content": content,
@@ -62,7 +65,13 @@ class EverMemService:
             return None
 
     async def search_memories(
-        self, query: str, user_id: str = "guest", min_score: float = 0.3
+        self,
+        query: str,
+        user_id: str = "guest",
+        min_score: float = 0.3,
+        *,
+        group_ids: list[str] | None = None,
+        memory_types: list[str] | None = None,
     ) -> list[dict[str, Any]]:
         """Search for relevant memories in EverMemOS (v0 API)."""
         if not self.api_key:
@@ -77,6 +86,10 @@ class EverMemService:
             "retrieve_method": "hybrid",
             "top_k": 5,
         }
+        if group_ids:
+            params["group_ids"] = group_ids
+        if memory_types:
+            params["memory_types"] = memory_types
 
         try:
             async with httpx.AsyncClient(timeout=30.0) as client:
@@ -93,6 +106,7 @@ class EverMemService:
 
             memories_list = result.get("memories", [])
             profiles_list = result.get("profiles", [])
+            pending_messages = result.get("pending_messages", [])
 
             extracted_memories = []
 
@@ -121,6 +135,17 @@ class EverMemService:
                     }.get(mem_type, "记忆")
                     extracted_memories.append(
                         {"content": f"[{type_label}] {content}", "type": mem_type, "score": score}
+                    )
+
+            for pending in pending_messages:
+                content = str(pending.get("content", "")).strip()
+                if content:
+                    extracted_memories.append(
+                        {
+                            "content": f"[待处理消息] {content}",
+                            "type": "pending_message",
+                            "score": 1.0,
+                        }
                     )
 
             return extracted_memories

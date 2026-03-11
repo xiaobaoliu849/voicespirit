@@ -1,20 +1,10 @@
 @echo off
-setlocal
+setlocal EnableExtensions EnableDelayedExpansion
 
 echo Starting VoiceSpirit Desktop (PyWebView)...
 echo.
 
-cd /d %~dp0
-
-set "RESET_CACHE=0"
-if /I "%~1"=="--reset-cache" (
-  set "RESET_CACHE=1"
-  shift
-)
-if /I "%~1"=="/reset-cache" (
-  set "RESET_CACHE=1"
-  shift
-)
+cd /d "%~dp0"
 
 set "PYEXE="
 set "PYARGS="
@@ -36,58 +26,34 @@ if exist backend\.venv\Scripts\python.exe (
 
 echo Using Python launcher: %PYEXE% %PYARGS%
 
-call :ensure_pywebview
-if errorlevel 1 goto :fail
-
-call :build_frontend
-if errorlevel 1 goto :fail
-
-if "%RESET_CACHE%"=="1" (
-  echo Resetting desktop WebView cache before launch...
-  call "%PYEXE%" %PYARGS% run_web_desktop.py --clear-webview
+call "%PYEXE%" %PYARGS% -c "import webview" >nul 2>nul
+if errorlevel 1 (
+  echo pywebview not found in current Python. Installing desktop dependencies...
+  call "%PYEXE%" %PYARGS% -m ensurepip --upgrade >nul 2>nul
+  call "%PYEXE%" %PYARGS% -m pip --version >nul 2>nul
+  if errorlevel 1 (
+    echo pip is unavailable in current Python runtime.
+    goto :fail
+  )
+  call "%PYEXE%" %PYARGS% -m pip install --upgrade pip setuptools wheel
   if errorlevel 1 goto :fail
+  call "%PYEXE%" %PYARGS% -m pip install -r desktop_requirements.txt
+  if errorlevel 1 goto :fail
+  call "%PYEXE%" %PYARGS% -c "import webview" >nul 2>nul
+  if errorlevel 1 goto :fail
+)
+
+echo Building frontend before desktop launch...
+call npm --prefix frontend run build
+if errorlevel 1 (
+  echo Frontend build failed. Desktop launch cancelled.
+  goto :fail
 )
 
 call "%PYEXE%" %PYARGS% run_web_desktop.py %*
 if errorlevel 1 goto :fail
 
 echo VoiceSpirit Desktop exited.
-exit /b 0
-
-:ensure_pywebview
-call "%PYEXE%" %PYARGS% -c "import webview" >nul 2>nul
-if not errorlevel 1 (
-  exit /b 0
-)
-
-echo pywebview not found in current Python. Installing desktop dependencies...
-call "%PYEXE%" %PYARGS% -m ensurepip --upgrade >nul 2>nul
-call "%PYEXE%" %PYARGS% -m pip --version >nul 2>nul
-if errorlevel 1 (
-  echo pip is unavailable in current Python runtime.
-  exit /b 1
-)
-call "%PYEXE%" %PYARGS% -m pip install --upgrade pip setuptools wheel
-if errorlevel 1 (
-  exit /b 1
-)
-call "%PYEXE%" %PYARGS% -m pip install -r desktop_requirements.txt
-if errorlevel 1 (
-  exit /b 1
-)
-call "%PYEXE%" %PYARGS% -c "import webview" >nul 2>nul
-if errorlevel 1 (
-  exit /b 1
-)
-exit /b 0
-
-:build_frontend
-echo Building frontend before desktop launch...
-call npm --prefix frontend run build
-if errorlevel 1 (
-  echo Frontend build failed. Desktop launch cancelled.
-  exit /b 1
-)
 exit /b 0
 
 :fail

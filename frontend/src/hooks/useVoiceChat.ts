@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  buildVoiceChatSessionConfig,
   buildVoiceChatWebSocketUrl,
   type ChatMessage,
   type VoiceChatServerEvent,
@@ -156,6 +157,35 @@ function mergeAssistantText(previous: string, incoming: string): string {
   return `${previous}${next}`;
 }
 
+function normalizeVoiceCaptureError(error: unknown, fallback: string): string {
+  if (!(error instanceof Error)) {
+    return fallback;
+  }
+
+  const name = (error.name || "").trim();
+  const message = (error.message || "").trim();
+  const lowerMessage = message.toLowerCase();
+
+  if (
+    name === "NotFoundError" ||
+    name === "DevicesNotFoundError" ||
+    lowerMessage.includes("requested device not found") ||
+    lowerMessage.includes("device not found")
+  ) {
+    return "未检测到可用麦克风设备。若你在 Ubuntu/WSL 中运行桌面版，请改用 Windows 的 run_web_desktop.bat，或先配置麦克风透传。";
+  }
+
+  if (name === "NotAllowedError" || lowerMessage.includes("permission denied")) {
+    return "麦克风权限被拒绝。请允许当前应用访问麦克风后重试。";
+  }
+
+  if (name === "NotReadableError" || lowerMessage.includes("could not start audio source")) {
+    return "麦克风当前不可读，可能被其他应用占用。请关闭占用麦克风的软件后重试。";
+  }
+
+  return message || fallback;
+}
+
 export default function useVoiceChat({
   formatErrorMessage,
   providerOptions = [],
@@ -182,6 +212,10 @@ export default function useVoiceChat({
   const [voiceChatReply, setVoiceChatReply] = useState("");
   const [voiceChatMessages, setVoiceChatMessages] = useState<ChatMessage[]>([]);
   const [voiceChatConnected, setVoiceChatConnected] = useState(false);
+  const [voiceChatMemoriesRetrieved, setVoiceChatMemoriesRetrieved] = useState(0);
+  const [voiceChatMemoryWriteStatus, setVoiceChatMemoryWriteStatus] = useState("");
+  const [voiceChatMemorySourceStatus, setVoiceChatMemorySourceStatus] = useState("");
+  const [voiceChatMemoryScope, setVoiceChatMemoryScope] = useState("");
 
   const websocketRef = useRef<WebSocket | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
@@ -193,8 +227,14 @@ export default function useVoiceChat({
   const nextPlaybackTimeRef = useRef(0);
   const currentUserTurnRef = useRef("");
   const currentAssistantTurnRef = useRef("");
+  const currentMemoriesRetrievedRef = useRef(0);
+  const currentMemorySavedRef = useRef(false);
+  const currentMemoryRetrieveAttemptedRef = useRef(false);
+  const currentLocalPendingCountRef = useRef(0);
+  const currentCloudCountRef = useRef(0);
   const lastPreferredProviderRef = useRef(preferredProvider);
   const lastPreferredModelRef = useRef(preferredModel);
+  const sessionEpochRef = useRef(0);
 
   const voiceChatModelOptions = providerModelCatalog[voiceChatProvider]?.availableModels || [];
 
@@ -305,26 +345,97 @@ export default function useVoiceChat({
     setVoiceChatBusy(false);
   }
 
+  function markNewSessionEpoch(): number {
+    sessionEpochRef.current += 1;
+    return sessionEpochRef.current;
+  }
+
   function commitCompletedTurn() {
     const userText = currentUserTurnRef.current.trim();
     const assistantText = currentAssistantTurnRef.current.trim();
+    const memorySaved = currentMemorySavedRef.current;
+    const memoriesUsed = currentMemoriesRetrievedRef.current;
+    const memorySourceSummary = buildMemorySourceSummary({
+      attempted: currentMemoryRetrieveAttemptedRef.current,
+      total: memoriesUsed,
+      localPendingCount: currentLocalPendingCountRef.current,
+      cloudCount: currentCloudCountRef.current,
+    });
     if (!userText && !assistantText) {
       return;
     }
     setVoiceChatMessages((prev) => {
       const next = [...prev];
       if (userText) {
-        next.push({ role: "user", content: userText });
+        next.push({ role: "user", content: userText, memorySaved });
       }
       if (assistantText) {
-        next.push({ role: "assistant", content: assistantText });
+        next.push({
+          role: "assistant",
+          content: assistantText,
+          memoriesUsed: memoriesUsed > 0 ? memoriesUsed : undefined,
+          memorySourceSummary: memorySourceSummary || undefined,
+          memoryRetrievalAttempted: currentMemoryRetrieveAttemptedRef.current,
+        });
       }
       return next.slice(-12);
     });
     currentUserTurnRef.current = "";
     currentAssistantTurnRef.current = "";
+    currentMemorySavedRef.current = false;
+    currentMemoryRetrieveAttemptedRef.current = false;
+    currentLocalPendingCountRef.current = 0;
+    currentCloudCountRef.current = 0;
     setVoiceChatTranscript("");
     setVoiceChatReply("");
+  }
+
+  function describeMemoryWriteResult(event: Extract<VoiceChatServerEvent, { type: "memory_write" }>): string {
+    if (event.saved_count > 0 && event.failed_count === 0) {
+      if ((event.local_pending_count || 0) > 0) {
+        return `本轮已提交 EverMind ${event.saved_count} 条记忆，并加入本地待同步缓存`;
+      }
+      return `本轮已提交 EverMind ${event.saved_count} 条记忆`;
+    }
+    if (event.saved_count > 0 && event.failed_count > 0) {
+      return `本轮部分提交 EverMind（${event.saved_count}/${event.attempted_count}）`;
+    }
+    if (event.attempted_count === 0 && event.reason === "no_candidate_memory") {
+      return "本轮未提炼出可保存的长期记忆";
+    }
+    if (event.attempted_count === 0) {
+      return "";
+    }
+    return "本轮写入 EverMind 失败";
+  }
+
+  function buildMemorySourceSummary(params: {
+    attempted: boolean;
+    total: number;
+    localPendingCount: number;
+    cloudCount: number;
+  }): string {
+    const local = Math.max(0, params.localPendingCount);
+    const cloud = Math.max(0, params.cloudCount);
+    if (!params.attempted) {
+      return "";
+    }
+    if (params.total > 0) {
+      return `来源：本地待同步 ${local} 条，云端 ${cloud} 条`;
+    }
+    return `已尝试回忆：本地待同步 ${local} 条，云端 ${cloud} 条`;
+  }
+
+  function describeMemoryContext(event: Extract<VoiceChatServerEvent, { type: "memory_context" }>): string {
+    const local = Math.max(0, event.local_pending_count || 0);
+    const cloud = Math.max(0, event.cloud_count || 0);
+    if (event.memories_retrieved > 0) {
+      return `已回忆 ${event.memories_retrieved} 条长期记忆（本地待同步 ${local}，云端 ${cloud}）`;
+    }
+    if (event.attempted) {
+      return `已尝试回忆，但未命中匹配记忆（本地待同步 ${local}，云端 ${cloud}）`;
+    }
+    return "";
   }
 
   async function playAssistantAudio(base64Audio: string, sampleRate: number) {
@@ -367,10 +478,38 @@ export default function useVoiceChat({
         setVoiceChatBusy(false);
         setVoiceChatStatus(`实时会话已连接：${event.model}`);
         return;
+      case "memory_config":
+        setVoiceChatMemoryScope(event.enabled ? event.scope : "");
+        return;
       case "user_transcript":
         currentUserTurnRef.current = event.text;
+        currentMemorySavedRef.current = false;
+        currentMemoryRetrieveAttemptedRef.current = false;
+        currentLocalPendingCountRef.current = 0;
+        currentCloudCountRef.current = 0;
         setVoiceChatTranscript(event.text);
+        currentMemoriesRetrievedRef.current = 0;
+        setVoiceChatMemoriesRetrieved(0);
+        setVoiceChatMemoryWriteStatus("");
+        setVoiceChatMemorySourceStatus("");
         setVoiceChatStatus("正在听你说话…");
+        return;
+      case "memory_context":
+        currentMemoryRetrieveAttemptedRef.current = Boolean(event.attempted);
+        currentMemoriesRetrievedRef.current = event.memories_retrieved;
+        currentLocalPendingCountRef.current = event.local_pending_count || 0;
+        currentCloudCountRef.current = event.cloud_count || 0;
+        setVoiceChatMemoriesRetrieved(event.memories_retrieved);
+        setVoiceChatMemorySourceStatus(describeMemoryContext(event));
+        setVoiceChatStatus(
+          event.memories_retrieved > 0
+            ? `已回忆 ${event.memories_retrieved} 条长期记忆，准备回答…`
+            : "已尝试回忆，准备继续回答…"
+        );
+        return;
+      case "memory_write":
+        currentMemorySavedRef.current = event.saved_count > 0;
+        setVoiceChatMemoryWriteStatus(describeMemoryWriteResult(event));
         return;
       case "assistant_text":
         currentAssistantTurnRef.current = mergeAssistantText(currentAssistantTurnRef.current, event.text);
@@ -385,9 +524,19 @@ export default function useVoiceChat({
         setVoiceChatStatus("已打断助手，继续说话中…");
         return;
       case "turn_complete":
-        commitCompletedTurn();
-        setVoiceChatStatus("本轮已完成，继续说话即可");
-        return;
+        {
+          const retrievedCount = currentMemoriesRetrievedRef.current;
+          const retrieveAttempted = currentMemoryRetrieveAttemptedRef.current;
+          commitCompletedTurn();
+          setVoiceChatStatus(
+            retrievedCount > 0
+              ? `本轮已完成，回忆了 ${retrievedCount} 条长期记忆`
+              : retrieveAttempted
+                ? "本轮已完成，已尝试回忆但未命中"
+                : "本轮已完成，继续说话即可"
+          );
+          return;
+        }
       case "error":
         setVoiceChatError(event.message);
         setVoiceChatStatus("实时语音会话出错");
@@ -413,12 +562,22 @@ export default function useVoiceChat({
     }
 
     try {
+      const sessionEpoch = markNewSessionEpoch();
       setVoiceChatBusy(true);
       setVoiceChatStatus("正在连接实时语音会话…");
       currentUserTurnRef.current = "";
       currentAssistantTurnRef.current = "";
+      currentMemoriesRetrievedRef.current = 0;
+      currentMemorySavedRef.current = false;
+      currentMemoryRetrieveAttemptedRef.current = false;
+      currentLocalPendingCountRef.current = 0;
+      currentCloudCountRef.current = 0;
       setVoiceChatTranscript("");
       setVoiceChatReply("");
+      setVoiceChatMemoriesRetrieved(0);
+      setVoiceChatMemoryWriteStatus("");
+      setVoiceChatMemorySourceStatus("");
+      setVoiceChatMemoryScope("");
 
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
@@ -441,10 +600,14 @@ export default function useVoiceChat({
           voice: voiceChatVoice,
         })
       );
+      const memoryConfig = buildVoiceChatSessionConfig();
       ws.binaryType = "arraybuffer";
       websocketRef.current = ws;
 
       ws.onmessage = (message) => {
+        if (sessionEpochRef.current !== sessionEpoch) {
+          return;
+        }
         if (typeof message.data !== "string") {
           return;
         }
@@ -456,23 +619,35 @@ export default function useVoiceChat({
       };
 
       ws.onerror = () => {
+        if (sessionEpochRef.current !== sessionEpoch) {
+          return;
+        }
         setVoiceChatError("实时语音连接失败。");
         setVoiceChatStatus("实时语音连接失败");
       };
 
       ws.onclose = () => {
+        if (sessionEpochRef.current !== sessionEpoch) {
+          return;
+        }
         stopSessionResources();
         setVoiceChatStatus((prev) => (prev.includes("出错") ? prev : "实时语音会话已结束"));
       };
 
       ws.onopen = () => {
+        if (sessionEpochRef.current !== sessionEpoch || websocketRef.current !== ws) {
+          return;
+        }
+        if (memoryConfig) {
+          ws.send(JSON.stringify({ type: "config", memory: memoryConfig }));
+        }
         const source = audioContext.createMediaStreamSource(stream);
         const processor = audioContext.createScriptProcessor(4096, 1, 1);
         const muteGain = audioContext.createGain();
         muteGain.gain.value = 0;
 
         processor.onaudioprocess = (audioEvent) => {
-          if (ws.readyState !== WebSocket.OPEN) {
+          if (sessionEpochRef.current !== sessionEpoch || ws.readyState !== WebSocket.OPEN) {
             return;
           }
           const input = audioEvent.inputBuffer.getChannelData(0);
@@ -492,13 +667,14 @@ export default function useVoiceChat({
       };
     } catch (err) {
       stopSessionResources();
-      setVoiceChatError(formatErrorMessage(err, "启动实时语音聊天失败。"));
+      setVoiceChatError(normalizeVoiceCaptureError(err, formatErrorMessage(err, "启动实时语音聊天失败。")));
       setVoiceChatStatus("实时语音不可用");
     }
   }
 
   function stopSession() {
     const ws = websocketRef.current;
+    markNewSessionEpoch();
     if (ws && ws.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify({ type: "stop" }));
     }
@@ -535,6 +711,7 @@ export default function useVoiceChat({
     voiceChatError,
     voiceChatTranscript,
     voiceChatReply,
+    voiceChatMemoriesRetrieved,
     voiceChatMessages,
     sessionSummary,
     onToggleRecording,
@@ -545,15 +722,27 @@ export default function useVoiceChat({
     onModelChange: setVoiceChatModel,
     onVoiceChange: setVoiceChatVoice,
     onResetSession: () => {
+      markNewSessionEpoch();
       stopSessionResources();
       currentUserTurnRef.current = "";
       currentAssistantTurnRef.current = "";
+      currentMemoriesRetrievedRef.current = 0;
+      currentMemoryRetrieveAttemptedRef.current = false;
+      currentLocalPendingCountRef.current = 0;
+      currentCloudCountRef.current = 0;
       setVoiceChatTranscript("");
       setVoiceChatReply("");
+      setVoiceChatMemoriesRetrieved(0);
       setVoiceChatMessages([]);
       setVoiceChatError("");
       setVoiceChatStatus("点击开始实时语音聊天");
+      setVoiceChatMemoryWriteStatus("");
+      setVoiceChatMemorySourceStatus("");
+      setVoiceChatMemoryScope("");
     },
+    voiceChatMemoryWriteStatus,
+    voiceChatMemorySourceStatus,
+    voiceChatMemoryScope,
   };
 }
 

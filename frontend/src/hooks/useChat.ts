@@ -15,6 +15,25 @@ type Options = {
   preferredProvider?: string;
 };
 
+function isVoiceRealtimeModel(provider: string, model: string): boolean {
+  const normalizedProvider = (provider || "").trim().toLowerCase();
+  const normalizedModel = (model || "").trim().toLowerCase();
+  if (!normalizedModel) {
+    return false;
+  }
+  if (normalizedProvider === "dashscope") {
+    return normalizedModel.includes("realtime");
+  }
+  if (normalizedProvider === "google") {
+    return (
+      normalizedModel.includes("native-audio") ||
+      normalizedModel.includes("live") ||
+      normalizedModel.includes("realtime")
+    );
+  }
+  return normalizedModel.includes("realtime");
+}
+
 function resolveProvider(
   preferredProvider: string | undefined,
   providerOptions: string[],
@@ -119,6 +138,10 @@ export default function useChat({
 
   async function onSubmit(event: FormEvent) {
     event.preventDefault();
+    if (isVoiceRealtimeModel(chatProvider, chatModel)) {
+      setChatError("当前选择的是实时语音模型，请点击麦克风开始语音对话，或切换到普通文本模型后再发送消息。");
+      return;
+    }
     const userText = chatInput.trim();
     if (!userText) {
       return;
