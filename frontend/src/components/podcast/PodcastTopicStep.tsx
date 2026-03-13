@@ -1,28 +1,30 @@
 import { PROVIDERS } from "../../appConfig";
 import type { UseAudioOverviewResult } from "../../hooks/useAudioOverview";
+import { useI18n } from "../../i18n";
 
 type Props = {
   audioOverview: UseAudioOverviewResult;
 };
 
 export default function PodcastTopicStep({ audioOverview }: Props) {
+  const { t } = useI18n();
   return (
     <div className="vsPodcastStepCard">
       <div className="vsPodcastStepHeader">
         <div className="vsPodcastStepTitle">
           <span className="vsStepNum">1</span>
-          <h3>确定播客主题</h3>
+          <h3>{t("确定播客主题", "Choose the podcast topic")}</h3>
         </div>
       </div>
       <div className="vsPodcastStepContent">
         <label className="vsPodcastField">
-          <span className="vsPodcastFieldLabel">话题</span>
+          <span className="vsPodcastFieldLabel">{t("话题", "Topic")}</span>
           <textarea
             className="vsTopicInput"
             rows={5}
             value={audioOverview.audioOverviewTopic}
             onChange={(e) => audioOverview.onTopicChange(e.target.value)}
-            placeholder="输入你想讨论的话题，例如：AI 如何改变个人学习习惯？"
+            placeholder={t("输入你想讨论的话题，例如：AI 如何改变个人学习习惯？", "Enter the topic you want to discuss, for example: How is AI changing personal learning habits?")}
           />
         </label>
 
@@ -32,14 +34,14 @@ export default function PodcastTopicStep({ audioOverview }: Props) {
             type="submit"
             disabled={audioOverview.audioOverviewBusy}
           >
-            {audioOverview.audioOverviewBusy ? "生成中..." : "生成脚本"}
+            {audioOverview.audioOverviewBusy ? t("生成中...", "Generating...") : t("生成脚本", "Generate script")}
           </button>
           <button
             type="button"
             className="vsPodcastAdvancedToggle"
             onClick={audioOverview.onToggleAdvanced}
           >
-            {audioOverview.audioOverviewAdvancedOpen ? "收起高级设置" : "⚙️ 高级设置"}
+            {audioOverview.audioOverviewAdvancedOpen ? t("收起高级设置", "Hide advanced settings") : t("⚙️ 高级设置", "⚙️ Advanced settings")}
           </button>
         </div>
 
@@ -47,17 +49,17 @@ export default function PodcastTopicStep({ audioOverview }: Props) {
           <div className="vsPodcastAdvancedPanel">
             <div className="rowOverview">
               <label>
-                语言
+                {t("语言", "Language")}
                 <select
                   value={audioOverview.audioOverviewLanguage}
                   onChange={(e) => audioOverview.onLanguageChange(e.target.value)}
                 >
-                  <option value="zh">中文</option>
-                  <option value="en">英文</option>
+                  <option value="zh">{t("中文", "Chinese")}</option>
+                  <option value="en">{t("英文", "English")}</option>
                 </select>
               </label>
               <label>
-                LLM 供应商
+                {t("LLM 供应商", "LLM provider")}
                 <select
                   value={audioOverview.audioOverviewProvider}
                   onChange={(e) => audioOverview.onProviderChange(e.target.value)}
@@ -70,15 +72,15 @@ export default function PodcastTopicStep({ audioOverview }: Props) {
                 </select>
               </label>
               <label>
-                模型
+                {t("模型", "Model")}
                 <input
                   value={audioOverview.audioOverviewModel}
                   onChange={(e) => audioOverview.onModelChange(e.target.value)}
-                  placeholder="留空则使用默认模型"
+                  placeholder={t("留空则使用默认模型", "Leave blank to use the default model")}
                 />
               </label>
               <label>
-                对话轮数
+                {t("对话轮数", "Turn count")}
                 <input
                   type="number"
                   min={2}
@@ -92,15 +94,15 @@ export default function PodcastTopicStep({ audioOverview }: Props) {
             <label className="vsPodcastMemoryToggle">
               <input
                 type="checkbox"
-                checked={audioOverview.audioOverviewUseMemory}
-                onChange={(e) => audioOverview.onUseMemoryChange(e.target.checked)}
-              />
-              <div>
-                <strong>使用 EverMem 长期记忆辅助脚本生成</strong>
+              checked={audioOverview.audioOverviewUseMemory}
+              onChange={(e) => audioOverview.onUseMemoryChange(e.target.checked)}
+            />
+            <div>
+                <strong>{t("使用 EverMem 长期记忆辅助脚本生成", "Use EverMem long-term memory to assist script generation")}</strong>
                 <p>
                   {audioOverview.audioOverviewMemoryConfigured
-                    ? "生成播客脚本时会尝试召回相关历史记忆，并把本次草稿写回 EverMem。"
-                    : "请先在设置页启用 EverMem。未接入时这里不会注入长期记忆。"}
+                    ? t("生成播客脚本时会尝试召回相关历史记忆，并把本次草稿写回 EverMem。", "Podcast generation will try to recall relevant memories and write this draft back to EverMem.")
+                    : t("请先在设置页启用 EverMem。未接入时这里不会注入长期记忆。", "Enable EverMem in Settings first. No long-term memory will be injected until then.")}
                 </p>
               </div>
             </label>
@@ -108,9 +110,12 @@ export default function PodcastTopicStep({ audioOverview }: Props) {
             {audioOverview.audioOverviewMemoriesRetrieved > 0 || audioOverview.audioOverviewMemorySaved ? (
               <p className="vsPodcastMemoryResult">
                 {audioOverview.audioOverviewMemoriesRetrieved > 0
-                  ? `本次生成已引用 ${audioOverview.audioOverviewMemoriesRetrieved} 条长期记忆。`
-                  : "本次生成未召回历史记忆。"}
-                {audioOverview.audioOverviewMemorySaved ? " 已写入本次播客草稿。" : ""}
+                  ? t(
+                    `本次生成已引用 ${audioOverview.audioOverviewMemoriesRetrieved} 条长期记忆。`,
+                    `This draft referenced ${audioOverview.audioOverviewMemoriesRetrieved} long-term memories.`
+                  )
+                  : t("本次生成未召回历史记忆。", "This draft did not recall any previous memories.")}
+                {audioOverview.audioOverviewMemorySaved ? t(" 已写入本次播客草稿。", " Saved back into this podcast draft.") : ""}
               </p>
             ) : null}
           </div>

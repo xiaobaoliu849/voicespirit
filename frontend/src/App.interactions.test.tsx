@@ -203,6 +203,12 @@ describe("App interactions", () => {
   it("sends a quick chat prompt and renders the streamed reply", async () => {
     render(<App />);
 
+    expect(
+      await screen.findByText(
+        /麦克风按钮当前使用 DashScope \/ qwen3-omni-flash-realtime-2025-12-01/
+      )
+    ).toBeInTheDocument();
+
     fireEvent.click(await screen.findByRole("button", { name: "写一封邮件" }));
     fireEvent.click(screen.getByRole("button", { name: "发送" }));
 
@@ -218,6 +224,7 @@ describe("App interactions", () => {
             }
           ]
         }),
+        expect.any(Object),
         expect.any(Object)
       );
     });
@@ -227,6 +234,90 @@ describe("App interactions", () => {
     expect(await screen.findByText("✓ 已记忆")).toBeInTheDocument();
     expect(await screen.findByText(/🧠 回忆了 2 条/)).toBeInTheDocument();
     expect(await screen.findByText("已存入记忆")).toBeInTheDocument();
+  });
+
+  it("keeps realtime voice config separate when the text chat provider changes", async () => {
+    render(<App />);
+
+    await screen.findByText(
+      /麦克风按钮当前使用 DashScope \/ qwen3-omni-flash-realtime-2025-12-01/
+    );
+
+    fireEvent.change(screen.getByLabelText("供应商"), {
+      target: { value: "Google" },
+    });
+
+    expect(
+      screen.getByText(/麦克风按钮当前使用 DashScope \/ qwen3-omni-flash-realtime-2025-12-01/)
+    ).toBeInTheDocument();
+  });
+
+  it("archives the previous conversation into the sidebar and restores it on click", async () => {
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "写一封邮件" }));
+    fireEvent.click(screen.getByRole("button", { name: "发送" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("这是助手的回复。")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "新建对话" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "清除全部" })).toBeInTheDocument();
+      expect(screen.getByText(/请帮我起草一封语气专业但不生硬的项目进度更新/)).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText(/请帮我起草一封语气专业但不生硬的项目进度更新/));
+
+    await waitFor(() => {
+      expect(screen.getByText("这是助手的回复。")).toBeInTheDocument();
+    });
+  });
+
+  it("does not duplicate a restored conversation when starting a new chat", async () => {
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "写一封邮件" }));
+    fireEvent.click(screen.getByRole("button", { name: "发送" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("这是助手的回复。")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "新建对话" }));
+
+    const historyItem = await screen.findByText(/请帮我起草一封语气专业但不生硬的项目进度更新/);
+    fireEvent.click(historyItem);
+    fireEvent.click(screen.getByRole("button", { name: "新建对话" }));
+
+    await waitFor(() => {
+      const rows = document.querySelectorAll(".vsHistoryRow");
+      expect(rows).toHaveLength(1);
+    });
+  });
+
+  it("deletes a single archived conversation from the sidebar", async () => {
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "写一封邮件" }));
+    fireEvent.click(screen.getByRole("button", { name: "发送" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("这是助手的回复。")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "新建对话" }));
+
+    const deleteButton = await screen.findByRole("button", {
+      name: /删除历史 请帮我起草一封语气专业但不生硬的项目进度更新/,
+    });
+    fireEvent.click(deleteButton);
+
+    await waitFor(() => {
+      expect(screen.queryByText(/请帮我起草一封语气专业但不生硬的项目进度更新/)).not.toBeInTheDocument();
+    });
   });
 
   it("generates TTS audio preview from the current text", async () => {

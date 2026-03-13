@@ -1,5 +1,6 @@
 import ErrorNotice from "../components/ErrorNotice";
 import type { UseTtsResult } from "../hooks/useTts";
+import { useI18n } from "../i18n";
 import type { ErrorRuntimeContext } from "../types/ui";
 
 type Props = {
@@ -8,6 +9,7 @@ type Props = {
 };
 
 export default function TtsPage({ tts, errorRuntimeContext }: Props) {
+  const { t } = useI18n();
   function handleDownload() {
     if (!tts.audioUrl) return;
     const a = document.createElement("a");
@@ -17,9 +19,9 @@ export default function TtsPage({ tts, errorRuntimeContext }: Props) {
   }
 
   const modeTitleMap = {
-    text: "文本转语音工作台",
-    dialogue: "对话转语音工作台",
-    pdf: "PDF 转语音工作台",
+    text: t("文本转语音工作台", "Text-to-speech workspace"),
+    dialogue: t("对话转语音工作台", "Dialogue-to-speech workspace"),
+    pdf: t("PDF 转语音工作台", "PDF-to-speech workspace"),
   } as const;
 
   const activeLength =
@@ -38,19 +40,19 @@ export default function TtsPage({ tts, errorRuntimeContext }: Props) {
             <div>
               <div className="vsModeTabs" style={{ display: "flex", gap: 8, marginBottom: 14 }}>
                 <button type="button" className={tts.ttsMode === "text" ? "vsBtnPrimary" : "vsBtnSecondary"} onClick={() => tts.onTtsModeChange("text")}>
-                  文本转语音
+                  {t("文本转语音", "Text to speech")}
                 </button>
                 <button type="button" className={tts.ttsMode === "dialogue" ? "vsBtnPrimary" : "vsBtnSecondary"} onClick={() => tts.onTtsModeChange("dialogue")}>
-                  对话转语音
+                  {t("对话转语音", "Dialogue to speech")}
                 </button>
                 <button type="button" className={tts.ttsMode === "pdf" ? "vsBtnPrimary" : "vsBtnSecondary"} onClick={() => tts.onTtsModeChange("pdf")}>
-                  PDF 转语音
+                  {t("PDF 转语音", "PDF to speech")}
                 </button>
               </div>
               <h2 className="vsTtsPrimaryTitle">{modeTitleMap[tts.ttsMode]}</h2>
             </div>
             <div className="vsTtsPrimaryStats">
-              <span>{activeLength} 字</span>
+              <span>{t(`${activeLength} 字`, `${activeLength} chars`)}</span>
             </div>
           </header>
 
@@ -60,7 +62,7 @@ export default function TtsPage({ tts, errorRuntimeContext }: Props) {
                 className="vsTtsEditor custom-scrollbar"
                 value={tts.text}
                 onChange={(e) => tts.onTextChange(e.target.value)}
-                placeholder="输入要合成朗读的正文内容、旁白或单人对白结构…"
+                placeholder={t("输入要合成朗读的正文内容、旁白或单人对白结构…", "Enter narration, body text, or a single-speaker script to synthesize...")}
               />
             ) : null}
             {tts.ttsMode === "dialogue" ? (
@@ -68,7 +70,7 @@ export default function TtsPage({ tts, errorRuntimeContext }: Props) {
                 className="vsTtsEditor custom-scrollbar"
                 value={tts.dialogueText}
                 onChange={(e) => tts.onDialogueTextChange(e.target.value)}
-                placeholder={"A: 你好，欢迎来到今天的节目。\nB: 今天我们来聊聊 VoiceSpirit 的语音工作流。"}
+                placeholder={t("A: 你好，欢迎来到今天的节目。\nB: 今天我们来聊聊 VoiceSpirit 的语音工作流。", "A: Hello, welcome to today's show.\nB: Today we're talking about VoiceSpirit's speech workflow.")}
               />
             ) : null}
             {tts.ttsMode === "pdf" ? (
@@ -82,7 +84,7 @@ export default function TtsPage({ tts, errorRuntimeContext }: Props) {
                   className="vsTtsEditor custom-scrollbar"
                   value={tts.pdfText}
                   onChange={(e) => tts.onPdfTextChange(e.target.value)}
-                  placeholder="这里放 PDF 提取后的可朗读正文。当前版本先手动整理文本，后续再接自动提取。"
+                  placeholder={t("这里放 PDF 提取后的可朗读正文。当前版本先手动整理文本，后续再接自动提取。", "Paste the readable body text extracted from the PDF here. Manual cleanup for now; auto extraction can follow later.")}
                 />
               </div>
             ) : null}
@@ -106,7 +108,7 @@ export default function TtsPage({ tts, errorRuntimeContext }: Props) {
               }}
               disabled={!tts.activeSourceText}
             >
-              清空舞台
+              {t("清空舞台", "Clear workspace")}
             </button>
             <div className="vsTtsActionGroup">
               <button
@@ -117,10 +119,10 @@ export default function TtsPage({ tts, errorRuntimeContext }: Props) {
                 {tts.generating ? (
                   <>
                     <span className="spinner-mini"></span>
-                    生成中…
+                    {t("生成中…", "Generating...")}
                   </>
                 ) : (
-                  "生成音频"
+                  t("生成音频", "Generate audio")
                 )}
               </button>
             </div>
@@ -130,10 +132,10 @@ export default function TtsPage({ tts, errorRuntimeContext }: Props) {
         {/* ── Right Pane: Config & Output ── */}
         <div className="vsTtsSecondary">
           <div className="vsCardSection">
-            <h3 className="vsCardSubTitle">声音引擎配置</h3>
+            <h3 className="vsCardSubTitle">{t("声音引擎配置", "Speech engine settings")}</h3>
 
             <div className="vsField">
-              <label className="vsFieldLabel">TTS 引擎</label>
+              <label className="vsFieldLabel">{t("TTS 引擎", "TTS engine")}</label>
               <div className="vsSelectWrapper">
                 <select
                   className="vsSelect"
@@ -153,7 +155,7 @@ export default function TtsPage({ tts, errorRuntimeContext }: Props) {
             </div>
 
             <div className="vsField">
-              <label className="vsFieldLabel">首选音色</label>
+              <label className="vsFieldLabel">{t("首选音色", "Preferred voice")}</label>
               <div className="vsSelectWrapper">
                 <select
                   className="vsSelect"
@@ -161,32 +163,32 @@ export default function TtsPage({ tts, errorRuntimeContext }: Props) {
                   onChange={(e) => tts.onVoiceChange(e.target.value)}
                   disabled={tts.loadingVoices || tts.voiceOptions.length === 0}
                 >
-                  <option value="" disabled>-- 请选择音色 --</option>
+                  <option value="" disabled>{t("-- 请选择音色 --", "-- Select a voice --")}</option>
                   {tts.voiceOptions.map((item) => (
                     <option key={item.value} value={item.value}>
                       {item.label}
                     </option>
                   ))}
                 </select>
-                {tts.loadingVoices && <div className="vsSelectLoading">加载中…</div>}
+                {tts.loadingVoices && <div className="vsSelectLoading">{t("加载中…", "Loading...")}</div>}
               </div>
             </div>
 
             <div className="vsField" style={{ marginTop: 12 }}>
-              <label className="vsFieldLabel">全局语速微调</label>
+              <label className="vsFieldLabel">{t("全局语速微调", "Global rate adjustment")}</label>
               <div className="vsRateControl">
                 <input
                   type="text"
                   className="vsInput"
                   value={tts.rate}
                   onChange={(e) => tts.onRateChange(e.target.value)}
-                  placeholder="例如: +0%, -10%, +25%"
+                  placeholder={t("例如: +0%, -10%, +25%", "For example: +0%, -10%, +25%")}
                 />
                 <button
                   type="button"
                   className="vsBtnGhost"
                   onClick={() => tts.onRateChange("+0%")}
-                  title="恢复默认语速"
+                  title={t("恢复默认语速", "Reset default rate")}
                 >
                   Reset
                 </button>
@@ -195,7 +197,7 @@ export default function TtsPage({ tts, errorRuntimeContext }: Props) {
           </div>
 
           <div className="vsCardSection border-top">
-            <h3 className="vsCardSubTitle">合成结果及监视器</h3>
+            <h3 className="vsCardSubTitle">{t("合成结果及监视器", "Synthesis output and monitor")}</h3>
 
             <ErrorNotice
               message={tts.ttsError}
@@ -213,14 +215,14 @@ export default function TtsPage({ tts, errorRuntimeContext }: Props) {
                   onClick={handleDownload}
                   style={{ width: "100%", marginTop: 16 }}
                 >
-                  📥 导出 MP3 音频
+                  {t("📥 导出 MP3 音频", "📥 Export MP3 audio")}
                 </button>
               </div>
             ) : (
               <div className="vsTtsEmptyResult">
                 <div className="vsEmptyIcon">🎧</div>
-                <div className="vsEmptyTitle">暂无成果</div>
-                <div className="vsEmptyDesc">左侧完成内容输入，点击“生成”以试听音轨</div>
+                <div className="vsEmptyTitle">{t("暂无成果", "No output yet")}</div>
+                <div className="vsEmptyDesc">{t("左侧完成内容输入，点击“生成”以试听音轨", "Enter content on the left, then click Generate to preview the track")}</div>
               </div>
             )}
           </div>

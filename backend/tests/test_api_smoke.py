@@ -17,6 +17,7 @@ from starlette.routing import Mount, Route, WebSocketRoute
 from main import create_app
 from routers import audio_overview as audio_overview_router
 from routers import chat as chat_router
+from routers import evermem as evermem_router
 from routers import settings as settings_router
 from routers import transcription as transcription_router
 from routers import translate as translate_router
@@ -965,6 +966,37 @@ class ApiSmokeTests(unittest.TestCase):
         self.assertIn('"content": "he"', text)
         self.assertIn("event: done", text)
         self.assertIn('memory_saved', text)
+
+    def test_create_evermem_conversation_meta_endpoint(self) -> None:
+        case = self
+
+        class FakeService:
+            async def create_conversation_meta(self, **kwargs: Any) -> dict[str, Any]:
+                case.assertEqual(kwargs["user_id"], "scope-main")
+                return {"group_id": "group-chat-001", "user_id": "scope-main"}
+
+        headers = {
+            "X-EverMem-Enabled": "true",
+            "X-EverMem-Key": "test-key",
+            "X-EverMem-Scope": "scope-main",
+        }
+        with patch.object(
+            evermem_router.EverMemConfig,
+            "get_service",
+            return_value=FakeService(),
+        ):
+            response = self._request(
+                "POST",
+                "/api/evermem/conversation-meta",
+                json={},
+                headers=headers,
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json(),
+            {"group_id": "group-chat-001", "user_id": "scope-main"},
+        )
 
     def test_translate_endpoint(self) -> None:
         async def fake_translate_text(**kwargs: Any) -> dict[str, Any]:

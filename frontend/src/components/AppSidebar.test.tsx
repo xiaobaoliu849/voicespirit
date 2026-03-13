@@ -12,6 +12,8 @@ describe('AppSidebar', () => {
                 onTabChange={vi.fn()}
                 onNewChatSession={vi.fn()}
                 onHistorySelect={vi.fn()}
+                onClearHistory={vi.fn()}
+                onDeleteHistoryItem={vi.fn()}
             />
         );
         expect(screen.getByText('VoiceSpirit')).toBeInTheDocument();
@@ -28,10 +30,13 @@ describe('AppSidebar', () => {
                 onTabChange={vi.fn()}
                 onNewChatSession={vi.fn()}
                 onHistorySelect={vi.fn()}
+                onClearHistory={vi.fn()}
+                onDeleteHistoryItem={vi.fn()}
             />
         );
 
-        expect(screen.getByText('最近对话')).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: '清除全部' })).toBeInTheDocument();
         expect(screen.getByText('帮我总结今天会议纪要')).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: '删除历史 帮我总结今天会议纪要' })).toBeInTheDocument();
     });
 });

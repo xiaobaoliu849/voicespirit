@@ -27,6 +27,7 @@ class RealtimeMemorySessionTests(unittest.IsolatedAsyncioTestCase):
                 "api_url": "https://memory.example.com",
                 "api_key": "memory-key",
                 "scope_id": "voice-demo",
+                "group_id": "voice-group-001",
             }
         )
         session.note_user_transcript("以后比赛提交阶段默认都用中文女声来播报。")
@@ -45,6 +46,7 @@ class RealtimeMemorySessionTests(unittest.IsolatedAsyncioTestCase):
         first_call = add_memory.await_args_list[0]
         self.assertEqual(first_call.kwargs["user_id"], "voice-demo")
         self.assertEqual(first_call.kwargs["sender"], "voice-demo")
+        self.assertEqual(first_call.kwargs["group_id"], "voice-group-001")
         self.assertIn("语音偏好", first_call.kwargs["content"])
 
     async def test_trivial_question_does_not_persist_memory(self) -> None:
@@ -92,6 +94,7 @@ class RealtimeMemorySessionTests(unittest.IsolatedAsyncioTestCase):
                 "api_url": "https://memory.example.com",
                 "api_key": "memory-key",
                 "scope_id": "voice-demo",
+                "group_id": "voice-group-001",
             }
         )
         session.note_user_transcript("我之前默认用什么声音来着？")
@@ -113,6 +116,7 @@ class RealtimeMemorySessionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["cloud_count"], 2)
         self.assertEqual(result["local_pending_count"], 0)
         self.assertEqual(search_memories.await_count, 1)
+        self.assertEqual(search_memories.await_args.kwargs["group_ids"], ["voice-group-001"])
 
     async def test_retrieve_memory_context_for_task_question(self) -> None:
         session = RealtimeMemorySession()
@@ -209,6 +213,7 @@ class RealtimeMemorySessionTests(unittest.IsolatedAsyncioTestCase):
                 "api_url": "https://memory.example.com",
                 "api_key": "memory-key",
                 "scope_id": "voice-demo",
+                "group_id": "voice-group-001",
             }
         )
         writer.note_user_transcript("本周的重点是比赛提交，以后默认用中文回答。")
@@ -227,6 +232,7 @@ class RealtimeMemorySessionTests(unittest.IsolatedAsyncioTestCase):
                 "api_url": "https://memory.example.com",
                 "api_key": "memory-key",
                 "scope_id": "voice-demo",
+                "group_id": "voice-group-001",
             }
         )
         reader.note_user_transcript("你还记得我们刚才说的本周重点工作是什么吗？")
@@ -241,6 +247,91 @@ class RealtimeMemorySessionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["memories_retrieved"], 1)
         self.assertEqual(result["local_pending_count"], 1)
         self.assertEqual(result["cloud_count"], 0)
+        self.assertIn("本地待同步记忆", result["context"])
+
+    async def test_pending_cache_is_isolated_by_group_id(self) -> None:
+        first = RealtimeMemorySession()
+        first.configure(
+            {
+                "enabled": True,
+                "api_url": "https://memory.example.com",
+                "api_key": "memory-key",
+                "scope_id": "voice-demo",
+                "group_id": "voice-group-001",
+            }
+        )
+        first.note_user_transcript("本周重点是比赛提交。")
+
+        with patch.object(
+            EverMemService,
+            "add_memory",
+            new=AsyncMock(return_value={"status": "success"}),
+        ):
+            await first.flush_turn()
+
+        second = RealtimeMemorySession()
+        second.configure(
+            {
+                "enabled": True,
+                "api_url": "https://memory.example.com",
+                "api_key": "memory-key",
+                "scope_id": "voice-demo",
+                "group_id": "voice-group-002",
+            }
+        )
+        second.note_user_transcript("请继续比赛提交相关安排。")
+
+        with patch.object(
+            EverMemService,
+            "search_memories",
+            new=AsyncMock(return_value=[]),
+        ):
+            result = await second.retrieve_memory_context()
+
+        self.assertEqual(result["local_pending_count"], 0)
+        self.assertEqual(result["memories_retrieved"], 0)
+
+    async def test_forced_recall_query_can_use_scope_pending_fallback_across_groups(self) -> None:
+        first = RealtimeMemorySession()
+        first.configure(
+            {
+                "enabled": True,
+                "api_url": "https://memory.example.com",
+                "api_key": "memory-key",
+                "scope_id": "voice-demo",
+                "group_id": "voice-group-001",
+            }
+        )
+        first.note_user_transcript("本周重点是比赛提交。")
+
+        with patch.object(
+            EverMemService,
+            "add_memory",
+            new=AsyncMock(return_value={"status": "success"}),
+        ):
+            await first.flush_turn()
+
+        second = RealtimeMemorySession()
+        second.configure(
+            {
+                "enabled": True,
+                "api_url": "https://memory.example.com",
+                "api_key": "memory-key",
+                "scope_id": "voice-demo",
+                "group_id": "voice-group-002",
+            }
+        )
+        second.note_user_transcript("你还记得我们刚才说的本周重点工作是什么吗？")
+
+        with patch.object(
+            EverMemService,
+            "search_memories",
+            new=AsyncMock(return_value=[]),
+        ):
+            result = await second.retrieve_memory_context()
+
+        self.assertEqual(result["local_pending_count"], 1)
+        self.assertEqual(result["memories_retrieved"], 1)
         self.assertIn("本地待同步记忆", result["context"])
 
     async def test_retrieve_memory_context_uses_persisted_pending_fallback_after_restart(self) -> None:

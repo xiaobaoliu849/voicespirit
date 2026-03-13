@@ -5,6 +5,7 @@ import PodcastSidebar from "../components/podcast/PodcastSidebar";
 import PodcastSynthBar from "../components/podcast/PodcastSynthBar";
 import PodcastTopicStep from "../components/podcast/PodcastTopicStep";
 import ErrorNotice from "../components/ErrorNotice";
+import { useI18n } from "../i18n";
 import type { ErrorRuntimeContext } from "../types/ui";
 
 type Props = {
@@ -16,15 +17,20 @@ export default function AudioOverviewPage({
   audioOverview,
   errorRuntimeContext
 }: Props) {
+  const { t } = useI18n();
   return (
     <section className="vsTtsWorkspace" style={{ padding: 0, height: "100%" }}>
       <form className="vsTtsLayout" onSubmit={audioOverview.onGenerateScript} style={{ margin: 0 }}>
         {/* ── Left Pane: Main Workspace ── */}
         <div className="vsTtsPrimary" style={{ flex: "1 1 65%" }}>
           <header className="vsTtsPrimaryHeader">
-            <h2 className="vsTtsPrimaryTitle">播客创作台 (Audio Overview)</h2>
+            <h2 className="vsTtsPrimaryTitle">{t("播客创作台 (Audio Overview)", "Podcast Overview")}</h2>
             <div className="vsTtsPrimaryStats">
-              <span>{audioOverview.audioOverviewPodcastId ? `当前项目: #${audioOverview.audioOverviewPodcastId}` : "新项目"}</span>
+              <span>
+                {audioOverview.audioOverviewPodcastId
+                  ? t(`当前项目: #${audioOverview.audioOverviewPodcastId}`, `Current project: #${audioOverview.audioOverviewPodcastId}`)
+                  : t("新项目", "New project")}
+              </span>
             </div>
           </header>
 

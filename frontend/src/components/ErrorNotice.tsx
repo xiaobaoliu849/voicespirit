@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { buildErrorHints, parseErrorCode, parseRequestId } from "../error_hints";
+import { useI18n } from "../i18n";
 
 type ErrorNoticeProps = {
   message: string;
@@ -36,6 +37,7 @@ function buildLogSearchUrl(baseUrl: string, requestId: string): string | null {
 }
 
 export default function ErrorNotice({ message, scope = "", context }: ErrorNoticeProps) {
+  const { t } = useI18n();
   const text = String(message || "").trim();
   const [copyState, setCopyState] = useState<"idle" | "ok">("idle");
   const [toast, setToast] = useState<ToastState | null>(null);
@@ -74,7 +76,7 @@ export default function ErrorNotice({ message, scope = "", context }: ErrorNotic
   const hints = buildErrorHints(text);
   const code = parseErrorCode(text);
   const requestId = parseRequestId(text);
-  const scopeLabel = scope.trim() || "unknown";
+  const scopeLabel = scope.trim() || t("未知", "unknown");
   const frontendVersion =
     typeof __APP_VERSION__ === "string" && __APP_VERSION__.trim()
       ? __APP_VERSION__.trim()
@@ -120,25 +122,25 @@ export default function ErrorNotice({ message, scope = "", context }: ErrorNotic
       ? contextEntries.map((item) => `- ${item}`).join("\n")
       : "- N/A";
     return [
-      "## VoiceSpirit 错误报告",
-      `- 生成时间: ${generatedAt}`,
-      `- 模块: ${scopeLabel}`,
-      `- 页面路径: ${pathname}`,
-      `- 前端版本: ${frontendVersion}`,
-      `- 浏览器信息: ${userAgent}`,
-      `- 错误代码: ${code || "N/A"}`,
-      `- 请求 ID: ${requestId || "N/A"}`,
-      `- 日志链接: ${logSearchUrl || "N/A"}`,
+      t("## VoiceSpirit 错误报告", "## VoiceSpirit Error Report"),
+      t(`- 生成时间: ${generatedAt}`, `- Generated At: ${generatedAt}`),
+      t(`- 模块: ${scopeLabel}`, `- Scope: ${scopeLabel}`),
+      t(`- 页面路径: ${pathname}`, `- Path: ${pathname}`),
+      t(`- 前端版本: ${frontendVersion}`, `- Frontend Version: ${frontendVersion}`),
+      t(`- 浏览器信息: ${userAgent}`, `- Browser: ${userAgent}`),
+      t(`- 错误代码: ${code || "N/A"}`, `- Error Code: ${code || "N/A"}`),
+      t(`- 请求 ID: ${requestId || "N/A"}`, `- Request ID: ${requestId || "N/A"}`),
+      t(`- 日志链接: ${logSearchUrl || "N/A"}`, `- Log URL: ${logSearchUrl || "N/A"}`),
       "",
-      "### 错误信息",
+      t("### 错误信息", "### Error Message"),
       "```text",
       text,
       "```",
       "",
-      "### 上下文",
+      t("### 上下文", "### Context"),
       contextBlock,
       "",
-      "### 建议处理方式",
+      t("### 建议处理方式", "### Suggested Handling"),
       hintLines
     ].join("\n");
   }
@@ -163,30 +165,30 @@ export default function ErrorNotice({ message, scope = "", context }: ErrorNotic
     const ok = await copyText(requestId);
     if (ok) {
       setCopyState("ok");
-      setToast({ tone: "ok", text: "请求 ID 已复制。" });
+      setToast({ tone: "ok", text: t("请求 ID 已复制。", "Request ID copied.") });
       return;
     }
-    setToast({ tone: "fail", text: "复制失败，请手动复制。" });
+    setToast({ tone: "fail", text: t("复制失败，请手动复制。", "Copy failed. Please copy it manually.") });
   }
 
   async function handleCopyDiagnostics() {
     const payload = `${diagnostics}\ngenerated_at=${new Date().toISOString()}`;
     const ok = await copyText(payload);
     if (ok) {
-      setToast({ tone: "ok", text: "诊断信息已复制。" });
+      setToast({ tone: "ok", text: t("诊断信息已复制。", "Diagnostics copied.") });
       return;
     }
-    setToast({ tone: "fail", text: "复制失败，请手动复制。" });
+    setToast({ tone: "fail", text: t("复制失败，请手动复制。", "Copy failed. Please copy it manually.") });
   }
 
   async function handleCopyIssueTemplate() {
     const payload = buildIssueTemplate(new Date().toISOString());
     const ok = await copyText(payload);
     if (ok) {
-      setToast({ tone: "ok", text: "问题模板已复制。" });
+      setToast({ tone: "ok", text: t("问题模板已复制。", "Issue template copied.") });
       return;
     }
-    setToast({ tone: "fail", text: "复制失败，请手动复制。" });
+    setToast({ tone: "fail", text: t("复制失败，请手动复制。", "Copy failed. Please copy it manually.") });
   }
 
   return (
@@ -215,7 +217,7 @@ export default function ErrorNotice({ message, scope = "", context }: ErrorNotic
               className="ghost errorCopyBtn"
               onClick={handleCopyRequestId}
             >
-              {copyState === "ok" ? "已复制" : "复制请求 ID"}
+              {copyState === "ok" ? t("已复制", "Copied") : t("复制请求 ID", "Copy Request ID")}
             </button>
           ) : null}
           <button
@@ -223,21 +225,21 @@ export default function ErrorNotice({ message, scope = "", context }: ErrorNotic
             className="ghost errorCopyBtn"
             onClick={handleCopyDiagnostics}
           >
-            复制诊断信息
+            {t("复制诊断信息", "Copy diagnostics")}
           </button>
           <button
             type="button"
             className="ghost errorCopyBtn"
             onClick={handleCopyIssueTemplate}
           >
-            复制问题模板
+            {t("复制问题模板", "Copy issue template")}
           </button>
           <button
             type="button"
             className="ghost errorCopyBtn"
             onClick={() => setDetailsOpen((value) => !value)}
           >
-            {detailsOpen ? "隐藏详情" : "查看详情"}
+            {detailsOpen ? t("隐藏详情", "Hide details") : t("查看详情", "View details")}
           </button>
         </div>
       ) : null}
@@ -248,13 +250,13 @@ export default function ErrorNotice({ message, scope = "", context }: ErrorNotic
       ) : null}
       {detailsOpen ? (
         <div className="errorDetails">
-          <p>诊断信息</p>
+          <p>{t("诊断信息", "Diagnostics")}</p>
           <pre>{diagnostics}</pre>
         </div>
       ) : null}
       {hints.length > 0 ? (
         <div className="errorHints">
-          <p>建议处理方式</p>
+          <p>{t("建议处理方式", "Suggested handling")}</p>
           <ul>
             {hints.map((tip, idx) => (
               <li key={`error-hint-${idx}`}>{tip}</li>

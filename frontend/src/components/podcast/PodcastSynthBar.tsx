@@ -1,10 +1,12 @@
 import type { UseAudioOverviewResult } from "../../hooks/useAudioOverview";
+import { useI18n } from "../../i18n";
 
 type Props = {
   audioOverview: UseAudioOverviewResult;
 };
 
 export default function PodcastSynthBar({ audioOverview }: Props) {
+  const { t } = useI18n();
   if (!audioOverview.audioOverviewScriptLines.length) {
     return null;
   }
@@ -48,7 +50,7 @@ export default function PodcastSynthBar({ audioOverview }: Props) {
             className="vsPodcastAdvancedToggle"
             onClick={audioOverview.onToggleSynthAdvanced}
           >
-            {audioOverview.synthBarAdvancedOpen ? "收起参数" : "⚙️ 更多参数"}
+            {audioOverview.synthBarAdvancedOpen ? t("收起参数", "Hide parameters") : t("⚙️ 更多参数", "⚙️ More parameters")}
           </button>
           <button
             type="button"
@@ -61,7 +63,7 @@ export default function PodcastSynthBar({ audioOverview }: Props) {
               audioOverview.audioOverviewScriptLines.length < 2
             }
           >
-            {audioOverview.audioOverviewSynthBusy ? "合成中..." : "🎙️ 合成"}
+            {audioOverview.audioOverviewSynthBusy ? t("合成中...", "Synthesizing...") : t("🎙️ 合成", "🎙️ Synthesize")}
           </button>
         </div>
       </div>
@@ -69,7 +71,7 @@ export default function PodcastSynthBar({ audioOverview }: Props) {
         <div className="vsSynthBarAdvanced">
           <div className="rowOverview">
             <label>
-              语速
+              {t("语速", "Rate")}
               <input
                 value={audioOverview.audioOverviewRate}
                 onChange={(e) => audioOverview.onRateChange(e.target.value)}
@@ -77,7 +79,7 @@ export default function PodcastSynthBar({ audioOverview }: Props) {
               />
             </label>
             <label>
-              停顿间隔（毫秒）
+              {t("停顿间隔（毫秒）", "Pause gap (ms)")}
               <input
                 type="number"
                 min={0}
@@ -87,7 +89,7 @@ export default function PodcastSynthBar({ audioOverview }: Props) {
               />
             </label>
             <label>
-              拼接策略
+              {t("拼接策略", "Merge strategy")}
               <select
                 value={audioOverview.audioOverviewMergeStrategy}
                 onChange={(e) =>

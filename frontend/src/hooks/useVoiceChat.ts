@@ -2,9 +2,14 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   buildVoiceChatSessionConfig,
   buildVoiceChatWebSocketUrl,
+  clearPersistedEverMemConversationGroupId,
+  ensureEverMemConversationGroupId,
+  getPersistedEverMemConversationGroupId,
+  persistEverMemConversationGroupId,
   type ChatMessage,
   type VoiceChatServerEvent,
 } from "../api";
+import { createInlineTranslator, type UiLanguage } from "../i18n";
 import type { FormatErrorMessage } from "../utils/errorFormatting";
 
 type ProviderModelCatalog = Record<
@@ -21,6 +26,7 @@ type Options = {
   providerModelCatalog?: ProviderModelCatalog;
   preferredProvider?: string;
   preferredModel?: string;
+  language?: UiLanguage;
 };
 
 type AudioContextWindow = Window & {
@@ -74,17 +80,53 @@ function resolveRealtimeProvider(preferredProvider: string | undefined, provider
 }
 
 function resolveDefaultModel(provider: string, providerModelCatalog: ProviderModelCatalog): string {
+  return resolveRealtimeModelOptions(provider, providerModelCatalog)[0] || "";
+}
+
+function isRealtimeVoiceModel(provider: string, model: string): boolean {
+  const normalizedProvider = (provider || "").trim().toLowerCase();
+  const normalizedModel = (model || "").trim().toLowerCase();
+  if (!normalizedModel) {
+    return false;
+  }
+  if (normalizedProvider === DASHSCOPE_PROVIDER.toLowerCase()) {
+    return normalizedModel.includes("realtime");
+  }
+  if (normalizedProvider === GOOGLE_PROVIDER.toLowerCase()) {
+    return (
+      normalizedModel.includes("native-audio") ||
+      normalizedModel.includes("live") ||
+      normalizedModel.includes("realtime")
+    );
+  }
+  return normalizedModel.includes("realtime");
+}
+
+function resolveRealtimeFallbackModel(provider: string): string {
   if (provider === DASHSCOPE_PROVIDER) {
-    return providerModelCatalog[provider]?.defaultModel || DEFAULT_DASHSCOPE_MODEL;
+    return DEFAULT_DASHSCOPE_MODEL;
   }
-  if (provider !== GOOGLE_PROVIDER) {
-    return providerModelCatalog[provider]?.defaultModel || "";
-  }
-  const providerMeta = providerModelCatalog[provider];
-  if (!providerMeta) {
+  if (provider === GOOGLE_PROVIDER) {
     return DEFAULT_GOOGLE_MODEL;
   }
-  return providerMeta.defaultModel || providerMeta.availableModels[0] || DEFAULT_GOOGLE_MODEL;
+  return "";
+}
+
+function resolveRealtimeModelOptions(
+  provider: string,
+  providerModelCatalog: ProviderModelCatalog
+): string[] {
+  const providerMeta = providerModelCatalog[provider];
+  const configuredModels = Array.isArray(providerMeta?.availableModels)
+    ? providerMeta.availableModels.map((item) => item.trim()).filter(Boolean)
+    : [];
+  const realtimeModels = configuredModels.filter((item) => isRealtimeVoiceModel(provider, item));
+  const preferredDefault = (providerMeta?.defaultModel || "").trim();
+  const fallbackModel = isRealtimeVoiceModel(provider, preferredDefault)
+    ? preferredDefault
+    : resolveRealtimeFallbackModel(provider);
+  const ordered = fallbackModel ? [fallbackModel, ...realtimeModels] : realtimeModels;
+  return [...new Set(ordered.filter(Boolean))];
 }
 
 function getAudioContextCtor(): typeof AudioContext | undefined {
@@ -157,7 +199,11 @@ function mergeAssistantText(previous: string, incoming: string): string {
   return `${previous}${next}`;
 }
 
-function normalizeVoiceCaptureError(error: unknown, fallback: string): string {
+function normalizeVoiceCaptureError(
+  error: unknown,
+  fallback: string,
+  t: (zh: string, en: string) => string
+): string {
   if (!(error instanceof Error)) {
     return fallback;
   }
@@ -172,15 +218,24 @@ function normalizeVoiceCaptureError(error: unknown, fallback: string): string {
     lowerMessage.includes("requested device not found") ||
     lowerMessage.includes("device not found")
   ) {
-    return "未检测到可用麦克风设备。若你在 Ubuntu/WSL 中运行桌面版，请改用 Windows 的 run_web_desktop.bat，或先配置麦克风透传。";
+    return t(
+      "未检测到可用麦克风设备。若你在 Ubuntu/WSL 中运行桌面版，请改用 Windows 的 run_web_desktop.bat，或先配置麦克风透传。",
+      "No microphone device was detected. If you are running the desktop app from Ubuntu/WSL, use Windows run_web_desktop.bat or configure microphone passthrough first."
+    );
   }
 
   if (name === "NotAllowedError" || lowerMessage.includes("permission denied")) {
-    return "麦克风权限被拒绝。请允许当前应用访问麦克风后重试。";
+    return t(
+      "麦克风权限被拒绝。请允许当前应用访问麦克风后重试。",
+      "Microphone access was denied. Allow microphone access for this app and try again."
+    );
   }
 
   if (name === "NotReadableError" || lowerMessage.includes("could not start audio source")) {
-    return "麦克风当前不可读，可能被其他应用占用。请关闭占用麦克风的软件后重试。";
+    return t(
+      "麦克风当前不可读，可能被其他应用占用。请关闭占用麦克风的软件后重试。",
+      "The microphone is not readable right now, likely because another app is using it. Close the competing app and try again."
+    );
   }
 
   return message || fallback;
@@ -192,7 +247,9 @@ export default function useVoiceChat({
   providerModelCatalog = {},
   preferredProvider,
   preferredModel,
+  language = "zh-CN",
 }: Options) {
+  const t = createInlineTranslator(language);
   const resolvedProviders = [GOOGLE_PROVIDER, DASHSCOPE_PROVIDER].filter(p => providerOptions.includes(p));
 
   const initialProvider = resolveRealtimeProvider(preferredProvider, resolvedProviders);
@@ -206,7 +263,9 @@ export default function useVoiceChat({
   const [voiceChatBusy, setVoiceChatBusy] = useState(false);
   const [voiceChatRecording, setVoiceChatRecording] = useState(false);
   const [voiceChatSupported, setVoiceChatSupported] = useState(true);
-  const [voiceChatStatus, setVoiceChatStatus] = useState("点击开始实时语音聊天");
+  const [voiceChatStatus, setVoiceChatStatus] = useState(
+    t("点击开始实时语音聊天", "Click to start realtime voice chat")
+  );
   const [voiceChatError, setVoiceChatError] = useState("");
   const [voiceChatTranscript, setVoiceChatTranscript] = useState("");
   const [voiceChatReply, setVoiceChatReply] = useState("");
@@ -216,6 +275,9 @@ export default function useVoiceChat({
   const [voiceChatMemoryWriteStatus, setVoiceChatMemoryWriteStatus] = useState("");
   const [voiceChatMemorySourceStatus, setVoiceChatMemorySourceStatus] = useState("");
   const [voiceChatMemoryScope, setVoiceChatMemoryScope] = useState("");
+  const [voiceChatMemoryGroupId, setVoiceChatMemoryGroupId] = useState(
+    () => getPersistedEverMemConversationGroupId("voice_chat")
+  );
 
   const websocketRef = useRef<WebSocket | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
@@ -236,7 +298,7 @@ export default function useVoiceChat({
   const lastPreferredModelRef = useRef(preferredModel);
   const sessionEpochRef = useRef(0);
 
-  const voiceChatModelOptions = providerModelCatalog[voiceChatProvider]?.availableModels || [];
+  const voiceChatModelOptions = resolveRealtimeModelOptions(voiceChatProvider, providerModelCatalog);
 
   useEffect(() => {
     const preferredProviderChanged = lastPreferredProviderRef.current !== preferredProvider;
@@ -247,15 +309,23 @@ export default function useVoiceChat({
     const nextProvider = resolveRealtimeProvider(preferredProvider, resolvedProviders);
     if (preferredProviderChanged && voiceChatProvider !== nextProvider) {
       setVoiceChatProvider(nextProvider);
-      const nextModel = preferredModel && (preferredModelChanged || nextProvider !== voiceChatProvider)
+      const nextModel =
+        preferredModel &&
+        isRealtimeVoiceModel(nextProvider, preferredModel) &&
+        (preferredModelChanged || nextProvider !== voiceChatProvider)
         ? preferredModel
         : resolveDefaultModel(nextProvider, providerModelCatalog);
       setVoiceChatModel(nextModel);
       return;
     }
 
-    if (preferredModel && preferredModelChanged && preferredModel !== voiceChatModel) {
-      const availableModels = providerModelCatalog[voiceChatProvider]?.availableModels || [];
+    if (
+      preferredModel &&
+      preferredModelChanged &&
+      preferredModel !== voiceChatModel &&
+      isRealtimeVoiceModel(voiceChatProvider, preferredModel)
+    ) {
+      const availableModels = resolveRealtimeModelOptions(voiceChatProvider, providerModelCatalog);
       if (availableModels.length === 0 || availableModels.includes(preferredModel)) {
         setVoiceChatModel(preferredModel);
         return;
@@ -393,20 +463,32 @@ export default function useVoiceChat({
   function describeMemoryWriteResult(event: Extract<VoiceChatServerEvent, { type: "memory_write" }>): string {
     if (event.saved_count > 0 && event.failed_count === 0) {
       if ((event.local_pending_count || 0) > 0) {
-        return `本轮已提交 EverMind ${event.saved_count} 条记忆，并加入本地待同步缓存`;
+        return t(
+          `本轮已提交 EverMind ${event.saved_count} 条记忆，并加入本地待同步缓存`,
+          `Submitted ${event.saved_count} memories to EverMind this turn and added them to the local pending cache`
+        );
       }
-      return `本轮已提交 EverMind ${event.saved_count} 条记忆`;
+      return t(
+        `本轮已提交 EverMind ${event.saved_count} 条记忆`,
+        `Submitted ${event.saved_count} memories to EverMind this turn`
+      );
     }
     if (event.saved_count > 0 && event.failed_count > 0) {
-      return `本轮部分提交 EverMind（${event.saved_count}/${event.attempted_count}）`;
+      return t(
+        `本轮部分提交 EverMind（${event.saved_count}/${event.attempted_count}）`,
+        `Partially submitted EverMind memories this turn (${event.saved_count}/${event.attempted_count})`
+      );
     }
     if (event.attempted_count === 0 && event.reason === "no_candidate_memory") {
-      return "本轮未提炼出可保存的长期记忆";
+      return t(
+        "本轮未提炼出可保存的长期记忆",
+        "No long-term memories were extracted from this turn"
+      );
     }
     if (event.attempted_count === 0) {
       return "";
     }
-    return "本轮写入 EverMind 失败";
+    return t("本轮写入 EverMind 失败", "Failed to write EverMind memories for this turn");
   }
 
   function buildMemorySourceSummary(params: {
@@ -421,19 +503,31 @@ export default function useVoiceChat({
       return "";
     }
     if (params.total > 0) {
-      return `来源：本地待同步 ${local} 条，云端 ${cloud} 条`;
+      return t(
+        `来源：本地待同步 ${local} 条，云端 ${cloud} 条`,
+        `Source: local pending ${local}, cloud ${cloud}`
+      );
     }
-    return `已尝试回忆：本地待同步 ${local} 条，云端 ${cloud} 条`;
+    return t(
+      `已尝试回忆：本地待同步 ${local} 条，云端 ${cloud} 条`,
+      `Attempted recall: local pending ${local}, cloud ${cloud}`
+    );
   }
 
   function describeMemoryContext(event: Extract<VoiceChatServerEvent, { type: "memory_context" }>): string {
     const local = Math.max(0, event.local_pending_count || 0);
     const cloud = Math.max(0, event.cloud_count || 0);
     if (event.memories_retrieved > 0) {
-      return `已回忆 ${event.memories_retrieved} 条长期记忆（本地待同步 ${local}，云端 ${cloud}）`;
+      return t(
+        `已回忆 ${event.memories_retrieved} 条长期记忆（本地待同步 ${local}，云端 ${cloud}）`,
+        `Recalled ${event.memories_retrieved} long-term memories (local pending ${local}, cloud ${cloud})`
+      );
     }
     if (event.attempted) {
-      return `已尝试回忆，但未命中匹配记忆（本地待同步 ${local}，云端 ${cloud}）`;
+      return t(
+        `已尝试回忆，但未命中匹配记忆（本地待同步 ${local}，云端 ${cloud}）`,
+        `Attempted recall but found no matching memories (local pending ${local}, cloud ${cloud})`
+      );
     }
     return "";
   }
@@ -476,10 +570,19 @@ export default function useVoiceChat({
         setVoiceChatConnected(true);
         setVoiceChatRecording(true);
         setVoiceChatBusy(false);
-        setVoiceChatStatus(`实时会话已连接：${event.model}`);
+        setVoiceChatStatus(t(`实时会话已连接：${event.model}`, `Realtime session connected: ${event.model}`));
         return;
       case "memory_config":
         setVoiceChatMemoryScope(event.enabled ? event.scope : "");
+        {
+          const nextGroupId = event.enabled
+            ? persistEverMemConversationGroupId("voice_chat", event.group_id || "")
+            : "";
+          if (!event.enabled) {
+            clearPersistedEverMemConversationGroupId("voice_chat");
+          }
+          setVoiceChatMemoryGroupId(nextGroupId);
+        }
         return;
       case "user_transcript":
         currentUserTurnRef.current = event.text;
@@ -492,7 +595,7 @@ export default function useVoiceChat({
         setVoiceChatMemoriesRetrieved(0);
         setVoiceChatMemoryWriteStatus("");
         setVoiceChatMemorySourceStatus("");
-        setVoiceChatStatus("正在听你说话…");
+        setVoiceChatStatus(t("正在听你说话…", "Listening…"));
         return;
       case "memory_context":
         currentMemoryRetrieveAttemptedRef.current = Boolean(event.attempted);
@@ -503,8 +606,11 @@ export default function useVoiceChat({
         setVoiceChatMemorySourceStatus(describeMemoryContext(event));
         setVoiceChatStatus(
           event.memories_retrieved > 0
-            ? `已回忆 ${event.memories_retrieved} 条长期记忆，准备回答…`
-            : "已尝试回忆，准备继续回答…"
+            ? t(
+              `已回忆 ${event.memories_retrieved} 条长期记忆，准备回答…`,
+              `Recalled ${event.memories_retrieved} long-term memories, preparing a reply…`
+            )
+            : t("已尝试回忆，准备继续回答…", "Recall attempted, preparing the reply…")
         );
         return;
       case "memory_write":
@@ -514,14 +620,14 @@ export default function useVoiceChat({
       case "assistant_text":
         currentAssistantTurnRef.current = mergeAssistantText(currentAssistantTurnRef.current, event.text);
         setVoiceChatReply(currentAssistantTurnRef.current);
-        setVoiceChatStatus("助手正在说话…");
+        setVoiceChatStatus(t("助手正在说话…", "Assistant speaking…"));
         return;
       case "assistant_audio":
         void playAssistantAudio(event.audio, event.sample_rate);
         return;
       case "interrupted":
         stopAssistantPlayback();
-        setVoiceChatStatus("已打断助手，继续说话中…");
+        setVoiceChatStatus(t("已打断助手，继续说话中…", "Assistant interrupted, continue speaking…"));
         return;
       case "turn_complete":
         {
@@ -530,16 +636,19 @@ export default function useVoiceChat({
           commitCompletedTurn();
           setVoiceChatStatus(
             retrievedCount > 0
-              ? `本轮已完成，回忆了 ${retrievedCount} 条长期记忆`
+              ? t(
+                `本轮已完成，回忆了 ${retrievedCount} 条长期记忆`,
+                `Turn completed, recalled ${retrievedCount} long-term memories`
+              )
               : retrieveAttempted
-                ? "本轮已完成，已尝试回忆但未命中"
-                : "本轮已完成，继续说话即可"
+                ? t("本轮已完成，已尝试回忆但未命中", "Turn completed, recall attempted with no match")
+                : t("本轮已完成，继续说话即可", "Turn completed, keep speaking when ready")
           );
           return;
         }
       case "error":
         setVoiceChatError(event.message);
-        setVoiceChatStatus("实时语音会话出错");
+        setVoiceChatStatus(t("实时语音会话出错", "Realtime voice session failed"));
         stopSessionResources();
         return;
       case "pong":
@@ -557,14 +666,23 @@ export default function useVoiceChat({
       !AudioContextCtor
     ) {
       setVoiceChatSupported(false);
-      setVoiceChatError("当前环境不支持实时语音聊天。");
+      setVoiceChatError(
+        t("当前环境不支持实时语音聊天。", "Realtime voice chat is not supported in this environment.")
+      );
       return;
     }
 
     try {
       const sessionEpoch = markNewSessionEpoch();
       setVoiceChatBusy(true);
-      setVoiceChatStatus("正在连接实时语音会话…");
+      setVoiceChatStatus(t("正在连接实时语音会话…", "Connecting to the realtime voice session…"));
+      let memoryGroupId = "";
+      try {
+        memoryGroupId = await ensureEverMemConversationGroupId("voice_chat", voiceChatMemoryGroupId);
+      } catch {
+        memoryGroupId = "";
+      }
+      memoryGroupId = persistEverMemConversationGroupId("voice_chat", memoryGroupId);
       currentUserTurnRef.current = "";
       currentAssistantTurnRef.current = "";
       currentMemoriesRetrievedRef.current = 0;
@@ -578,6 +696,7 @@ export default function useVoiceChat({
       setVoiceChatMemoryWriteStatus("");
       setVoiceChatMemorySourceStatus("");
       setVoiceChatMemoryScope("");
+      setVoiceChatMemoryGroupId(memoryGroupId);
 
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
@@ -600,7 +719,7 @@ export default function useVoiceChat({
           voice: voiceChatVoice,
         })
       );
-      const memoryConfig = buildVoiceChatSessionConfig();
+      const memoryConfig = buildVoiceChatSessionConfig(memoryGroupId || undefined);
       ws.binaryType = "arraybuffer";
       websocketRef.current = ws;
 
@@ -614,7 +733,7 @@ export default function useVoiceChat({
         try {
           handleRealtimeEvent(JSON.parse(message.data) as VoiceChatServerEvent);
         } catch {
-          setVoiceChatError("实时语音消息解析失败。");
+          setVoiceChatError(t("实时语音消息解析失败。", "Failed to parse a realtime voice message."));
         }
       };
 
@@ -622,8 +741,8 @@ export default function useVoiceChat({
         if (sessionEpochRef.current !== sessionEpoch) {
           return;
         }
-        setVoiceChatError("实时语音连接失败。");
-        setVoiceChatStatus("实时语音连接失败");
+        setVoiceChatError(t("实时语音连接失败。", "Realtime voice connection failed."));
+        setVoiceChatStatus(t("实时语音连接失败", "Realtime voice connection failed"));
       };
 
       ws.onclose = () => {
@@ -631,7 +750,11 @@ export default function useVoiceChat({
           return;
         }
         stopSessionResources();
-        setVoiceChatStatus((prev) => (prev.includes("出错") ? prev : "实时语音会话已结束"));
+        setVoiceChatStatus((prev) => (
+          prev.includes(t("出错", "failed"))
+            ? prev
+            : t("实时语音会话已结束", "Realtime voice session ended")
+        ));
       };
 
       ws.onopen = () => {
@@ -667,8 +790,14 @@ export default function useVoiceChat({
       };
     } catch (err) {
       stopSessionResources();
-      setVoiceChatError(normalizeVoiceCaptureError(err, formatErrorMessage(err, "启动实时语音聊天失败。")));
-      setVoiceChatStatus("实时语音不可用");
+      setVoiceChatError(
+        normalizeVoiceCaptureError(
+          err,
+          formatErrorMessage(err, t("启动实时语音聊天失败。", "Failed to start realtime voice chat.")),
+          t
+        )
+      );
+      setVoiceChatStatus(t("实时语音不可用", "Realtime voice chat is unavailable"));
     }
   }
 
@@ -680,7 +809,7 @@ export default function useVoiceChat({
     }
     commitCompletedTurn();
     stopSessionResources();
-    setVoiceChatStatus("实时语音会话已结束");
+    setVoiceChatStatus(t("实时语音会话已结束", "Realtime voice session ended"));
   }
 
   async function onToggleRecording() {
@@ -695,6 +824,37 @@ export default function useVoiceChat({
   }
 
   const sessionSummary = useMemo(() => voiceChatMessages.slice(-6), [voiceChatMessages]);
+
+  function replaceSession(messages: ChatMessage[], memoryGroupId = "") {
+    const normalizedGroupId = (memoryGroupId || "").trim();
+    markNewSessionEpoch();
+    stopSessionResources();
+    currentUserTurnRef.current = "";
+    currentAssistantTurnRef.current = "";
+    currentMemoriesRetrievedRef.current = 0;
+    currentMemorySavedRef.current = false;
+    currentMemoryRetrieveAttemptedRef.current = false;
+    currentLocalPendingCountRef.current = 0;
+    currentCloudCountRef.current = 0;
+    setVoiceChatMessages(Array.isArray(messages) ? messages : []);
+    setVoiceChatTranscript("");
+    setVoiceChatReply("");
+    setVoiceChatMemoriesRetrieved(0);
+    setVoiceChatError("");
+    setVoiceChatMemoryWriteStatus("");
+    setVoiceChatMemorySourceStatus("");
+    setVoiceChatStatus(
+      messages.length
+        ? t("已恢复历史实时语音会话", "Restored a previous realtime voice session")
+        : t("点击开始实时语音聊天", "Click to start realtime voice chat")
+    );
+    if (normalizedGroupId) {
+      setVoiceChatMemoryGroupId(persistEverMemConversationGroupId("voice_chat", normalizedGroupId));
+    } else {
+      clearPersistedEverMemConversationGroupId("voice_chat");
+      setVoiceChatMemoryGroupId("");
+    }
+  }
 
   return {
     voiceChatProvider,
@@ -735,14 +895,18 @@ export default function useVoiceChat({
       setVoiceChatMemoriesRetrieved(0);
       setVoiceChatMessages([]);
       setVoiceChatError("");
-      setVoiceChatStatus("点击开始实时语音聊天");
+      setVoiceChatStatus(t("点击开始实时语音聊天", "Click to start realtime voice chat"));
       setVoiceChatMemoryWriteStatus("");
       setVoiceChatMemorySourceStatus("");
       setVoiceChatMemoryScope("");
+      clearPersistedEverMemConversationGroupId("voice_chat");
+      setVoiceChatMemoryGroupId("");
     },
     voiceChatMemoryWriteStatus,
     voiceChatMemorySourceStatus,
     voiceChatMemoryScope,
+    voiceChatMemoryGroupId,
+    replaceSession,
   };
 }
 

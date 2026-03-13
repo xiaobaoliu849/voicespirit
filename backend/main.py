@@ -11,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from routers import audio_overview, chat, settings, translate, tts, voice_chat, voices
+from routers import audio_overview, chat, evermem, settings, translate, tts, voice_chat, voices
 from services.auth_service import (
     is_auth_enabled,
     should_enforce_auth,
@@ -268,6 +268,7 @@ def create_app() -> FastAPI:
 
     app.include_router(tts.router, prefix="/api/tts", tags=["tts"])
     app.include_router(chat.router, prefix="/api/chat", tags=["chat"])
+    app.include_router(evermem.router, prefix="/api/evermem", tags=["evermem"])
     app.include_router(translate.router, prefix="/api/translate", tags=["translate"])
     app.include_router(voices.router, prefix="/api/voices", tags=["voices"])
     app.include_router(settings.router, prefix="/api/settings", tags=["settings"])

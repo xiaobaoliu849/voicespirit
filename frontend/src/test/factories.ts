@@ -6,6 +6,7 @@ import type { UseSettingsResult } from "../hooks/useSettings";
 import type { UseTranslateResult } from "../hooks/useTranslate";
 import type { UseTtsResult } from "../hooks/useTts";
 import type { UseVoiceChatResult } from "../hooks/useVoiceChat";
+import type { UiLanguage } from "../i18n";
 import type { FormatErrorMessage } from "../utils/errorFormatting";
 import type { VoiceDesignController, VoiceCloneController } from "../hooks/useVoiceManagement";
 
@@ -25,6 +26,7 @@ export function createChatController(
     chatMessages: [],
     chatBusy: false,
     chatError: "",
+    chatMemoryGroupId: "",
     chatHistoryItems: [],
     onSubmit: vi.fn(),
     onProviderChange: vi.fn(),
@@ -34,6 +36,7 @@ export function createChatController(
     onComposerKeyDown: vi.fn(),
     onNewSession: vi.fn(),
     onSelectHistory: vi.fn(),
+    replaceSession: vi.fn(),
     ...overrides
   };
 }
@@ -98,6 +101,7 @@ export function createVoiceChatController(
     voiceChatMemoryWriteStatus: "",
     voiceChatMemorySourceStatus: "",
     voiceChatMemoryScope: "",
+    voiceChatMemoryGroupId: "",
     voiceChatMessages: [],
     sessionSummary: [],
     onToggleRecording: vi.fn(),
@@ -105,6 +109,7 @@ export function createVoiceChatController(
     onModelChange: vi.fn(),
     onVoiceChange: vi.fn(),
     onResetSession: vi.fn(),
+    replaceSession: vi.fn(),
     ...overrides
   };
 }
@@ -140,6 +145,7 @@ export function createTranslateController(
 export function createSettingsController(
   overrides: Partial<UseSettingsResult> = {}
 ): UseSettingsResult {
+  const displayLanguage: UiLanguage = overrides.displayLanguage ?? "zh-CN";
   return {
     settingsBusy: false,
     settingsSaving: false,
@@ -177,6 +183,7 @@ export function createSettingsController(
     desktopAlwaysOnTop: false,
     desktopShowTrayIcon: false,
     desktopWakeShortcut: "Alt+Shift+S",
+    displayLanguage,
     errorRuntimeContext: {
       backend_phase: "B",
       backend_auth_mode: "write-only-with-admin-settings",
@@ -278,6 +285,7 @@ export function createSettingsController(
     onDesktopAlwaysOnTopChange: vi.fn(),
     onDesktopShowTrayIconChange: vi.fn(),
     onDesktopWakeShortcutChange: vi.fn(),
+    onDisplayLanguageChange: vi.fn(),
     onToggleRuntimeOpen: vi.fn(),
     onCopyBackendRuntime: vi.fn(),
     ...overrides

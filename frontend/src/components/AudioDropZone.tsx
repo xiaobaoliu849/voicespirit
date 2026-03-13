@@ -1,4 +1,5 @@
 import React, { useCallback, useState } from 'react';
+import { useI18n } from "../i18n";
 
 type AudioDropZoneProps = {
     onFileDrop: (file: File) => void;
@@ -13,15 +14,20 @@ type AudioDropZoneProps = {
 export const AudioDropZone: React.FC<AudioDropZoneProps> = ({
     onFileDrop,
     selectedFile: controlledSelectedFile,
-    mainText = "拖拽或选择要转写的音频",
-    subText = "支持 MP3, WAV, M4A",
-    readyText = "已就绪",
+    mainText,
+    subText,
+    readyText,
     isProcessing = false,
-    inputLabel = "选择音频文件"
+    inputLabel
 }) => {
+    const { t } = useI18n();
     const [isDragging, setIsDragging] = useState(false);
     const [selectedFile, setSelectedFile] = useState<File | null>(null);
     const displayFile = controlledSelectedFile === undefined ? selectedFile : controlledSelectedFile;
+    const resolvedMainText = mainText ?? t("拖拽或选择要转写的音频", "Drag or select audio for transcription");
+    const resolvedSubText = subText ?? t("支持 MP3, WAV, M4A", "Supports MP3, WAV, M4A");
+    const resolvedReadyText = readyText ?? t("已就绪", "Ready");
+    const resolvedInputLabel = inputLabel ?? t("选择音频文件", "Choose an audio file");
 
     const handleDragOver = useCallback((e: React.DragEvent) => {
         e.preventDefault();
@@ -42,10 +48,10 @@ export const AudioDropZone: React.FC<AudioDropZoneProps> = ({
                 setSelectedFile(file);
                 onFileDrop(file);
             } else {
-                alert("不支持的文件格式，请上传音频文件。");
+                alert(t("不支持的文件格式，请上传音频文件。", "Unsupported file type. Please upload an audio file."));
             }
         },
-        [onFileDrop]
+        [onFileDrop, t]
     );
 
     const handleFileChange = useCallback(
@@ -96,7 +102,7 @@ export const AudioDropZone: React.FC<AudioDropZoneProps> = ({
                     zIndex: 10
                 }}
                 title=""
-                aria-label={inputLabel}
+                aria-label={resolvedInputLabel}
                 disabled={isProcessing}
             />
 
@@ -108,17 +114,17 @@ export const AudioDropZone: React.FC<AudioDropZoneProps> = ({
                             {displayFile?.name}
                         </p>
                         <p style={{ margin: "4px 0 0", fontSize: "13px", color: "#10b981", fontWeight: "500" }}>
-                            {readyText}
+                            {resolvedReadyText}
                         </p>
                     </>
                 ) : (
                     <>
                         <div style={{ fontSize: "40px", marginBottom: "12px" }}>🎵</div>
                         <p style={{ margin: 0, fontSize: "16px", fontWeight: "600", color: "var(--text)" }}>
-                            {mainText}
+                            {resolvedMainText}
                         </p>
                         <p style={{ margin: "8px 0 0", fontSize: "12px", color: "var(--muted)" }}>
-                            {subText}
+                            {resolvedSubText}
                         </p>
                     </>
                 )}

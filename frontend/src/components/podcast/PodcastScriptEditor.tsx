@@ -1,10 +1,12 @@
 import type { UseAudioOverviewResult } from "../../hooks/useAudioOverview";
+import { useI18n } from "../../i18n";
 
 type Props = {
   audioOverview: UseAudioOverviewResult;
 };
 
 export default function PodcastScriptEditor({ audioOverview }: Props) {
+  const { t } = useI18n();
   if (!audioOverview.audioOverviewScriptLines.length) {
     return null;
   }
@@ -14,14 +16,14 @@ export default function PodcastScriptEditor({ audioOverview }: Props) {
       <div className="vsPodcastStepHeader">
         <div className="vsPodcastStepTitle">
           <span className="vsStepNum">2</span>
-          <h3>编辑播客脚本</h3>
+          <h3>{t("编辑播客脚本", "Edit podcast script")}</h3>
         </div>
         <div className="vsPodcastToolbar">
           <button
             type="button"
             className="ghost vsPodcastIconAction"
-            title="保存脚本"
-            aria-label="保存脚本"
+            title={t("保存脚本", "Save script")}
+            aria-label={t("保存脚本", "Save script")}
             onClick={() => void audioOverview.onSaveScript()}
             disabled={
               audioOverview.audioOverviewSaving ||
@@ -34,8 +36,8 @@ export default function PodcastScriptEditor({ audioOverview }: Props) {
           <button
             type="button"
             className="ghost vsPodcastIconAction"
-            title="复制脚本"
-            aria-label="复制脚本"
+            title={t("复制脚本", "Copy script")}
+            aria-label={t("复制脚本", "Copy script")}
             onClick={() => void audioOverview.onCopyScript()}
           >
             ⧉
@@ -43,8 +45,8 @@ export default function PodcastScriptEditor({ audioOverview }: Props) {
           <button
             type="button"
             className="ghost vsPodcastIconAction"
-            title="导出脚本"
-            aria-label="导出脚本"
+            title={t("导出脚本", "Export script")}
+            aria-label={t("导出脚本", "Export script")}
             onClick={audioOverview.onExportScript}
           >
             ⤓
@@ -64,13 +66,13 @@ export default function PodcastScriptEditor({ audioOverview }: Props) {
                   value={line.role}
                   onChange={(e) => audioOverview.onLineRoleChange(index, e.target.value)}
                 >
-                  <option value="A">主播 A</option>
-                  <option value="B">主播 B</option>
+                  <option value="A">{t("主播 A", "Host A")}</option>
+                  <option value="B">{t("主播 B", "Host B")}</option>
                 </select>
                 <button
                   type="button"
                   className="vsRemoveLineBtn"
-                  title="删除这条台词"
+                  title={t("删除这条台词", "Delete this line")}
                   onClick={() => audioOverview.onRemoveLine(index)}
                 >
                   ×
@@ -81,7 +83,7 @@ export default function PodcastScriptEditor({ audioOverview }: Props) {
                 rows={3}
                 value={line.text}
                 onChange={(e) => audioOverview.onLineTextChange(index, e.target.value)}
-                placeholder="输入这一句台词内容"
+                placeholder={t("输入这一句台词内容", "Enter this line")}
               />
             </div>
           ))}
@@ -89,7 +91,7 @@ export default function PodcastScriptEditor({ audioOverview }: Props) {
         <div className="vsAddLineCenter">
           <button type="button" className="vsAddLineBtn" onClick={audioOverview.onAddLine}>
             <span className="vsBtnGlyph">+</span>
-            添加台词
+            {t("添加台词", "Add line")}
           </button>
         </div>
       </div>

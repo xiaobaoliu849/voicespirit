@@ -1,21 +1,18 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { fetchSpeakAudio, fetchVoices, type TtsEngine, type VoiceInfo } from "../api";
+import { createInlineTranslator, type UiLanguage } from "../i18n";
 import type { FormatErrorMessage } from "../utils/errorFormatting";
 
 export type TtsWorkspaceMode = "text" | "dialogue" | "pdf";
 
-const TTS_ENGINE_OPTIONS: Array<{ value: TtsEngine; label: string; hint: string }> = [
-  { value: "edge", label: "Edge TTS", hint: "系统级稳定合成，适合基础朗读。" },
-  { value: "qwen_flash", label: "Qwen TTS Flash", hint: "阿里云 Qwen 音色，更适合中文与角色感。" },
-  { value: "minimax", label: "MiniMax TTS", hint: "MiniMax 多风格音色，适合配音与角色化朗读。" },
-];
-
 type Options = {
   defaultText: string;
   formatErrorMessage: FormatErrorMessage;
+  language?: UiLanguage;
 };
 
-export default function useTts({ defaultText, formatErrorMessage }: Options) {
+export default function useTts({ defaultText, formatErrorMessage, language = "zh-CN" }: Options) {
+  const t = createInlineTranslator(language);
   const [ttsMode, setTtsMode] = useState<TtsWorkspaceMode>("text");
   const [ttsEngine, setTtsEngine] = useState<TtsEngine>("edge");
   const [text, setText] = useState(defaultText);
@@ -49,7 +46,7 @@ export default function useTts({ defaultText, formatErrorMessage }: Options) {
         }
       } catch (err) {
         if (!disposed) {
-          setTtsError(formatErrorMessage(err, "未知错误"));
+          setTtsError(formatErrorMessage(err, t("未知错误", "Unknown error.")));
         }
       } finally {
         if (!disposed) {
@@ -70,6 +67,14 @@ export default function useTts({ defaultText, formatErrorMessage }: Options) {
       label: `${item.short_name || item.name} (${item.locale})`
     }));
   }, [voices]);
+  const engineOptions = useMemo(
+    () => [
+      { value: "edge" as TtsEngine, label: "Edge TTS", hint: t("系统级稳定合成，适合基础朗读。", "Stable system-level synthesis for standard narration.") },
+      { value: "qwen_flash" as TtsEngine, label: "Qwen TTS Flash", hint: t("阿里云 Qwen 音色，更适合中文与角色感。", "Alibaba Qwen voices, well suited to Chinese and stylized delivery.") },
+      { value: "minimax" as TtsEngine, label: "MiniMax TTS", hint: t("MiniMax 多风格音色，适合配音与角色化朗读。", "MiniMax multi-style voices for dubbing and character reads.") },
+    ],
+    [t]
+  );
 
   const activeSourceText = useMemo(() => {
     if (ttsMode === "dialogue") {
@@ -95,14 +100,14 @@ export default function useTts({ defaultText, formatErrorMessage }: Options) {
     setTtsInfo("");
     if (!activeSourceText) {
       if (ttsMode === "dialogue") {
-        setTtsError("请输入要合成的对话脚本。");
+        setTtsError(t("请输入要合成的对话脚本。", "Enter a dialogue script to synthesize."));
         return;
       }
       if (ttsMode === "pdf") {
-        setTtsError("请先选择 PDF 并准备可朗读文本。");
+        setTtsError(t("请先选择 PDF 并准备可朗读文本。", "Choose a PDF first and prepare readable text."));
         return;
       }
-      setTtsError("请输入要合成的文本。");
+      setTtsError(t("请输入要合成的文本。", "Enter text to synthesize."));
       return;
     }
     setGenerating(true);
@@ -118,10 +123,10 @@ export default function useTts({ defaultText, formatErrorMessage }: Options) {
       }
       setAudioUrl(URL.createObjectURL(result.blob));
       if (result.memorySaved) {
-        setTtsInfo("已将本次语音生成偏好写入长期记忆。");
+        setTtsInfo(t("已将本次语音生成偏好写入长期记忆。", "Saved this voice generation preference into long-term memory."));
       }
     } catch (err) {
-      setTtsError(formatErrorMessage(err, "语音合成请求失败。"));
+      setTtsError(formatErrorMessage(err, t("语音合成请求失败。", "Text-to-speech request failed.")));
     } finally {
       setGenerating(false);
     }
@@ -189,7 +194,7 @@ export default function useTts({ defaultText, formatErrorMessage }: Options) {
     generating,
     ttsError,
     ttsInfo,
-    engineOptions: TTS_ENGINE_OPTIONS,
+    engineOptions,
     voiceOptions,
     activeSourceText,
     onSubmit,

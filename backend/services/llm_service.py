@@ -184,6 +184,7 @@ class LLMService:
         
         evermem_service = evermem_config.get_service()
         memory_scope = evermem_config.memory_scope
+        memory_group_id = evermem_config.group_id or None
         memories_retrieved = 0
         memory_saved = False
         last_user_msg = None
@@ -207,7 +208,8 @@ class LLMService:
                         content=last_user_msg,
                         user_id=memory_scope,
                         sender=memory_scope,
-                        sender_name="User"
+                        sender_name="User",
+                        group_id=memory_group_id,
                     )
                 )
                 memory_saved = True
@@ -215,11 +217,20 @@ class LLMService:
                 # 2. Retrieve memories
                 if not evermem_service.should_skip_memory(last_user_msg):
                     try:
-                        memories = await evermem_service.search_memories(
-                            query=last_user_msg,
-                            user_id=memory_scope,
-                            min_score=0.3
-                        )
+                        memories = []
+                        if memory_group_id:
+                            memories = await evermem_service.search_memories(
+                                query=last_user_msg,
+                                user_id=memory_scope,
+                                group_ids=[memory_group_id],
+                                min_score=0.3,
+                            )
+                        if not memories:
+                            memories = await evermem_service.search_memories(
+                                query=last_user_msg,
+                                user_id=memory_scope,
+                                min_score=0.3,
+                            )
                         if memories:
                             memories_retrieved = len(memories)
                             memory_context = "\n".join([m.get("content", "") for m in memories])
@@ -291,7 +302,8 @@ class LLMService:
                     content=reply,
                     user_id=memory_scope,
                     sender=f"{memory_scope}_assistant",
-                    sender_name="Assistant"
+                    sender_name="Assistant",
+                    group_id=memory_group_id,
                 )
             )
             

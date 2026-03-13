@@ -1,5 +1,6 @@
 import ErrorNotice from "../components/ErrorNotice";
 import type { UseVoiceChatResult } from "../hooks/useVoiceChat";
+import { useI18n } from "../i18n";
 import type { ErrorRuntimeContext } from "../types/ui";
 
 type Props = {
@@ -8,22 +9,26 @@ type Props = {
 };
 
 export default function VoiceChatPage({ voiceChat, errorRuntimeContext }: Props) {
+  const { t } = useI18n();
   return (
     <section className="vsTtsWorkspace">
       <div className="vsTtsLayout">
         <div className="vsTtsPrimary">
           <header className="vsTtsPrimaryHeader">
             <div>
-              <h2 className="vsTtsPrimaryTitle">语音聊天工作台</h2>
+              <h2 className="vsTtsPrimaryTitle">{t("语音聊天工作台", "Voice chat workspace")}</h2>
               <p className="vsFieldHint">
-                通过后端代理直接连接 {voiceChat.voiceChatProvider} 实时语音服务，支持持续收音和即时回传。
+                {t(
+                  `通过后端代理直接连接 ${voiceChat.voiceChatProvider} 实时语音服务，支持持续收音和即时回传。`,
+                  `Connect to ${voiceChat.voiceChatProvider} realtime voice through the backend proxy, with continuous capture and instant return audio.`
+                )}
               </p>
             </div>
             <div className="vsTtsPrimaryStats">
-              <span>{voiceChat.voiceChatConnected ? "实时会话中" : "待机"}</span>
+              <span>{voiceChat.voiceChatConnected ? t("实时会话中", "Live session") : t("待机", "Idle")}</span>
             {voiceChat.voiceChatMemoriesRetrieved > 0 ? (
               <span className="vsVoiceMemoryChip">
-                已回忆 {voiceChat.voiceChatMemoriesRetrieved} 条记忆
+                {t(`已回忆 ${voiceChat.voiceChatMemoriesRetrieved} 条记忆`, `Recalled ${voiceChat.voiceChatMemoriesRetrieved} memories`)}
               </span>
             ) : null}
             {voiceChat.voiceChatMemoryScope ? (
@@ -31,12 +36,17 @@ export default function VoiceChatPage({ voiceChat, errorRuntimeContext }: Props)
                 Scope: {voiceChat.voiceChatMemoryScope}
               </span>
             ) : null}
+            {voiceChat.voiceChatMemoryGroupId ? (
+              <span className="vsVoiceMemoryChip">
+                Group: {voiceChat.voiceChatMemoryGroupId}
+              </span>
+            ) : null}
           </div>
           </header>
 
           <div className="vsCardSection" style={{ display: "grid", gap: 16 }}>
             <div className="vsField">
-              <label className="vsFieldLabel">当前模型供应商</label>
+              <label className="vsFieldLabel">{t("当前模型供应商", "Current provider")}</label>
               <select
                 className="vsSelect"
                 value={voiceChat.voiceChatProvider}
@@ -52,7 +62,7 @@ export default function VoiceChatPage({ voiceChat, errorRuntimeContext }: Props)
             </div>
 
             <div className="vsField">
-              <label className="vsFieldLabel">当前模型</label>
+              <label className="vsFieldLabel">{t("当前模型", "Current model")}</label>
               <input
                 className="vsInput"
                 list="voice-chat-model-options"
@@ -68,7 +78,9 @@ export default function VoiceChatPage({ voiceChat, errorRuntimeContext }: Props)
             </div>
 
             <div className="vsField">
-              <label className="vsFieldLabel">{voiceChat.voiceChatProvider} 实时音色</label>
+              <label className="vsFieldLabel">
+                {t(`${voiceChat.voiceChatProvider} 实时音色`, `${voiceChat.voiceChatProvider} realtime voice`)}
+              </label>
               <select
                 className="vsSelect"
                 value={voiceChat.voiceChatVoice}
@@ -106,7 +118,7 @@ export default function VoiceChatPage({ voiceChat, errorRuntimeContext }: Props)
                   fontSize: 20,
                 }}
               >
-                {voiceChat.voiceChatRecording ? "结束会话" : "开始实时聊天"}
+                {voiceChat.voiceChatRecording ? t("结束会话", "End session") : t("开始实时聊天", "Start realtime chat")}
               </button>
               <div className="vsEmptyDesc">{voiceChat.voiceChatStatus}</div>
             </div>
@@ -126,30 +138,32 @@ export default function VoiceChatPage({ voiceChat, errorRuntimeContext }: Props)
 
         <div className="vsTtsSecondary">
           <div className="vsCardSection">
-            <h3 className="vsCardSubTitle">实时会话说明</h3>
+            <h3 className="vsCardSubTitle">{t("实时会话说明", "Realtime session notes")}</h3>
             <p className="vsFieldHint">
-              支持 Google Native Realtime 和 DashScope Qwen Omni 实时分流。
-              连接后会持续监听麦克风，用户讲话会实时转成文字，模型语音和文字会同步回传。
+              {t(
+                "支持 Google Native Realtime 和 DashScope Qwen Omni 实时分流。连接后会持续监听麦克风，用户讲话会实时转成文字，模型语音和文字会同步回传。",
+                "Supports Google Native Realtime and DashScope Qwen Omni. Once connected, the microphone is monitored continuously and both transcript and model voice are streamed back in real time."
+              )}
             </p>
           </div>
 
           <div className="vsCardSection border-top">
-            <h3 className="vsCardSubTitle">本轮语音内容</h3>
+            <h3 className="vsCardSubTitle">{t("本轮语音内容", "Current session content")}</h3>
             <div className="vsField">
-              <label className="vsFieldLabel">识别结果</label>
+              <label className="vsFieldLabel">{t("识别结果", "Transcript")}</label>
               <div className="vsRealtimeContent" style={{ border: "1px solid var(--line)", borderRadius: 10, padding: 12, background: "white" }}>
-                {voiceChat.voiceChatTranscript || "转录将显示在这里..."}
+                {voiceChat.voiceChatTranscript || t("转录将显示在这里...", "The transcript will appear here...")}
               </div>
             </div>
             <div className="vsField" style={{ marginTop: 12 }}>
-              <label className="vsFieldLabel">助手回复</label>
+              <label className="vsFieldLabel">{t("助手回复", "Assistant reply")}</label>
               <div className="vsRealtimeContent" style={{ border: "1px solid var(--line)", borderRadius: 10, padding: 12, background: "white" }}>
-                {voiceChat.voiceChatReply || "回复将显示在这里..."}
+                {voiceChat.voiceChatReply || t("回复将显示在这里...", "The reply will appear here...")}
               </div>
             </div>
             {voiceChat.voiceChatMemoriesRetrieved > 0 ? (
               <div className="vsVoiceMemoryNotice">
-                本轮已回忆 {voiceChat.voiceChatMemoriesRetrieved} 条长期记忆。
+                {t(`本轮已回忆 ${voiceChat.voiceChatMemoriesRetrieved} 条长期记忆。`, `This session recalled ${voiceChat.voiceChatMemoriesRetrieved} long-term memories.`)}
               </div>
             ) : null}
             {voiceChat.voiceChatMemorySourceStatus ? (
@@ -164,7 +178,7 @@ export default function VoiceChatPage({ voiceChat, errorRuntimeContext }: Props)
             ) : null}
             <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 12 }}>
               <button type="button" className="vsBtnSecondary" onClick={voiceChat.onResetSession}>
-                清空本轮
+                {t("清空本轮", "Clear session")}
               </button>
             </div>
           </div>

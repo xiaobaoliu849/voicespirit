@@ -10,6 +10,7 @@ import {
   type DesktopStatusResponse,
   type SettingsModelValue
 } from "../api";
+import { createInlineTranslator, normalizeUiLanguage, type UiLanguage } from "../i18n";
 import type { FormatErrorMessage } from "../utils/errorFormatting";
 
 const PROVIDER_API_KEY_FIELD: Record<string, string> = {
@@ -100,6 +101,7 @@ export default function useSettings({ formatErrorMessage }: Options) {
   const [desktopAlwaysOnTop, setDesktopAlwaysOnTop] = useState(false);
   const [desktopShowTrayIcon, setDesktopShowTrayIcon] = useState(false);
   const [desktopWakeShortcut, setDesktopWakeShortcut] = useState("Alt+Shift+S");
+  const [displayLanguage, setDisplayLanguage] = useState<UiLanguage>("zh-CN");
   const [desktopPreflightStatus, setDesktopPreflightStatus] = useState<DesktopStatusResponse["preflight"]>({
     available: false,
     ok: null,
@@ -198,6 +200,7 @@ export default function useSettings({ formatErrorMessage }: Options) {
     }),
     [backendPhase, backendAuthMode, backendAuthEnabled, backendVersion, backendStatus]
   );
+  const t = useMemo(() => createInlineTranslator(displayLanguage), [displayLanguage]);
 
   const providerSection = useMemo(() => {
     const availableModels = settingsAvailableModelsText
@@ -242,15 +245,16 @@ export default function useSettings({ formatErrorMessage }: Options) {
       temporarySession: evermemTempSession,
       scopeIdConfigured: Boolean(trimOrEmpty(evermemScopeId)),
       scenes: [
-        { id: "chat", enabled: evermemRememberChat, label: "聊天" },
-        { id: "voice_chat", enabled: evermemRememberVoiceChat, label: "语音聊天" },
-        { id: "transcription", enabled: evermemRememberRecordings, label: "录音转写" },
-        { id: "podcast", enabled: evermemRememberPodcast, label: "播客脚本" },
-        { id: "tts", enabled: evermemRememberTts, label: "语音合成" }
+        { id: "chat", enabled: evermemRememberChat, label: t("聊天", "Chat") },
+        { id: "voice_chat", enabled: evermemRememberVoiceChat, label: t("语音聊天", "Voice Chat") },
+        { id: "transcription", enabled: evermemRememberRecordings, label: t("录音转写", "Transcription") },
+        { id: "podcast", enabled: evermemRememberPodcast, label: t("播客脚本", "Podcast Script") },
+        { id: "tts", enabled: evermemRememberTts, label: t("语音合成", "Text to Speech") }
       ],
       storeTranscriptFulltext: evermemStoreTranscript
     };
   }, [
+    t,
     evermemApiKey,
     evermemApiUrl,
     evermemEnabled,
@@ -345,7 +349,7 @@ export default function useSettings({ formatErrorMessage }: Options) {
       if (navigator.clipboard?.writeText) {
         await navigator.clipboard.writeText(backendRuntimeRaw || "{}");
       } else {
-        throw new Error("剪贴板接口不可用");
+        throw new Error(t("剪贴板接口不可用", "Clipboard API is unavailable."));
       }
       setRuntimeCopyStatus("ok");
     } catch {
@@ -365,7 +369,7 @@ export default function useSettings({ formatErrorMessage }: Options) {
         setSettingsProvider(result.providers[0]);
       }
     } catch (err) {
-      setSettingsError(formatErrorMessage(err, "加载设置失败。"));
+      setSettingsError(formatErrorMessage(err, t("加载设置失败。", "Failed to load settings.")));
     } finally {
       setSettingsBusy(false);
     }
@@ -456,6 +460,9 @@ export default function useSettings({ formatErrorMessage }: Options) {
     if (typeof uiSettings.show_tray_icon === "boolean") {
       setDesktopShowTrayIcon(uiSettings.show_tray_icon);
     }
+    if (typeof uiSettings.display_language === "string") {
+      setDisplayLanguage(normalizeUiLanguage(uiSettings.display_language));
+    }
     if (typeof shortcuts.wake_app === "string" && shortcuts.wake_app.trim()) {
       setDesktopWakeShortcut(shortcuts.wake_app);
     }
@@ -483,7 +490,12 @@ export default function useSettings({ formatErrorMessage }: Options) {
 
     const keyField = PROVIDER_API_KEY_FIELD[settingsProvider];
     if (!keyField) {
-      setSettingsError(`暂不支持该供应商的密钥映射：${settingsProvider}`);
+      setSettingsError(
+        t(
+          `暂不支持该供应商的密钥映射：${settingsProvider}`,
+          `This provider does not have an API key mapping yet: ${settingsProvider}`
+        )
+      );
       return;
     }
 
@@ -509,6 +521,9 @@ export default function useSettings({ formatErrorMessage }: Options) {
       });
 
       const result = await updateSettings({
+        general_settings: {
+          display_language: displayLanguage
+        },
         api_keys: {
           [keyField]: settingsApiKey.trim()
         },
@@ -545,6 +560,7 @@ export default function useSettings({ formatErrorMessage }: Options) {
           s3_key_prefix: transcriptionS3KeyPrefix.trim() || "transcription"
         },
         ui_settings: {
+          display_language: displayLanguage,
           remember_window_position: desktopRememberWindowPosition,
           always_on_top: desktopAlwaysOnTop,
           show_tray_icon: desktopShowTrayIcon
@@ -556,9 +572,14 @@ export default function useSettings({ formatErrorMessage }: Options) {
       setSettingsData(result.settings);
       setSettingsConfigPath(result.config_path);
       setSettingsProviders(result.providers);
-      setSettingsInfo(`已保存 ${settingsProvider} 的设置。`);
+      setSettingsInfo(
+        t(
+          `已保存 ${settingsProvider} 的设置。`,
+          `Saved settings for ${settingsProvider}.`
+        )
+      );
     } catch (err) {
-      setSettingsError(formatErrorMessage(err, "保存设置失败。"));
+      setSettingsError(formatErrorMessage(err, t("保存设置失败。", "Failed to save settings.")));
     } finally {
       setSettingsSaving(false);
     }
@@ -601,6 +622,7 @@ export default function useSettings({ formatErrorMessage }: Options) {
     desktopAlwaysOnTop,
     desktopShowTrayIcon,
     desktopWakeShortcut,
+    displayLanguage,
     errorRuntimeContext,
     providerSection,
     providerModelCatalog,
@@ -640,6 +662,7 @@ export default function useSettings({ formatErrorMessage }: Options) {
     onDesktopAlwaysOnTopChange: setDesktopAlwaysOnTop,
     onDesktopShowTrayIconChange: setDesktopShowTrayIcon,
     onDesktopWakeShortcutChange: setDesktopWakeShortcut,
+    onDisplayLanguageChange: (value: string) => setDisplayLanguage(normalizeUiLanguage(value)),
     onToggleRuntimeOpen: () => setBackendRuntimeOpen((value) => !value),
     onCopyBackendRuntime
   };

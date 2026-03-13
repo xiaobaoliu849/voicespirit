@@ -1,5 +1,13 @@
 import { FormEvent, KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
-import { streamChatCompletion, type ChatMessage } from "../api";
+import {
+  clearPersistedEverMemConversationGroupId,
+  ensureEverMemConversationGroupId,
+  getPersistedEverMemConversationGroupId,
+  persistEverMemConversationGroupId,
+  streamChatCompletion,
+  type ChatMessage,
+} from "../api";
+import { createInlineTranslator, type UiLanguage } from "../i18n";
 import type { FormatErrorMessage } from "../utils/errorFormatting";
 
 type Options = {
@@ -13,6 +21,7 @@ type Options = {
     }
   >;
   preferredProvider?: string;
+  language?: UiLanguage;
 };
 
 function isVoiceRealtimeModel(provider: string, model: string): boolean {
@@ -55,7 +64,30 @@ function resolveDefaultModel(
   if (!providerMeta) {
     return "";
   }
-  return providerMeta.defaultModel || providerMeta.availableModels[0] || "";
+  const availableModels = Array.isArray(providerMeta.availableModels)
+    ? providerMeta.availableModels.filter((item) => item.trim())
+    : [];
+  const textModels = availableModels.filter((item) => !isVoiceRealtimeModel(provider, item));
+  const preferredDefault = (providerMeta.defaultModel || "").trim();
+  if (preferredDefault && !isVoiceRealtimeModel(provider, preferredDefault)) {
+    return preferredDefault;
+  }
+  if (textModels.length > 0) {
+    return textModels[0] || "";
+  }
+  return preferredDefault || availableModels[0] || "";
+}
+
+function resolveTextModelOptions(
+  provider: string,
+  providerModelCatalog: Options["providerModelCatalog"],
+): string[] {
+  const availableModels = providerModelCatalog?.[provider]?.availableModels || [];
+  const normalized = availableModels
+    .map((item) => item.trim())
+    .filter(Boolean);
+  const textModels = normalized.filter((item) => !isVoiceRealtimeModel(provider, item));
+  return textModels.length > 0 ? textModels : normalized;
 }
 
 export default function useChat({
@@ -63,7 +95,9 @@ export default function useChat({
   providerOptions = [],
   providerModelCatalog = {},
   preferredProvider,
+  language = "zh-CN",
 }: Options) {
+  const t = createInlineTranslator(language);
   const initialProvider = resolveProvider(preferredProvider, providerOptions);
   const [chatProvider, setChatProvider] = useState(initialProvider);
   const [chatModel, setChatModel] = useState(
@@ -73,10 +107,11 @@ export default function useChat({
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [chatBusy, setChatBusy] = useState(false);
   const [chatError, setChatError] = useState("");
+  const [chatMemoryGroupId, setChatMemoryGroupId] = useState(() => getPersistedEverMemConversationGroupId("chat"));
   const lastPreferredProviderRef = useRef(preferredProvider);
 
   const chatProviderOptions = providerOptions.length > 0 ? providerOptions : ["Google"];
-  const chatModelOptions = providerModelCatalog[chatProvider]?.availableModels || [];
+  const chatModelOptions = resolveTextModelOptions(chatProvider, providerModelCatalog);
 
   useEffect(() => {
     const preferredProviderChanged = lastPreferredProviderRef.current !== preferredProvider;
@@ -139,7 +174,12 @@ export default function useChat({
   async function onSubmit(event: FormEvent) {
     event.preventDefault();
     if (isVoiceRealtimeModel(chatProvider, chatModel)) {
-      setChatError("当前选择的是实时语音模型，请点击麦克风开始语音对话，或切换到普通文本模型后再发送消息。");
+      setChatError(
+        t(
+          "当前选择的是实时语音模型，请点击麦克风开始语音对话，或切换到普通文本模型后再发送消息。",
+          "The selected model is a realtime voice model. Start a voice session with the microphone, or switch back to a text model before sending."
+        )
+      );
       return;
     }
     const userText = chatInput.trim();
@@ -157,6 +197,17 @@ export default function useChat({
     setChatInput("");
 
     try {
+      let memoryGroupId = "";
+      try {
+        memoryGroupId = await ensureEverMemConversationGroupId("chat", chatMemoryGroupId);
+        if (memoryGroupId && memoryGroupId !== chatMemoryGroupId) {
+          const persisted = persistEverMemConversationGroupId("chat", memoryGroupId);
+          setChatMemoryGroupId(persisted);
+        }
+      } catch {
+        memoryGroupId = "";
+      }
+
       let streamedReply = "";
       await streamChatCompletion(
         {
@@ -200,6 +251,9 @@ export default function useChat({
               });
             }
           }
+        },
+        {
+          memoryGroupId: memoryGroupId || undefined,
         }
       );
     } catch (err) {
@@ -213,7 +267,7 @@ export default function useChat({
         }
         return prev;
       });
-      setChatError(formatErrorMessage(err, "聊天请求失败。"));
+      setChatError(formatErrorMessage(err, t("聊天请求失败。", "Chat request failed.")));
     } finally {
       setChatBusy(false);
     }
@@ -223,6 +277,22 @@ export default function useChat({
     setChatMessages([]);
     setChatInput("");
     setChatError("");
+    clearPersistedEverMemConversationGroupId("chat");
+    setChatMemoryGroupId("");
+  }
+
+  function replaceSession(messages: ChatMessage[], memoryGroupId = "") {
+    const normalizedGroupId = (memoryGroupId || "").trim();
+    setChatMessages(Array.isArray(messages) ? messages : []);
+    setChatInput("");
+    setChatError("");
+    setChatBusy(false);
+    if (normalizedGroupId) {
+      setChatMemoryGroupId(persistEverMemConversationGroupId("chat", normalizedGroupId));
+    } else {
+      clearPersistedEverMemConversationGroupId("chat");
+      setChatMemoryGroupId("");
+    }
   }
 
   function onComposerKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
@@ -243,6 +313,7 @@ export default function useChat({
     chatMessages,
     chatBusy,
     chatError,
+    chatMemoryGroupId,
     chatHistoryItems,
     onSubmit,
     onProviderChange,
@@ -251,7 +322,8 @@ export default function useChat({
     onQuickAction: setChatInput,
     onComposerKeyDown,
     onNewSession,
-    onSelectHistory: setChatInput
+    onSelectHistory: setChatInput,
+    replaceSession,
   };
 }
 

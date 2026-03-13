@@ -1,17 +1,22 @@
 import { FormEvent, useState } from "react";
 import { translateText } from "../api";
+import { createInlineTranslator, type UiLanguage } from "../i18n";
 import type { FormatErrorMessage } from "../utils/errorFormatting";
 
 type Options = {
   formatErrorMessage: FormatErrorMessage;
+  language?: UiLanguage;
 };
 
-export default function useTranslate({ formatErrorMessage }: Options) {
+export default function useTranslate({ formatErrorMessage, language = "zh-CN" }: Options) {
+  const t = createInlineTranslator(language);
   const [translateProvider, setTranslateProvider] = useState("DashScope");
   const [translateModel, setTranslateModel] = useState("");
   const [sourceLanguage, setSourceLanguage] = useState("auto");
-  const [targetLanguage, setTargetLanguage] = useState("英文");
-  const [translateInput, setTranslateInput] = useState("这是一个翻译接口测试。");
+  const [targetLanguage, setTargetLanguage] = useState(t("英文", "English"));
+  const [translateInput, setTranslateInput] = useState(
+    t("这是一个翻译接口测试。", "This is a translation API test.")
+  );
   const [translateResult, setTranslateResult] = useState("");
   const [translateBusy, setTranslateBusy] = useState(false);
   const [translateError, setTranslateError] = useState("");
@@ -25,7 +30,7 @@ export default function useTranslate({ formatErrorMessage }: Options) {
     event.preventDefault();
     const sourceText = translateInput.trim();
     if (!sourceText) {
-      setTranslateError("请输入要翻译的内容。");
+      setTranslateError(t("请输入要翻译的内容。", "Enter text to translate."));
       return;
     }
 
@@ -42,7 +47,7 @@ export default function useTranslate({ formatErrorMessage }: Options) {
       });
       setTranslateResult(result.translated_text);
     } catch (err) {
-      setTranslateError(formatErrorMessage(err, "翻译请求失败。"));
+      setTranslateError(formatErrorMessage(err, t("翻译请求失败。", "Translation request failed.")));
     } finally {
       setTranslateBusy(false);
     }
@@ -59,8 +64,10 @@ export default function useTranslate({ formatErrorMessage }: Options) {
     const previousInput = translateInput;
     const previousResult = translateResult;
     const normalizedSource = normalizeLanguage(sourceLanguage);
-    const nextSource = targetLanguage.trim() || "英文";
-    const nextTarget = normalizedSource && normalizedSource !== "auto" ? sourceLanguage.trim() : "中文";
+    const nextSource = targetLanguage.trim() || t("英文", "English");
+    const nextTarget = normalizedSource && normalizedSource !== "auto"
+      ? sourceLanguage.trim()
+      : t("中文", "Chinese");
 
     setSourceLanguage(nextSource);
     setTargetLanguage(nextTarget);
@@ -70,13 +77,13 @@ export default function useTranslate({ formatErrorMessage }: Options) {
       setTranslateResult(previousInput);
     }
 
-    setTranslateInfo("已交换语言方向。");
+    setTranslateInfo(t("已交换语言方向。", "Swapped the translation direction."));
   }
 
   async function copyText(value: string, successMessage: string) {
     const text = value.trim();
     if (!text) {
-      setTranslateError("当前没有可复制的内容。");
+      setTranslateError(t("当前没有可复制的内容。", "There is nothing to copy yet."));
       return;
     }
 
@@ -88,16 +95,16 @@ export default function useTranslate({ formatErrorMessage }: Options) {
       setTranslateError("");
       setTranslateInfo(successMessage);
     } catch (err) {
-      setTranslateError(formatErrorMessage(err, "复制失败。"));
+      setTranslateError(formatErrorMessage(err, t("复制失败。", "Copy failed.")));
     }
   }
 
   async function onCopySource() {
-    await copyText(translateInput, "已复制原文。");
+    await copyText(translateInput, t("已复制原文。", "Copied the source text."));
   }
 
   async function onCopyResult() {
-    await copyText(translateResult, "已复制译文。");
+    await copyText(translateResult, t("已复制译文。", "Copied the translation."));
   }
 
   async function onPasteInput() {
@@ -107,14 +114,14 @@ export default function useTranslate({ formatErrorMessage }: Options) {
       }
       const text = await navigator.clipboard.readText();
       if (!text.trim()) {
-        setTranslateError("剪贴板里没有可粘贴的文本。");
+        setTranslateError(t("剪贴板里没有可粘贴的文本。", "The clipboard does not contain any text."));
         return;
       }
       setTranslateInput(text);
       setTranslateError("");
-      setTranslateInfo("已粘贴到原文输入区。");
+      setTranslateInfo(t("已粘贴到原文输入区。", "Pasted into the source text field."));
     } catch (err) {
-      setTranslateError(formatErrorMessage(err, "粘贴失败。"));
+      setTranslateError(formatErrorMessage(err, t("粘贴失败。", "Paste failed.")));
     }
   }
 
@@ -122,7 +129,7 @@ export default function useTranslate({ formatErrorMessage }: Options) {
     setTranslateInput("");
     setTranslateResult("");
     setTranslateError("");
-    setTranslateInfo("已清空翻译工作台。");
+    setTranslateInfo(t("已清空翻译工作台。", "Cleared the translation workspace."));
   }
 
   return {

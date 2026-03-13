@@ -1,35 +1,60 @@
 :root {
-  --bg-primary: #ffffff;
-  --bg-secondary: #f8fafc;
-  --bg-card: #ffffff;
-  --text-primary: #1e293b;
-  --text-secondary: #64748b;
-  --border-color: #e2e8f0;
-  
-  --text: var(--text-primary);
-  --muted: var(--text-secondary);
-  --line: var(--border-color);
-  --line-strong: #cbd5e1;
+  --display-font: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Georgia, serif;
+  --body-font: "SF Pro Text", "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+
+  --step--1: clamp(0.76rem, 0.73rem + 0.1vw, 0.82rem);
+  --step-0: clamp(0.88rem, 0.84rem + 0.16vw, 0.96rem);
+  --step-1: clamp(1rem, 0.96rem + 0.24vw, 1.12rem);
+  --step-2: clamp(1.2rem, 1.08rem + 0.46vw, 1.42rem);
+  --step-3: clamp(1.52rem, 1.3rem + 0.84vw, 1.96rem);
+  --step-4: clamp(2.06rem, 1.66rem + 1.26vw, 2.72rem);
+
+  --bg-primary: oklch(0.985 0.01 95);
+  --bg-secondary: oklch(0.968 0.012 95);
+  --bg-card: oklch(0.992 0.008 92);
+  --canvas: oklch(0.952 0.013 92);
+  --surface: oklch(0.947 0.017 92);
+  --surface-strong: oklch(0.915 0.022 92);
   --panel: var(--bg-primary);
   --panel-strong: var(--bg-secondary);
-  --surface: #f1f5f9;
-  --surface-strong: #e2e8f0;
-  --canvas: #f8fafc;
-  
-  /* VoiceSpirit Brand: Atelier Green (Skill-aligned) */
-  --brand: #35594a;
-  --brand-dark: #254237;
-  --brand-soft: #dce8e1;
-  --accent: #b06a3f;
-  --accent-soft: #f2dfd0;
-  
-  /* Chat styles */
-  --user-bg: #f8fafc;
-  --assistant-bg: #ffffff;
-  --sidebar-bg: #f8fafc;
+
+  --text-primary: oklch(0.27 0.03 78);
+  --text-secondary: oklch(0.52 0.02 78);
+  --text-soft: oklch(0.63 0.016 78);
+  --border-color: oklch(0.89 0.018 88);
+  --line: var(--border-color);
+  --line-strong: oklch(0.82 0.024 88);
+
+  --brand: oklch(0.57 0.034 162);
+  --brand-dark: oklch(0.43 0.026 162);
+  --brand-soft: oklch(0.95 0.024 160);
+  --accent: oklch(0.69 0.072 52);
+  --accent-soft: oklch(0.94 0.026 52);
+  --accent-strong: oklch(0.58 0.06 52);
+
+  --shadow-sm: 0 2px 6px color-mix(in oklab, var(--brand-dark) 10%, transparent);
+  --shadow-md:
+    0 12px 28px color-mix(in oklab, var(--brand-dark) 10%, transparent),
+    0 2px 8px color-mix(in oklab, var(--brand-dark) 5%, transparent);
+  --shadow-lg:
+    0 28px 64px color-mix(in oklab, var(--brand-dark) 12%, transparent),
+    0 8px 24px color-mix(in oklab, var(--accent) 10%, transparent);
+
+  --text: var(--text-primary);
+  --muted: var(--text-secondary);
+
+  --user-bg: oklch(0.94 0.02 58);
+  --assistant-bg: oklch(0.987 0.01 92);
+  --sidebar-bg: oklch(0.958 0.015 95);
   --sidebar-line: var(--border-color);
   --sidebar-text: var(--text-secondary);
   --sidebar-text-strong: var(--text-primary);
+
+  /* Legacy variable aliases used by older inline-styled components. */
+  --surface-color: var(--surface);
+  --text-color: var(--text);
+  --text-color-muted: var(--muted);
+  --primary-color: var(--accent-strong);
 }
 
 * {
@@ -38,10 +63,14 @@
 
 body {
   margin: 0;
+  height: 100vh;
+  overflow: hidden;
   min-height: 100vh;
   color: var(--text);
-  font-family: inherit;
-  background: #f3f4f6;
+  font-family: var(--body-font);
+  background:
+    radial-gradient(circle at top left, color-mix(in oklab, var(--accent-soft) 65%, transparent) 0%, transparent 34%),
+    linear-gradient(180deg, var(--canvas), oklch(0.94 0.014 92));
 }
 
 button,
@@ -53,24 +82,28 @@ textarea {
 }
 
 #root {
+  height: 100vh;
   min-height: 100vh;
+  overflow: hidden;
 }
 
 .vsApp {
   width: min(100%, 1940px);
+  height: calc(100vh - 24px);
   min-height: calc(100vh - 24px);
   margin: 12px auto;
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   border: 1px solid var(--line);
-  border-radius: 12px;
+  border-radius: 24px;
   overflow: hidden;
   background: var(--panel);
-  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  box-shadow: var(--shadow-lg);
 }
 
 .vsApp.desktopEmbedded {
   width: 100vw;
+  height: 100vh;
   min-height: 100vh;
   margin: 0;
   grid-template-columns: auto minmax(0, 1fr);
@@ -86,29 +119,35 @@ textarea {
   border-right: 1px solid var(--sidebar-line);
   color: var(--sidebar-text);
   min-height: 0;
-  transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  width: 284px;
+  transition: width 0.34s cubic-bezier(0.22, 1, 0.36, 1);
+  width: 236px;
   overflow: hidden;
   position: relative;
+  height: 100%;
+  max-height: 100%;
 }
 
 .vsSidebar.collapsed {
-  width: 72px;
+  width: 76px;
 }
 
 .vsSidebarHeader {
-  height: 64px;
+  height: 76px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 16px;
-  background: var(--bg-secondary);
+  gap: 10px;
+  padding: 0 14px;
+  background:
+    linear-gradient(180deg, color-mix(in oklab, var(--bg-card) 85%, var(--accent-soft)) 0%, var(--bg-secondary) 100%);
   border-bottom: 1px solid var(--border-color);
+  transition: padding 0.34s cubic-bezier(0.22, 1, 0.36, 1), gap 0.34s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .vsSidebar.collapsed .vsSidebarHeader {
-  justify-content: center;
-  padding: 0;
+  height: 76px;
+  gap: 8px;
+  padding: 0 8px;
 }
 
 .vsBrand {
@@ -117,23 +156,36 @@ textarea {
   gap: 12px;
   flex: 1;
   min-width: 0;
-  height: 38px;
+  height: 42px;
+}
+
+.vsSidebar.collapsed .vsBrand {
+  gap: 10px;
 }
 
 .vsBrandIcon {
-  width: 38px;
-  height: 38px;
-  border-radius: 12px;
-  background: var(--brand);
-  color: #fff;
+  width: 40px;
+  height: 40px;
+  border-radius: 14px;
+  background:
+    linear-gradient(160deg, color-mix(in oklab, var(--brand) 74%, white), color-mix(in oklab, var(--brand-dark) 78%, var(--brand)));
+  color: oklch(0.98 0.01 95);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 800;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.08em;
   flex-shrink: 0;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+  box-shadow:
+    0 10px 22px color-mix(in oklab, var(--brand-dark) 22%, transparent),
+    inset 0 1px 0 color-mix(in oklab, white 65%, transparent);
+}
+
+.vsSidebar.collapsed .vsBrandIcon {
+  width: 40px;
+  height: 40px;
+  border-radius: 14px;
 }
 
 .vsBrandCopy {
@@ -141,12 +193,19 @@ textarea {
   flex-direction: column;
   justify-content: center;
   min-width: 0;
+  overflow: hidden;
+  transition:
+    opacity 0.24s ease,
+    max-width 0.34s cubic-bezier(0.22, 1, 0.36, 1),
+    transform 0.34s cubic-bezier(0.22, 1, 0.36, 1);
+  max-width: 160px;
 }
 
 .vsBrand h1 {
   margin: 0;
-  font-size: 16px;
+  font-size: var(--step-1);
   font-weight: 700;
+  letter-spacing: -0.02em;
   color: var(--sidebar-text-strong);
   line-height: 1;
   white-space: nowrap;
@@ -154,108 +213,126 @@ textarea {
 
 .vsSidebar.collapsed .vsBrandCopy {
   opacity: 0;
-  width: 0;
+  max-width: 0;
+  transform: translateX(-4px);
 }
 
 .vsCollapseBtn {
-  width: 28px;
-  height: 28px;
-  border-radius: 8px;
-  background: #fff;
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  background: color-mix(in oklab, var(--bg-card) 88%, var(--accent-soft));
   color: var(--sidebar-text);
   display: grid;
   place-items: center;
   cursor: pointer;
   line-height: 1;
-  transition: all 0.2s;
+  transition:
+    background 0.2s ease,
+    color 0.2s ease,
+    border-color 0.2s ease,
+    transform 0.2s ease;
   flex-shrink: 0;
   z-index: 10;
-  border: 1px solid rgba(0, 0, 0, 0.08);
-  box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow-sm);
 }
 
 .vsCollapseBtn:hover {
-  background: #fff;
-  color: var(--brand);
-  border-color: var(--brand);
-  transform: scale(1.05);
-}
-
-.vsSidebar.collapsed .vsCollapseBtn {
-  margin: 0 auto;
-  border: none;
-  background: transparent;
-  box-shadow: none;
+  background: var(--bg-card);
+  color: var(--brand-dark);
+  border-color: color-mix(in oklab, var(--brand) 36%, var(--line));
+  transform: translateY(-1px);
 }
 
 .vsSidebarAction {
-  padding: 6px 12px 14px;
+  padding: 12px 14px 16px;
+}
+
+.vsSidebar.collapsed .vsSidebarAction {
+  padding: 12px 8px 16px;
 }
 
 .vsNewChatBtn {
   width: 100%;
-  height: 36px;
-  border-radius: 8px;
-  border: 1px solid var(--line);
-  background: #ffffff;
-  color: var(--text);
-  font-weight: 500;
+  height: 48px;
+  border-radius: 14px;
+  border: 1px solid color-mix(in oklab, var(--brand) 18%, var(--line));
+  background:
+    linear-gradient(180deg, color-mix(in oklab, var(--bg-card) 82%, var(--accent-soft)), color-mix(in oklab, var(--bg-card) 92%, var(--brand-soft)));
+  color: var(--brand-dark);
+  font-weight: 700;
   font-size: 13px;
   cursor: pointer;
   display: flex;
   align-items: center;
-  justify-content: center;
-  gap: 8px;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+  justify-content: flex-start;
+  gap: 12px;
+  padding: 0 14px;
+  box-shadow: var(--shadow-sm);
   overflow: hidden;
-  transition: all 0.2s;
+  transition:
+    background 0.2s ease,
+    border-color 0.2s ease,
+    transform 0.2s ease,
+    box-shadow 0.2s ease;
 }
 
 .vsNewChatBtn:hover {
-  background: #f9fafb;
-  border-color: #d1d5db;
+  background:
+    linear-gradient(180deg, color-mix(in oklab, var(--bg-card) 72%, var(--accent-soft)), color-mix(in oklab, var(--bg-card) 84%, var(--brand-soft)));
+  border-color: color-mix(in oklab, var(--brand) 28%, var(--line));
+  transform: translateY(-1px);
 }
 
 .vsSidebar.collapsed .vsNewChatBtn {
-  width: 100%;
-  height: 36px;
-  border-radius: 8px;
-  border: 1px solid var(--line);
-  background: #ffffff;
-  color: var(--text);
-  font-weight: 500;
-  font-size: 13px;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
+  display: grid;
+  place-items: center;
   justify-content: center;
-  gap: 8px;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
-  overflow: hidden;
-  transition: all 0.2s;
+  padding: 0;
+  border-radius: 18px;
 }
 
 .vsNewChatIcon {
+  width: 20px;
+  min-width: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   font-size: 16px;
   line-height: 1;
 }
 
 .vsNewChatText {
   white-space: nowrap;
-  transition: opacity 0.2s, max-width 0.3s;
+  overflow: hidden;
+  max-width: 120px;
+  transition:
+    opacity 0.22s ease,
+    max-width 0.34s cubic-bezier(0.22, 1, 0.36, 1),
+    transform 0.34s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .vsSidebar.collapsed .vsNewChatText {
-  display: none;
+  position: absolute;
+  opacity: 0;
+  max-width: 0;
+  transform: translateX(-4px);
+  pointer-events: none;
 }
 
 .vsSidebarNavScroll {
   flex: 1;
-  overflow-y: auto;
-  overflow-x: hidden;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 14px;
+  padding-top: 0;
+}
+
+.vsSidebarTop,
+.vsSidebarBody {
+  min-height: 0;
 }
 
 .vsSidebarSection {
@@ -263,26 +340,13 @@ textarea {
 }
 
 .vsSectionLabel {
-  margin: 0 8px 6px;
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--muted);
-  white-space: nowrap;
-  transition: opacity 0.2s;
-}
-
-.vsSidebar.collapsed .vsSectionLabel {
-  margin: 0 8px 6px;
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--muted);
-  white-space: nowrap;
-  transition: opacity 0.2s;
+  display: none;
 }
 
 .vsNav {
   display: grid;
-  gap: 4px;
+  gap: 6px;
+  padding: 0 10px;
 }
 
 .vsNavItem {
@@ -291,35 +355,43 @@ textarea {
   gap: 12px;
   width: 100%;
   border: 0;
-  border-radius: 12px;
-  padding: 12px 14px;
+  border: 1px solid transparent;
+  border-radius: 16px;
+  padding: 13px 14px;
   text-align: left;
   background: transparent;
   color: var(--sidebar-text);
-  font-weight: 500;
+  font-weight: 600;
   font-size: 13px;
   cursor: pointer;
   transition: all 0.2s ease;
   overflow: hidden;
   white-space: nowrap;
   position: relative;
+  min-height: 48px;
 }
 
 .vsNavItem:hover {
-  background: #e5e7eb;
+  background: color-mix(in oklab, var(--bg-card) 80%, var(--accent-soft));
   color: var(--sidebar-text-strong);
+  border-color: color-mix(in oklab, var(--accent) 10%, var(--line));
 }
 
 .vsNavItem.active {
   color: var(--brand-dark);
-  background: var(--brand-soft);
-  font-weight: 600;
+  background:
+    linear-gradient(180deg, color-mix(in oklab, var(--brand-soft) 84%, var(--bg-card)), color-mix(in oklab, var(--accent-soft) 32%, var(--bg-card)));
+  border-color: color-mix(in oklab, var(--brand) 18%, var(--line));
+  font-weight: 700;
+  box-shadow: inset 0 1px 0 color-mix(in oklab, white 48%, transparent);
 }
 
 .vsNavIcon {
   display: flex;
   align-items: center;
   justify-content: center;
+  width: 20px;
+  min-width: 20px;
   flex-shrink: 0;
   transition: transform 0.2s;
   color: var(--sidebar-text);
@@ -334,103 +406,119 @@ textarea {
 .vsNavItem:hover .vsNavIcon {
   color: var(--sidebar-text-strong);
   opacity: 1;
-  transform: scale(1.05);
+  transform: translateX(1px);
 }
 
 .vsNavItemText {
-  transition: all 0.3s;
+  overflow: hidden;
+  max-width: 140px;
+  transition:
+    opacity 0.22s ease,
+    max-width 0.34s cubic-bezier(0.22, 1, 0.36, 1),
+    transform 0.34s cubic-bezier(0.22, 1, 0.36, 1);
   opacity: 1;
-  width: auto;
 }
 
 .vsSidebar.collapsed .vsNavItem {
-  padding: 12px 0;
-  justify-content: center;
+  border-radius: 18px;
 }
 
 .vsSidebar.collapsed .vsNavItemText {
   opacity: 0;
-  width: 0;
+  max-width: 0;
   margin-left: 0;
+  transform: translateX(-4px);
+}
+
+.vsSidebar.collapsed .vsNav {
+  gap: 6px;
+  padding: 0 8px;
 }
 
 .vsNavActiveIndicator {
   position: absolute;
-  left: 0;
+  left: 6px;
   top: 50%;
   transform: translateY(-50%);
-  width: 4px;
-  height: 24px;
-  background: var(--brand);
-  border-radius: 0 4px 4px 0;
+  width: 5px;
+  height: 28px;
+  background: linear-gradient(180deg, var(--accent), var(--brand));
+  border-radius: 999px;
+}
+
+.vsSidebar.collapsed .vsNavActiveIndicator {
+  left: 6px;
+  top: 50%;
+  bottom: auto;
+  transform: translateY(-50%);
+  width: 5px;
+  height: 28px;
+  border-radius: 999px;
 }
 
 .vsHistorySection {
   margin-top: auto;
-  padding-bottom: 12px;
+  padding: 18px 10px 14px;
+  border-top: 1px solid color-mix(in oklab, var(--accent) 8%, var(--line));
 }
 
 .vsHistoryHead {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  margin: 0 8px 8px;
-  min-height: 20px;
-}
-
-.vsHistoryHead .vsSectionLabel {
-  margin: 0 8px 6px;
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--muted);
-  white-space: nowrap;
-  transition: opacity 0.2s;
+  justify-content: flex-end;
+  margin: 0 8px 10px;
+  min-height: auto;
 }
 
 .vsHistoryClearBtn {
   border: 0;
   background: transparent;
-  color: #747d98;
+  color: var(--text-soft);
   cursor: pointer;
-  padding: 4px;
+  padding: 5px 8px;
   font-size: 11px;
   white-space: nowrap;
-  border-radius: 4px;
+  border-radius: 999px;
 }
 
 .vsHistoryClearBtn:hover {
-  color: #fff;
-  background: rgba(255, 255, 255, 0.1);
-}
-
-.vsSidebar.collapsed .vsHistoryHead {
-  justify-content: center;
+  color: var(--brand-dark);
+  background: color-mix(in oklab, var(--accent-soft) 65%, var(--bg-card));
 }
 
 .vsHistoryList {
   display: grid;
-  gap: 4px;
+  gap: 6px;
+}
+
+.vsHistoryRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px;
+  align-items: center;
 }
 
 .vsHistoryItem {
   border: 0;
-  border-radius: 10px;
-  padding: 10px 12px;
+  border-radius: 14px;
+  padding: 11px 12px;
   text-align: left;
-  background: transparent;
+  background: color-mix(in oklab, var(--bg-card) 62%, transparent);
   color: var(--sidebar-text);
   cursor: pointer;
   display: flex;
   align-items: center;
   gap: 10px;
   font-size: 13px;
-  transition: background 0.2s;
+  transition: background 0.2s, border-color 0.2s, transform 0.2s;
   white-space: nowrap;
+  border: 1px solid transparent;
 }
 
 .vsHistoryItem:hover {
-  background: #f1f5f9;
+  background: color-mix(in oklab, var(--bg-card) 84%, var(--accent-soft));
   color: var(--sidebar-text-strong);
+  border-color: color-mix(in oklab, var(--accent) 10%, var(--line));
 }
 
 .vsSidebar.collapsed .vsHistoryItem {
@@ -446,18 +534,36 @@ textarea {
   opacity: 0.7;
 }
 
+.vsHistoryDeleteBtn {
+  width: 30px;
+  height: 30px;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text-soft);
+  padding: 0;
+  border: 1px solid transparent;
+  box-shadow: none;
+}
+
+.vsHistoryDeleteBtn:hover {
+  background: color-mix(in oklab, var(--accent-soft) 70%, var(--bg-card));
+  color: var(--accent-strong);
+  border-color: color-mix(in oklab, var(--accent) 14%, var(--line));
+  transform: none;
+}
+
 .vsHistoryText {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
-  transition: all 0.3s;
+  max-width: 150px;
+  transition: opacity 0.25s ease, max-width 0.3s ease;
   opacity: 1;
-  width: auto;
 }
 
 .vsSidebar.collapsed .vsHistoryText {
   opacity: 0;
-  width: 0;
+  max-width: 0;
 }
 
 .vsHistoryEmpty {
@@ -471,10 +577,14 @@ textarea {
 .vsSidebarFooter {
   background: var(--sidebar-bg);
   border-top: 1px solid var(--sidebar-line);
-  padding: 16px;
+  padding: 14px;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 14px;
+}
+
+.vsSidebar.collapsed .vsSidebarFooter {
+  padding: 12px 8px 16px;
 }
 
 .vsSidebarFooterActions {
@@ -483,18 +593,28 @@ textarea {
   gap: 8px;
 }
 
+.vsFooterAction > span {
+  overflow: hidden;
+  max-width: 120px;
+  transition:
+    opacity 0.22s ease,
+    max-width 0.34s cubic-bezier(0.22, 1, 0.36, 1),
+    transform 0.34s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
 .vsFooterAction {
   display: flex;
   align-items: center;
   gap: 12px;
   width: 100%;
   border: 1px solid transparent;
-  border-radius: 10px;
-  padding: 10px 12px;
+  border-radius: 14px;
+  min-height: 48px;
+  padding: 0 14px;
   text-align: left;
   background: transparent;
   color: var(--sidebar-text);
-  font-weight: 500;
+  font-weight: 600;
   font-size: 13px;
   cursor: pointer;
   transition: all 0.2s ease;
@@ -503,21 +623,26 @@ textarea {
 }
 
 .vsFooterAction:hover {
-  background: var(--surface);
+  background: color-mix(in oklab, var(--bg-card) 84%, var(--accent-soft));
   color: var(--sidebar-text-strong);
-  border-color: var(--line-strong);
+  border-color: color-mix(in oklab, var(--accent) 10%, var(--line));
 }
 
 .vsFooterAction.active {
-  background: var(--brand-soft);
+  background: color-mix(in oklab, var(--brand-soft) 80%, var(--bg-card));
   color: var(--brand-dark);
-  font-weight: 600;
-  border-color: var(--brand-soft);
+  font-weight: 700;
+  border-color: color-mix(in oklab, var(--brand) 18%, var(--line));
 }
 
 .vsSidebar.collapsed .vsFooterAction {
-  padding: 10px 0;
-  justify-content: center;
+  border-radius: 18px;
+}
+
+.vsSidebar.collapsed .vsFooterAction > span {
+  opacity: 0;
+  max-width: 0;
+  transform: translateX(-4px);
 }
 
 .vsProfileCard {
@@ -587,7 +712,7 @@ textarea {
 .vsCollapseBtn:focus-visible,
 button:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 3px rgba(124, 92, 255, 0.3);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent-soft) 92%, transparent);
 }
 
 .legacyMain {
@@ -601,18 +726,54 @@ button:focus-visible {
   min-height: 100%;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
-  background: linear-gradient(180deg, #fbfbfd 0, #f8f9fd 100%);
+  background:
+    radial-gradient(circle at top center, color-mix(in oklab, var(--accent-soft) 42%, transparent) 0%, transparent 32%),
+    linear-gradient(180deg, var(--bg-primary) 0, color-mix(in oklab, var(--bg-secondary) 82%, var(--accent-soft)) 100%);
 }
 
 .vsTopbar {
-  height: 52px;
-  border-bottom: 1px solid #eaedf5;
-  background: rgba(252, 252, 254, 0.95);
+  min-height: 58px;
+  border-bottom: 1px solid var(--line);
+  background: color-mix(in oklab, var(--bg-card) 86%, var(--accent-soft));
   backdrop-filter: blur(10px);
-  padding: 0 20px;
+  padding: 10px 22px;
   display: flex;
   align-items: center;
   gap: 12px;
+}
+
+.vsChatRuntimeBar {
+  padding: 14px 22px 0;
+}
+
+.vsVoiceRuntimeNotice {
+  display: grid;
+  gap: 6px;
+  padding: 12px 14px;
+  border: 1px solid color-mix(in oklab, var(--accent) 10%, var(--line));
+  border-radius: 16px;
+  background: color-mix(in oklab, var(--bg-card) 92%, var(--accent-soft));
+  box-shadow: var(--shadow-sm);
+}
+
+.vsVoiceRuntimeRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.vsVoiceRuntimeTitle {
+  font-size: 13px;
+  color: var(--brand-dark);
+  letter-spacing: 0.04em;
+}
+
+.vsVoiceRuntimeMeta {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--muted);
 }
 
 .vsTopbarLeft {
@@ -630,27 +791,29 @@ button:focus-visible {
   align-items: center;
   gap: 8px;
   font-size: 12px;
-  color: #8e96ab;
-  font-weight: 600;
+  color: var(--text-soft);
+  font-weight: 700;
+  letter-spacing: 0.04em;
   white-space: nowrap;
 }
 
 .vsTopbarField select,
 .vsTopbarField input {
-  border: 1px solid #e8ebf2;
-  border-radius: 8px;
-  padding: 6px 10px;
+  border: 1px solid color-mix(in oklab, var(--accent) 10%, var(--line));
+  border-radius: 12px;
+  padding: 8px 12px;
   font-size: 13px;
-  color: #3b4255;
-  background: #fff;
+  color: var(--text);
+  background: color-mix(in oklab, var(--bg-card) 88%, var(--accent-soft));
   outline: none;
   min-width: 0;
+  box-shadow: inset 0 1px 0 color-mix(in oklab, white 52%, transparent);
 }
 
 .vsTopbarField select:focus,
 .vsTopbarField input:focus {
-  border-color: #c4b5fd;
-  box-shadow: 0 0 0 2px rgba(124, 92, 255, 0.08);
+  border-color: color-mix(in oklab, var(--brand) 30%, var(--line));
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--brand-soft) 88%, transparent);
 }
 
 .vsTopbarModelField {
@@ -717,14 +880,14 @@ button:focus-visible {
   font-size: 11px;
   font-weight: 800;
   letter-spacing: 0.16em;
-  color: #4f7cff;
+  color: var(--accent-strong);
 }
 
 .vsProviderGeneric {
   font-size: 11px;
   font-weight: 800;
   letter-spacing: 0.06em;
-  color: #68708b;
+  color: var(--muted);
 }
 
 .vsTopbarVoiceField {
@@ -732,8 +895,9 @@ button:focus-visible {
   align-items: center;
   gap: 8px;
   font-size: 12px;
-  color: #8e96ab;
-  font-weight: 600;
+  color: var(--text-soft);
+  font-weight: 700;
+  letter-spacing: 0.04em;
   white-space: nowrap;
 }
 
@@ -741,23 +905,37 @@ button:focus-visible {
   max-width: 140px;
 }
 
+.vsChatMemoryChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--brand-soft) 74%, var(--bg-card));
+  color: var(--brand-dark);
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
 .vsTopbarDivider {
   width: 1px;
   height: 16px;
-  background: #e3e6ef;
+  background: color-mix(in oklab, var(--accent) 10%, var(--line));
 }
 
 .vsChatBody {
   min-height: 0;
   overflow-y: auto;
-  padding: 32px clamp(22px, 8vw, 110px);
+  padding: 36px clamp(24px, 7vw, 112px) 28px;
 }
 
 .vsChatBody.empty {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
-  padding: 0 clamp(22px, 8vw, 110px);
+  padding: clamp(34px, 10vh, 96px) clamp(24px, 7vw, 112px) 0;
 }
 
 
@@ -770,10 +948,34 @@ button:focus-visible {
   gap: 14px;
 }
 
+.vsBubbleMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.vsBubbleMemoryTag {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 0 9px;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--accent-soft) 70%, var(--bg-card));
+  color: var(--accent-strong);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.vsBubbleMemoryTag.saved {
+  background: color-mix(in oklab, var(--brand-soft) 78%, var(--bg-card));
+  color: var(--brand-dark);
+}
+
 .vsRealtimeContent {
   font-size: 15px;
   line-height: 1.6;
-  color: #1e2330;
+  color: var(--text);
   white-space: pre-wrap;
   word-break: break-word;
   min-height: 72px;
@@ -792,7 +994,7 @@ button:focus-visible {
   font-weight: normal;
   color: var(--primary-color);
   margin-left: 6px;
-  background: rgba(124, 92, 255, 0.1);
+  background: color-mix(in oklab, var(--accent-soft) 85%, transparent);
   padding: 1px 6px;
   border-radius: 4px;
 }
@@ -814,11 +1016,11 @@ button:focus-visible {
 
 /* ═══ Empty state: centered like Claude / Gemini ═══ */
 .vsChatCentered {
-  width: min(680px, calc(100% - 48px));
+  width: min(760px, 100%);
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 14px;
+  align-items: stretch;
+  gap: 18px;
   animation: fadeUp 0.45s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
@@ -835,17 +1037,35 @@ button:focus-visible {
 }
 
 .vsWelcome {
-  text-align: center;
-  margin-bottom: 4px;
+  display: grid;
+  gap: 8px;
+  justify-items: start;
+  margin-bottom: 2px;
 }
 
+.vsWelcome h1,
 .vsWelcome h2 {
   margin: 0;
-  font-size: 28px;
+  font-family: var(--display-font);
+  font-size: var(--step-4);
   font-weight: 700;
-  color: #1a1e2e;
-  letter-spacing: -0.5px;
-  line-height: 1.3;
+  color: oklch(0.22 0.03 78);
+  letter-spacing: -0.04em;
+  line-height: 0.95;
+}
+
+.vsWelcome::before {
+  content: "VOICE STUDIO";
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 12px;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--accent-soft) 72%, var(--bg-card));
+  color: var(--accent-strong);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.16em;
 }
 
 /* ═══ Composer card (shared between empty & chat modes) ═══ */
@@ -860,39 +1080,47 @@ button:focus-visible {
 }
 
 .vsComposer {
-  border: 1px solid #e0e3ed;
-  border-radius: 22px;
-  background: #ffffff;
-  box-shadow: 0 2px 20px rgba(0, 0, 0, 0.04);
-  padding: 16px 20px 12px;
+  border: 1px solid color-mix(in oklab, var(--accent) 12%, var(--line));
+  border-radius: 26px;
+  background:
+    linear-gradient(180deg, color-mix(in oklab, var(--bg-card) 96%, white), color-mix(in oklab, var(--bg-card) 90%, var(--accent-soft)));
+  box-shadow: var(--shadow-md);
+  padding: 18px 20px 14px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
   transition: border-color 0.2s, box-shadow 0.2s;
 }
 
 .vsComposer:focus-within {
-  border-color: #c7c0f0;
-  box-shadow: 0 0 0 3px rgba(124, 92, 255, 0.08), 0 2px 16px rgba(0, 0, 0, 0.04);
+  border-color: color-mix(in oklab, var(--accent) 28%, var(--line));
+  box-shadow:
+    0 0 0 4px color-mix(in oklab, var(--accent-soft) 85%, transparent),
+    var(--shadow-md);
 }
 
 .vsComposer textarea {
   border: 0 !important;
   background: transparent !important;
   padding: 2px 4px !important;
-  min-height: 52px;
+  min-height: 58px;
   max-height: 240px;
   resize: none;
   box-shadow: none !important;
   line-height: 1.6;
-  color: #1e2330;
-  font-size: 15px;
+  color: var(--text);
+  font-size: var(--step-1);
   outline: none !important;
   border-radius: 0 !important;
 }
 
 .vsComposer textarea::placeholder {
-  color: #a0a8ba;
+  color: var(--text-soft);
+}
+
+.vsComposerInlineHint {
+  font-size: 12px;
+  color: var(--accent-strong);
 }
 
 .vsComposerToolbar {
@@ -916,10 +1144,10 @@ button:focus-visible {
 .vsToolbarBtn {
   width: 34px;
   height: 34px;
-  border-radius: 10px;
-  border: 0;
-  background: transparent;
-  color: #8b94aa;
+  border-radius: 12px;
+  border: 1px solid transparent;
+  background: color-mix(in oklab, var(--surface) 88%, var(--bg-card));
+  color: var(--muted);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -929,39 +1157,41 @@ button:focus-visible {
 }
 
 .vsToolbarBtn:hover {
-  background: #f0f2f7;
-  color: #555e74;
+  background: color-mix(in oklab, var(--bg-card) 90%, var(--accent-soft));
+  color: var(--brand-dark);
+  border-color: color-mix(in oklab, var(--accent) 12%, var(--line));
 }
 
 .vsToolbarBtn.recording {
-  background: #fef2f2;
-  color: #ef4444;
+  background: color-mix(in oklab, oklch(0.94 0.03 30) 72%, var(--bg-card));
+  color: oklch(0.54 0.12 28);
+  border-color: color-mix(in oklab, oklch(0.74 0.08 28) 20%, var(--line));
 }
 
 .vsSendBtn {
-  width: 36px;
-  height: 36px;
+  width: 40px;
+  height: 40px;
   border: 0;
-  border-radius: 50%;
-  background: linear-gradient(135deg, #7c5cff, #6366f1);
-  color: #ffffff;
+  border-radius: 14px;
+  background: linear-gradient(160deg, var(--brand), color-mix(in oklab, var(--brand-dark) 82%, var(--accent)));
+  color: var(--bg-card);
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  box-shadow: 0 3px 10px rgba(99, 102, 241, 0.3);
+  box-shadow: 0 12px 24px color-mix(in oklab, var(--brand-dark) 24%, transparent);
   transition: all 0.2s;
   padding: 0;
 }
 
 .vsSendBtn:hover:not(:disabled) {
-  transform: scale(1.05);
-  box-shadow: 0 5px 14px rgba(99, 102, 241, 0.4);
+  transform: translateY(-1px);
+  box-shadow: 0 16px 30px color-mix(in oklab, var(--brand-dark) 28%, transparent);
 }
 
 .vsSendBtn:disabled {
-  background: #dde0e8;
-  color: #aeb5c5;
+  background: color-mix(in oklab, var(--surface-strong) 84%, var(--bg-card));
+  color: var(--text-soft);
   box-shadow: none;
   cursor: not-allowed;
 }
@@ -984,32 +1214,35 @@ button:focus-visible {
 .vsQuickActions {
   display: flex;
   flex-wrap: wrap;
-  justify-content: center;
-  gap: 8px;
-  margin-top: 4px;
+  justify-content: flex-start;
+  gap: 10px;
+  margin-top: 2px;
 }
 
-.vsQuickActionPill {
+.vsQuickActionPill,
+.vsQuickActions button {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 8px 16px;
-  border: 1px solid #e4e7f0;
+  min-height: 42px;
+  padding: 0 16px;
+  border: 1px solid color-mix(in oklab, var(--accent) 12%, var(--line));
   border-radius: 999px;
-  background: #ffffff;
-  color: #3b4255;
+  background: color-mix(in oklab, var(--bg-card) 94%, var(--accent-soft));
+  color: var(--brand-dark);
   font-size: 13px;
-  font-weight: 500;
+  font-weight: 700;
   cursor: pointer;
   transition: all 0.2s ease;
   white-space: nowrap;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+  box-shadow: var(--shadow-sm);
 }
 
-.vsQuickActionPill:hover {
-  background: #f8f8fc;
-  border-color: #d0d4e2;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.06);
+.vsQuickActionPill:hover,
+.vsQuickActions button:hover {
+  background: color-mix(in oklab, var(--bg-card) 86%, var(--brand-soft));
+  border-color: color-mix(in oklab, var(--brand) 20%, var(--line));
+  transform: translateY(-1px);
 }
 
 .vsQuickActionPill .vsQuickActionIcon {
@@ -1019,8 +1252,8 @@ button:focus-visible {
 
 .vsChatDisclaimer {
   margin: 8px 0 0;
-  text-align: center;
-  color: #b3b9c9;
+  text-align: left;
+  color: var(--text-soft);
   font-size: 11px;
 }
 
@@ -1032,7 +1265,9 @@ button:focus-visible {
 .vsToolWorkspace {
   min-height: 100%;
   padding: 28px clamp(18px, 4vw, 34px);
-  background: linear-gradient(180deg, #fbfbfe 0, #f7f8fc 100%);
+  background:
+    radial-gradient(circle at top right, color-mix(in oklab, var(--accent-soft) 34%, transparent), transparent 34%),
+    linear-gradient(180deg, color-mix(in oklab, var(--bg-primary) 92%, var(--accent-soft)) 0, var(--bg-secondary) 100%);
 }
 
 .vsToolWorkspace>form {
@@ -1043,7 +1278,8 @@ button:focus-visible {
 .vsTranslatePage {
   min-height: 100%;
   padding: 10px 12px 14px;
-  background: #f4f5f7;
+  background:
+    linear-gradient(180deg, color-mix(in oklab, var(--bg-secondary) 88%, var(--accent-soft)), color-mix(in oklab, var(--surface) 80%, var(--bg-card)));
 }
 
 .vsVisuallyHidden {
@@ -1071,9 +1307,9 @@ button:focus-visible {
   gap: 16px;
   padding: 12px 16px;
   border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--panel);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+  border-radius: 18px;
+  background: color-mix(in oklab, var(--bg-card) 86%, var(--accent-soft));
+  box-shadow: var(--shadow-sm);
 }
 
 .vsTranslateModeBar {
@@ -1081,23 +1317,23 @@ button:focus-visible {
   gap: 6px;
   padding: 4px;
   border-radius: 999px;
-  background: #eef1f5;
+  background: color-mix(in oklab, var(--surface) 85%, var(--bg-card));
 }
 
 .vsTranslateModeBtn {
   border-radius: 999px;
   padding: 8px 14px;
   background: transparent;
-  color: #667085;
+  color: var(--muted);
   font-size: 12px;
   font-weight: 700;
 }
 
 .vsTranslateModeBtn.active {
-  background: #ffffff;
-  border: 1px solid #d8dde5;
-  color: #1f2937;
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+  background: color-mix(in oklab, var(--bg-card) 90%, white);
+  border: 1px solid color-mix(in oklab, var(--accent) 10%, var(--line));
+  color: var(--brand-dark);
+  box-shadow: var(--shadow-sm);
 }
 
 .vsTranslateToolbar {
@@ -1135,7 +1371,7 @@ button:focus-visible {
 }
 
 .vsTranslateConfigHint strong {
-  color: #475569;
+  color: var(--text);
   font-size: 12px;
   white-space: nowrap;
 }
@@ -1157,9 +1393,9 @@ button:focus-visible {
 .vsTranslateField select {
   height: 36px;
   min-width: 0;
-  border-radius: 6px;
-  border: 1px solid var(--line);
-  background: #fff;
+  border-radius: 12px;
+  border: 1px solid color-mix(in oklab, var(--accent) 10%, var(--line));
+  background: color-mix(in oklab, var(--bg-card) 90%, var(--accent-soft));
   padding: 0 12px;
   color: var(--text);
   font-size: 13px;
@@ -1180,15 +1416,15 @@ button:focus-visible {
   display: flex;
   align-items: center;
   height: 38px;
-  border-radius: 10px;
-  border: 1px solid #d8dee7;
-  background: #fff;
+  border-radius: 14px;
+  border: 1px solid color-mix(in oklab, var(--accent) 10%, var(--line));
+  background: color-mix(in oklab, var(--bg-card) 90%, var(--accent-soft));
   overflow: hidden;
 }
 
 .vsTranslateCombobox.open .vsTranslateComboboxControl {
-  border-color: #b7c6dc;
-  box-shadow: 0 0 0 3px rgba(117, 146, 190, 0.12);
+  border-color: color-mix(in oklab, var(--brand) 18%, var(--line));
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--brand-soft) 85%, transparent);
 }
 
 .vsTranslateComboboxControl input {
@@ -1199,17 +1435,17 @@ button:focus-visible {
   outline: none;
   background: transparent;
   padding: 0 12px;
-  color: #475569;
+  color: var(--text);
   font-size: 13px;
 }
 
 .vsTranslateComboboxToggle {
   width: 34px;
   height: 100%;
-  border-left: 1px solid #edf1f5;
+  border-left: 1px solid color-mix(in oklab, var(--accent) 10%, var(--line));
   border-radius: 0;
   background: transparent;
-  color: #667085;
+  color: var(--muted);
   padding: 0;
 }
 
@@ -1224,10 +1460,10 @@ button:focus-visible {
   max-height: 260px;
   overflow: auto;
   padding: 8px;
-  border: 1px solid #d8dee7;
-  border-radius: 12px;
-  background: #fff;
-  box-shadow: 0 18px 40px rgba(15, 23, 42, 0.12);
+  border: 1px solid color-mix(in oklab, var(--accent) 10%, var(--line));
+  border-radius: 16px;
+  background: color-mix(in oklab, var(--bg-card) 94%, white);
+  box-shadow: var(--shadow-md);
 }
 
 .vsTranslateLanguageOption {
@@ -1239,41 +1475,42 @@ button:focus-visible {
   border-radius: 10px;
   padding: 9px 10px;
   background: transparent;
-  color: #475569;
+  color: var(--text);
   text-align: left;
 }
 
 .vsTranslateLanguageOption:hover,
 .vsTranslateLanguageOption.active {
-  background: #f5f8fc;
+  background: color-mix(in oklab, var(--bg-card) 84%, var(--accent-soft));
 }
 
 .vsTranslateLanguageOption strong {
-  color: #334155;
+  color: var(--text);
   font-size: 13px;
 }
 
 .vsTranslateLanguageOption span {
-  color: #94a3b8;
+  color: var(--text-soft);
   font-size: 11px;
   font-weight: 700;
 }
 
 .vsTranslateLanguageEmpty {
   padding: 12px 10px;
-  color: #94a3b8;
+  color: var(--text-soft);
   font-size: 12px;
 }
 
 .vsTranslateSwapBtn {
   height: 38px;
   width: 38px;
-  border-radius: 10px;
-  background: #fff;
-  color: #667085;
-  border: 1px solid #d8dee7;
+  border-radius: 14px;
+  background: color-mix(in oklab, var(--bg-card) 88%, var(--accent-soft));
+  color: var(--brand-dark);
+  border: 1px solid color-mix(in oklab, var(--accent) 10%, var(--line));
   padding: 0;
   font-size: 14px;
+  box-shadow: var(--shadow-sm);
 }
 
 .vsTranslateSwapBtn:disabled {
@@ -1282,22 +1519,22 @@ button:focus-visible {
 }
 
 .vsTranslateSubmitBtn {
-  height: 36px;
-  border-radius: 6px;
-  background: var(--brand);
-  color: #fff;
+  height: 40px;
+  border-radius: 14px;
+  background: linear-gradient(160deg, var(--brand), color-mix(in oklab, var(--brand-dark) 82%, var(--accent)));
+  color: var(--bg-card);
   border: none;
   padding: 0 20px;
   font-size: 13px;
-  font-weight: 500;
+  font-weight: 700;
   cursor: pointer;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+  box-shadow: 0 12px 22px color-mix(in oklab, var(--brand-dark) 18%, transparent);
   transition: all 0.2s;
   white-space: nowrap;
 }
 
 .vsTranslateSubmitBtn:hover {
-  background: var(--brand-dark);
+  transform: translateY(-1px);
 }
 
 .vsTranslateEditorGrid {
@@ -1312,10 +1549,10 @@ button:focus-visible {
   flex-direction: column;
   min-height: 0;
   border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--panel);
+  border-radius: 18px;
+  background: color-mix(in oklab, var(--panel) 92%, var(--accent-soft));
   overflow: hidden;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+  box-shadow: var(--shadow-sm);
 }
 
 .vsTranslatePane.source {
@@ -1332,13 +1569,13 @@ button:focus-visible {
   justify-content: space-between;
   gap: 10px;
   padding: 14px 16px;
-  border-bottom: 1px solid #edf1f5;
-  color: #94a3b8;
+  border-bottom: 1px solid color-mix(in oklab, var(--accent) 8%, var(--line));
+  color: var(--text-soft);
   font-size: 12px;
 }
 
 .vsTranslatePaneHead strong {
-  color: #334155;
+  color: var(--text);
   font-size: 13px;
 }
 
@@ -1357,15 +1594,17 @@ button:focus-visible {
 
 .vsTranslateImageDrop {
   min-height: 320px;
-  border: 1px dashed #ccd5e1;
-  border-radius: 14px;
-  background: linear-gradient(180deg, #f8fafc 0%, #f5f7fb 100%);
+  border: 1px dashed color-mix(in oklab, var(--accent) 20%, var(--line));
+  border-radius: 18px;
+  background:
+    radial-gradient(circle at top, color-mix(in oklab, var(--accent-soft) 46%, transparent), transparent 56%),
+    linear-gradient(180deg, color-mix(in oklab, var(--bg-card) 88%, var(--accent-soft)) 0%, color-mix(in oklab, var(--surface) 82%, var(--bg-card)) 100%);
   display: grid;
   place-items: center;
   align-content: center;
   gap: 10px;
   text-align: center;
-  color: #7c8798;
+  color: var(--muted);
   cursor: pointer;
 }
 
@@ -1375,7 +1614,7 @@ button:focus-visible {
 }
 
 .vsTranslateImageDrop strong {
-  color: #334155;
+  color: var(--text);
   font-size: 14px;
 }
 
@@ -1389,9 +1628,9 @@ button:focus-visible {
   width: 100%;
   max-height: 460px;
   object-fit: contain;
-  border: 1px solid #d9dde5;
-  border-radius: 14px;
-  background: #fff;
+  border: 1px solid color-mix(in oklab, var(--accent) 10%, var(--line));
+  border-radius: 18px;
+  background: var(--bg-card);
 }
 
 .vsTranslateTextarea,
@@ -1423,11 +1662,11 @@ button:focus-visible {
   gap: 10px;
   padding: 24px;
   text-align: center;
-  color: #94a3b8;
+  color: var(--text-soft);
 }
 
 .vsTranslatePlaceholder strong {
-  color: #334155;
+  color: var(--text);
 }
 
 .vsTranslatePlaceholder p {
@@ -1443,8 +1682,8 @@ button:focus-visible {
   align-items: center;
   gap: 8px;
   padding: 10px 12px;
-  border-top: 1px solid #edf1f5;
-  background: #fafbfc;
+  border-top: 1px solid color-mix(in oklab, var(--accent) 8%, var(--line));
+  background: color-mix(in oklab, var(--bg-card) 88%, var(--surface));
 }
 
 .vsTranslateFooterUpload {
@@ -1753,13 +1992,13 @@ textarea,
 select,
 input {
   width: 100%;
-  border: 1px solid #cbd5e1;
-  border-radius: 10px;
+  border: 1px solid color-mix(in oklab, var(--accent) 10%, var(--line));
+  border-radius: 12px;
   padding: 10px 14px;
-  background: #fff;
-  color: #1e293b;
+  background: color-mix(in oklab, var(--bg-card) 92%, var(--accent-soft));
+  color: var(--text);
   font-size: 14px;
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.02);
+  box-shadow: inset 0 1px 0 color-mix(in oklab, white 58%, transparent);
   transition: all 0.2s ease;
 }
 
@@ -1767,8 +2006,8 @@ textarea:focus,
 select:focus,
 input:focus {
   outline: none;
-  border-color: #8b5cf6;
-  box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.15);
+  border-color: color-mix(in oklab, var(--brand) 28%, var(--line));
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--brand-soft) 92%, transparent);
 }
 
 textarea {
@@ -1801,13 +2040,13 @@ textarea {
 
 button {
   border: 0;
-  border-radius: 10px;
+  border-radius: 12px;
   padding: 10px 18px;
-  background: linear-gradient(180deg, #7b5cff, #6b45f3);
-  color: #fff;
+  background: linear-gradient(180deg, var(--brand), color-mix(in oklab, var(--brand-dark) 88%, var(--accent)));
+  color: var(--bg-card);
   font-weight: 700;
   cursor: pointer;
-  box-shadow: 0 4px 12px rgba(107, 69, 243, 0.2);
+  box-shadow: 0 8px 18px color-mix(in oklab, var(--brand-dark) 18%, transparent);
   transition: all 0.2s ease;
   display: inline-flex;
   align-items: center;
@@ -1835,19 +2074,19 @@ button:disabled {
 
 button.ghost {
   background: transparent;
-  color: #475569;
-  border: 1px solid #cbd5e1;
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05);
+  color: var(--muted);
+  border: 1px solid color-mix(in oklab, var(--accent) 10%, var(--line));
+  box-shadow: var(--shadow-sm);
 }
 
 button.ghost:hover:not(:disabled) {
-  background: #f8fafc;
-  color: #1e293b;
-  border-color: #94a3b8;
+  background: color-mix(in oklab, var(--bg-card) 88%, var(--accent-soft));
+  color: var(--text);
+  border-color: color-mix(in oklab, var(--brand) 16%, var(--line));
 }
 
 button.ghost:focus-visible {
-  border-color: #8b5cf6;
+  border-color: color-mix(in oklab, var(--brand) 24%, var(--line));
 }
 
 button.danger {
@@ -1872,40 +2111,44 @@ button.danger:focus-visible {
   gap: 10px;
   max-height: 420px;
   overflow-y: auto;
-  border: 1px solid #e1e6f0;
-  background: #f8fbff;
-  border-radius: 10px;
+  border: 1px solid color-mix(in oklab, var(--accent) 10%, var(--line));
+  background: color-mix(in oklab, var(--surface) 82%, var(--bg-card));
+  border-radius: 14px;
   padding: 12px;
 }
 
 .bubble {
-  border-radius: 14px;
-  padding: 12px 14px;
-  border: 1px solid #dbe2f4;
+  border-radius: 22px;
+  padding: 14px 16px;
+  border: 1px solid color-mix(in oklab, var(--accent) 10%, var(--line));
   max-width: min(860px, 100%);
-  box-shadow: 0 4px 20px rgba(36, 54, 107, 0.06);
+  box-shadow: var(--shadow-sm);
 }
 
 .bubble.user {
   background: var(--user-bg);
-  border-color: #ccdafd;
+  border-top-right-radius: 8px;
+  border-color: color-mix(in oklab, var(--accent) 18%, var(--line));
   justify-self: end;
 }
 
 .bubble.assistant {
   background: var(--assistant-bg);
+  border-top-left-radius: 8px;
 }
 
 .bubble strong {
   display: block;
   margin-bottom: 4px;
   font-size: 12px;
-  color: #4d5878;
+  color: var(--muted);
 }
 
 .bubble p {
   margin: 0;
   white-space: pre-wrap;
+  color: var(--text);
+  line-height: 1.7;
 }
 
 .audioWrap {
@@ -2025,9 +2268,9 @@ button.danger:focus-visible {
 }
 
 .voiceItem:focus-within {
-  background: #fff;
-  border-color: #c7d2fe;
-  box-shadow: 0 0 0 3px rgba(124, 92, 255, 0.08);
+  background: var(--bg-card);
+  border-color: color-mix(in oklab, var(--brand) 16%, var(--line));
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--brand-soft) 84%, transparent);
 }
 
 .voiceItem strong {
@@ -2353,15 +2596,15 @@ button.danger:focus-visible {
   height: 34px;
   padding: 0 12px;
   border-radius: 999px;
-  background: #eef2ff;
-  color: #4f46e5;
+  background: color-mix(in oklab, var(--brand-soft) 78%, var(--bg-card));
+  color: var(--brand-dark);
   font-size: 13px;
   font-weight: 700;
 }
 
 .vsPodcastStatusChip.is-memory {
-  background: #ecfdf3;
-  color: #047857;
+  background: color-mix(in oklab, var(--brand-soft) 82%, var(--bg-card));
+  color: var(--brand-dark);
 }
 
 .vsPodcastStatusChip.is-muted {
@@ -2391,13 +2634,13 @@ button.danger:focus-visible {
 }
 
 .vsPodcastMenuTrigger:hover:not(:disabled) {
-  background: #eef2ff;
-  color: #4338ca;
+  background: color-mix(in oklab, var(--brand-soft) 74%, var(--bg-card));
+  color: var(--brand-dark);
 }
 
 .vsPodcastMenuTrigger:focus-visible {
-  background: #eef2ff;
-  color: #4338ca;
+  background: color-mix(in oklab, var(--brand-soft) 74%, var(--bg-card));
+  color: var(--brand-dark);
 }
 
 .vsPodcastMenu {
@@ -2407,9 +2650,9 @@ button.danger:focus-visible {
   min-width: 150px;
   padding: 8px;
   border-radius: 12px;
-  border: 1px solid #e2e8f0;
-  background: #fff;
-  box-shadow: 0 16px 40px rgba(15, 23, 42, 0.14);
+  border: 1px solid color-mix(in oklab, var(--accent) 10%, var(--line));
+  background: color-mix(in oklab, var(--bg-card) 94%, white);
+  box-shadow: var(--shadow-md);
   z-index: 12;
 }
 
@@ -2438,10 +2681,10 @@ button.danger:focus-visible {
 }
 
 .vsPodcastSideCard {
-  background: #fff;
-  border-radius: 16px;
-  border: 1px solid rgba(15, 23, 42, 0.06);
-  box-shadow: 0 4px 20px rgba(15, 23, 42, 0.05);
+  background: color-mix(in oklab, var(--bg-card) 92%, var(--accent-soft));
+  border-radius: 18px;
+  border: 1px solid color-mix(in oklab, var(--accent) 10%, var(--line));
+  box-shadow: var(--shadow-sm);
   padding: 18px;
 }
 
@@ -2455,15 +2698,15 @@ button.danger:focus-visible {
 
 .vsPodcastSideHeader h3 {
   margin: 0;
-  color: #1e293b;
+  color: var(--text);
   font-size: 16px;
 }
 
 .vsPodcastStepCard {
-  background: white;
-  border-radius: 16px;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.04);
-  border: 1px solid rgba(0, 0, 0, 0.05);
+  background: color-mix(in oklab, var(--bg-card) 94%, white);
+  border-radius: 18px;
+  box-shadow: var(--shadow-sm);
+  border: 1px solid color-mix(in oklab, var(--accent) 10%, var(--line));
   overflow: hidden;
   transition: all 0.3s ease;
 }
@@ -2473,8 +2716,8 @@ button.danger:focus-visible {
   align-items: center;
   justify-content: space-between;
   padding: 16px 24px;
-  border-bottom: 1px solid #f0f2f5;
-  background: #fdfdff;
+  border-bottom: 1px solid color-mix(in oklab, var(--accent) 8%, var(--line));
+  background: color-mix(in oklab, var(--bg-card) 86%, var(--accent-soft));
 }
 
 .vsPodcastStepTitle {
@@ -2487,15 +2730,15 @@ button.danger:focus-visible {
   margin: 0;
   font-size: 16px;
   font-weight: 600;
-  color: #1e293b;
+  color: var(--text);
 }
 
 .vsStepNum {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #e0e7ff;
-  color: #4f46e5;
+  background: color-mix(in oklab, var(--accent-soft) 74%, var(--bg-card));
+  color: var(--accent-strong);
   width: 24px;
   height: 24px;
   border-radius: 50%;
@@ -2507,15 +2750,15 @@ button.danger:focus-visible {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #4f46e5;
+  color: var(--brand);
   width: 24px;
   height: 24px;
 }
 
 .vsStepMeta {
   font-size: 13px;
-  color: #64748b;
-  background: #f1f5f9;
+  color: var(--muted);
+  background: color-mix(in oklab, var(--surface) 84%, var(--bg-card));
   padding: 2px 8px;
   border-radius: 12px;
 }
@@ -2532,27 +2775,27 @@ button.danger:focus-visible {
 .vsPodcastFieldLabel {
   font-size: 14px;
   font-weight: 700;
-  color: #334155;
+  color: var(--text);
 }
 
 .vsTopicInput {
   width: 100%;
-  border: 1px solid #e2e8f0;
-  border-radius: 12px;
+  border: 1px solid color-mix(in oklab, var(--accent) 10%, var(--line));
+  border-radius: 16px;
   padding: 16px;
   font-size: 15px;
   line-height: 1.6;
   resize: vertical;
   min-height: 100px;
   transition: border-color 0.2s, box-shadow 0.2s;
-  background: #fafafa;
+  background: color-mix(in oklab, var(--bg-card) 84%, var(--surface));
 }
 
 .vsTopicInput:focus {
   outline: none;
-  border-color: #818cf8;
-  box-shadow: 0 0 0 3px rgba(129, 140, 248, 0.1);
-  background: white;
+  border-color: color-mix(in oklab, var(--accent) 20%, var(--line));
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent-soft) 84%, transparent);
+  background: var(--bg-card);
 }
 
 .vsPodcastStepActions {
@@ -2564,22 +2807,22 @@ button.danger:focus-visible {
 }
 
 .vsGenerateBtn {
-  background: linear-gradient(135deg, #6366f1, #8b5cf6);
-  color: white;
+  background: linear-gradient(160deg, var(--brand), color-mix(in oklab, var(--brand-dark) 82%, var(--accent)));
+  color: var(--bg-card);
   border: none;
   padding: 0 24px;
   height: 44px;
-  border-radius: 10px;
+  border-radius: 14px;
   font-weight: 600;
   font-size: 15px;
   cursor: pointer;
-  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.2);
+  box-shadow: 0 12px 24px color-mix(in oklab, var(--brand-dark) 20%, transparent);
   transition: transform 0.1s, box-shadow 0.2s;
 }
 
 .vsGenerateBtn:hover:not(:disabled) {
   transform: translateY(-1px);
-  box-shadow: 0 6px 16px rgba(99, 102, 241, 0.3);
+  box-shadow: 0 16px 30px color-mix(in oklab, var(--brand-dark) 26%, transparent);
 }
 
 .vsGenerateBtn:active:not(:disabled) {
@@ -2594,30 +2837,30 @@ button.danger:focus-visible {
 .vsPodcastAdvancedToggle {
   background: transparent;
   border: none;
-  color: #64748b;
+  color: var(--muted);
   font-size: 14px;
   cursor: pointer;
   padding: 8px 12px;
-  border-radius: 6px;
+  border-radius: 12px;
   transition: background 0.2s, color 0.2s;
 }
 
 .vsPodcastAdvancedToggle:hover {
-  background: #f1f5f9;
-  color: #334155;
+  background: color-mix(in oklab, var(--bg-card) 84%, var(--accent-soft));
+  color: var(--text);
 }
 
 .vsPodcastAdvancedToggle:focus-visible {
-  background: #eef2ff;
-  color: #4338ca;
+  background: color-mix(in oklab, var(--bg-card) 84%, var(--accent-soft));
+  color: var(--brand-dark);
 }
 
 .vsPodcastAdvancedPanel {
   margin-top: 20px;
   padding: 20px;
-  background: #f8fafc;
-  border-radius: 12px;
-  border: 1px solid #e2e8f0;
+  background: color-mix(in oklab, var(--surface) 82%, var(--bg-card));
+  border-radius: 16px;
+  border: 1px solid color-mix(in oklab, var(--accent) 10%, var(--line));
   animation: slideDown 0.3s ease-out;
 }
 
@@ -2628,9 +2871,9 @@ button.danger:focus-visible {
   gap: 12px;
   align-items: start;
   padding: 14px 16px;
-  border-radius: 12px;
-  border: 1px solid #dbe7f7;
-  background: linear-gradient(180deg, #ffffff, #f8fbff);
+  border-radius: 16px;
+  border: 1px solid color-mix(in oklab, var(--brand) 10%, var(--line));
+  background: linear-gradient(180deg, color-mix(in oklab, var(--bg-card) 92%, white), color-mix(in oklab, var(--surface) 82%, var(--bg-card)));
 }
 
 .vsPodcastMemoryToggle input {
@@ -2641,13 +2884,13 @@ button.danger:focus-visible {
 
 .vsPodcastMemoryToggle strong {
   display: block;
-  color: #1e293b;
+  color: var(--text);
   font-size: 14px;
 }
 
 .vsPodcastMemoryToggle p {
   margin: 6px 0 0;
-  color: #64748b;
+  color: var(--muted);
   font-size: 13px;
   line-height: 1.5;
 }
@@ -2655,9 +2898,9 @@ button.danger:focus-visible {
 .vsPodcastMemoryResult {
   margin: 14px 0 0;
   padding: 12px 14px;
-  border-radius: 12px;
-  background: #eef6ff;
-  color: #1d4ed8;
+  border-radius: 14px;
+  background: color-mix(in oklab, var(--brand-soft) 72%, var(--bg-card));
+  color: var(--brand-dark);
   font-size: 13px;
   line-height: 1.5;
 }
@@ -2680,13 +2923,13 @@ button.danger:focus-visible {
 }
 
 .vsPodcastIconAction:hover:not(:disabled) {
-  background: #eef2ff;
-  color: #4338ca;
+  background: color-mix(in oklab, var(--brand-soft) 74%, var(--bg-card));
+  color: var(--brand-dark);
 }
 
 .vsPodcastIconAction:focus-visible {
-  background: #eef2ff;
-  color: #4338ca;
+  background: color-mix(in oklab, var(--brand-soft) 74%, var(--bg-card));
+  color: var(--brand-dark);
 }
 
 @keyframes slideDown {
@@ -2721,20 +2964,20 @@ button.danger:focus-visible {
 }
 
 .vsScriptBubble:hover {
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+  box-shadow: var(--shadow-sm);
 }
 
 .vsScriptBubble.roleA {
   align-self: flex-start;
-  background: #fff0f2;
-  border: 1px solid #ffe3e6;
+  background: color-mix(in oklab, var(--accent-soft) 76%, var(--bg-card));
+  border: 1px solid color-mix(in oklab, var(--accent) 12%, var(--line));
   border-bottom-left-radius: 4px;
 }
 
 .vsScriptBubble.roleB {
   align-self: flex-end;
-  background: #eef2ff;
-  border: 1px solid #e0e7ff;
+  background: color-mix(in oklab, var(--brand-soft) 76%, var(--bg-card));
+  border: 1px solid color-mix(in oklab, var(--brand) 10%, var(--line));
   border-bottom-right-radius: 4px;
 }
 
@@ -2759,11 +3002,11 @@ button.danger:focus-visible {
 }
 
 .roleA .vsRoleSelect {
-  color: #e11d48;
+  color: var(--accent-strong);
 }
 
 .roleB .vsRoleSelect {
-  color: #4f46e5;
+  color: var(--brand);
 }
 
 .vsRemoveLineBtn {
@@ -2783,7 +3026,7 @@ button.danger:focus-visible {
 
 .vsRemoveLineBtn:hover {
   background: rgba(0, 0, 0, 0.05);
-  color: #ef4444;
+  color: var(--accent-strong);
 }
 
 .vsScriptBubbleInput {
@@ -2792,7 +3035,7 @@ button.danger:focus-visible {
   width: 100%;
   font-size: 15px;
   line-height: 1.5;
-  color: #1e293b;
+  color: var(--text);
   resize: vertical;
   min-height: 48px;
   padding: 0;
@@ -2815,8 +3058,8 @@ button.danger:focus-visible {
   align-items: center;
   gap: 8px;
   background: transparent;
-  border: 1.5px dashed #cbd5e1;
-  color: #64748b;
+  border: 1.5px dashed color-mix(in oklab, var(--accent) 18%, var(--line));
+  color: var(--muted);
   padding: 10px 24px;
   border-radius: 20px;
   font-size: 14px;
@@ -2826,9 +3069,9 @@ button.danger:focus-visible {
 }
 
 .vsAddLineBtn:hover {
-  border-color: #8b5cf6;
-  color: #8b5cf6;
-  background: #f5f3ff;
+  border-color: color-mix(in oklab, var(--accent) 28%, var(--line));
+  color: var(--accent-strong);
+  background: color-mix(in oklab, var(--accent-soft) 70%, var(--bg-card));
 }
 
 .vsBtnGlyph {
@@ -2844,10 +3087,10 @@ button.danger:focus-visible {
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  background: #f8fafc;
+  background: color-mix(in oklab, var(--surface) 84%, var(--bg-card));
   padding: 16px 20px;
-  border-radius: 12px;
-  border: 1px solid #e2e8f0;
+  border-radius: 16px;
+  border: 1px solid color-mix(in oklab, var(--accent) 10%, var(--line));
   gap: 16px;
   position: sticky;
   bottom: 12px;
@@ -2873,7 +3116,7 @@ button.danger:focus-visible {
   align-items: center;
   gap: 8px;
   margin: 0;
-  color: #334155;
+  color: var(--text);
   font-weight: 600;
 }
 
@@ -2882,8 +3125,8 @@ button.danger:focus-visible {
 }
 
 .vsSynthVoiceSelect select:focus-visible {
-  border-color: #10b981;
-  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.12);
+  border-color: color-mix(in oklab, var(--brand) 22%, var(--line));
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--brand-soft) 86%, transparent);
 }
 
 .vsSynthBarActions {
@@ -2895,7 +3138,7 @@ button.danger:focus-visible {
 
 .vsSynthBarAdvanced {
   padding-top: 4px;
-  border-top: 1px solid #e2e8f0;
+  border-top: 1px solid color-mix(in oklab, var(--accent) 8%, var(--line));
 }
 
 .roleIndicator {
@@ -2911,46 +3154,45 @@ button.danger:focus-visible {
 }
 
 .roleIndicator.rose {
-  background: #e11d48;
+  background: var(--accent-strong);
 }
 
 .roleIndicator.blue {
-  background: #4f46e5;
+  background: var(--brand);
 }
 
 .roleIndicator.roleA {
-  background: #e11d48;
+  background: var(--accent-strong);
 }
 
 .roleIndicator.roleB {
-  background: #4f46e5;
+  background: var(--brand);
 }
 
 .vsSynthesizeTriggerBtn {
-  background: #10b981;
-  color: white;
+  background: linear-gradient(160deg, var(--brand), color-mix(in oklab, var(--brand-dark) 82%, var(--accent)));
+  color: var(--bg-card);
   border: none;
   padding: 0 24px;
   height: 44px;
-  border-radius: 10px;
+  border-radius: 14px;
   font-weight: 600;
   font-size: 15px;
   cursor: pointer;
-  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.2);
+  box-shadow: 0 12px 24px color-mix(in oklab, var(--brand-dark) 20%, transparent);
   transition: transform 0.1s, box-shadow 0.2s, background 0.2s;
   white-space: nowrap;
 }
 
 .vsSynthesizeTriggerBtn:hover:not(:disabled) {
-  background: #059669;
   transform: translateY(-1px);
-  box-shadow: 0 6px 16px rgba(16, 185, 129, 0.3);
+  box-shadow: 0 16px 30px color-mix(in oklab, var(--brand-dark) 26%, transparent);
 }
 
 .vsSynthesizeTriggerBtn:focus-visible {
   box-shadow:
-    0 0 0 3px rgba(16, 185, 129, 0.16),
-    0 6px 16px rgba(16, 185, 129, 0.24);
+    0 0 0 3px color-mix(in oklab, var(--brand-soft) 86%, transparent),
+    0 6px 16px color-mix(in oklab, var(--brand-dark) 20%, transparent);
 }
 
 .vsSynthesizeTriggerBtn:active:not(:disabled) {
@@ -2977,9 +3219,9 @@ button.danger:focus-visible {
   display: grid;
   place-items: center;
   background:
-    radial-gradient(circle at top, rgba(129, 140, 248, 0.16), transparent 42%),
-    linear-gradient(180deg, #f8fafc, #f1f5f9);
-  color: #94a3b8;
+    radial-gradient(circle at top, color-mix(in oklab, var(--accent-soft) 50%, transparent), transparent 42%),
+    linear-gradient(180deg, color-mix(in oklab, var(--surface) 88%, var(--bg-card)), color-mix(in oklab, var(--surface) 76%, var(--bg-card)));
+  color: var(--text-soft);
   font-size: 48px;
 }
 
@@ -3683,6 +3925,8 @@ button.danger:focus-visible {
   display: block;
   background: var(--bg-primary);
   position: relative;
+  min-height: 0;
+  height: 100%;
 }
 
 .vsContentMaxContainer {
@@ -3741,40 +3985,102 @@ button.danger:focus-visible {
   display: flex;
   flex-direction: column;
   height: 100%;
-  background: var(--bg-card);
-  border-radius: 20px;
-  border: 1px solid var(--border-color);
+  background: linear-gradient(180deg, rgba(251, 247, 240, 0.96), rgba(245, 238, 228, 0.98));
+  border-radius: 24px;
+  border: 1px solid rgba(98, 76, 54, 0.1);
   overflow: hidden;
-  box-shadow: var(--shadow-sm);
+  box-shadow: 0 18px 40px rgba(56, 41, 27, 0.08);
 }
 
 .vsVoiceCenterNav {
   display: flex;
   align-items: center;
-  gap: 4px;
-  padding: 8px;
-  background: var(--bg-secondary);
-  border-bottom: 1px solid var(--border-color);
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 14px 16px;
+  background: rgba(255, 251, 245, 0.84);
+  border-bottom: 1px solid rgba(98, 76, 54, 0.08);
 }
 
 .vsVoiceSubTab {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 10px 16px;
-  border-radius: 12px;
-  font-size: 14px;
-  font-weight: 500;
-  color: var(--text-secondary);
-  background: transparent;
-  border: 1px solid transparent;
+  min-height: 40px;
+  padding: 0 16px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #73675d;
+  background: rgba(255, 252, 247, 0.6);
+  border: 1px solid rgba(98, 76, 54, 0.08);
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all 0.2s ease;
+}
+
+.vsVoiceSubTab:hover {
+  background: rgba(255, 255, 255, 0.92);
+  color: #3d342d;
+  border-color: rgba(98, 76, 54, 0.14);
 }
 
 .vsVoiceSubTab.active {
-  background: var(--bg-card);
+  background: #fffdf8;
   color: var(--brand-dark);
-  border-color: var(--border-color);
-  box-shadow: var(--shadow-sm);
+  border-color: rgba(98, 76, 54, 0.12);
+  box-shadow: 0 10px 20px rgba(56, 41, 27, 0.08);
+}
+
+.vsVoiceCenterContent {
+  flex: 1;
+  min-height: 0;
+  padding: 12px;
+  background:
+    radial-gradient(circle at top right, rgba(176, 106, 63, 0.08), transparent 28%),
+    linear-gradient(180deg, rgba(248, 242, 234, 0.82), rgba(243, 235, 224, 0.94));
+}
+
+.vsVoiceCenterScroll {
+  height: 100%;
+  overflow: auto;
+}
+
+.vsVoiceSubContent {
+  min-height: 100%;
+  border-radius: 20px;
+  overflow: hidden;
+}
+
+.vsVoiceSubContent > .vsTtsWorkspace {
+  border: 0;
+  border-radius: 20px;
+  box-shadow: none;
+}
+
+.vsVoiceSubContent > .vsTtsWorkspace,
+.vsVoiceSubContent > .vsTtsWorkspace .vsTtsLayout {
+  background: transparent;
+}
+
+.vsVoiceSubContent > .vsTtsWorkspace .vsTtsPrimaryHeader {
+  background: rgba(255, 251, 245, 0.92);
+}
+
+.vsVoiceSubContent > .vsTtsWorkspace .vsTtsSecondary {
+  background: rgba(239, 230, 217, 0.72);
+}
+
+@media (max-width: 900px) {
+  .vsVoiceCenterNav {
+    padding: 12px;
+  }
+
+  .vsVoiceSubTab {
+    flex: 1 1 calc(50% - 8px);
+    justify-content: center;
+  }
+
+  .vsVoiceCenterContent {
+    padding: 10px;
+  }
 }

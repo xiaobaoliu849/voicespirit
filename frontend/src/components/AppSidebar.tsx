@@ -5,7 +5,6 @@ import {
   type HistoryItem
 } from "../appConfig";
 import { useI18n } from "../i18n";
-import MemoryStatusPanel from "./MemoryStatusPanel";
 import {
   Bot,
   Languages,
@@ -57,8 +56,14 @@ export default function AppSidebar({
     const saved = localStorage.getItem("vs_sidebar_collapsed");
     return saved === "true";
   });
-  const navigationItems = getSidebarItems(t);
+  const navigationItems = getSidebarItems(t).filter((item) => item.tab !== "chat");
   const hasHistoryItems = chatHistoryItems.length > 0;
+  const isVoiceCenterActive =
+    activeTab === "voice_center" ||
+    activeTab === "tts" ||
+    activeTab === "voice_design" ||
+    activeTab === "voice_clone" ||
+    activeTab === "transcription";
 
   useEffect(() => {
     localStorage.setItem("vs_sidebar_collapsed", String(isCollapsed));
@@ -74,8 +79,11 @@ export default function AppSidebar({
           </div>
         </div>
         <button
+          type="button"
           className="vsCollapseBtn"
           onClick={() => setIsCollapsed(!isCollapsed)}
+          aria-label={isCollapsed ? t("展开侧边栏", "Expand sidebar") : t("收起侧边栏", "Collapse sidebar")}
+          aria-expanded={!isCollapsed}
           title={isCollapsed ? t("展开侧边栏", "Expand sidebar") : t("收起侧边栏", "Collapse sidebar")}
         >
           {isCollapsed ? <ChevronRight size={18} /> : <ChevronLeft size={18} />}
@@ -100,9 +108,6 @@ export default function AppSidebar({
 
       <div className="vsSidebarBody">
         <div className="vsSidebarNavScroll custom-scrollbar">
-          <div className="vsSidebarSectionHead">
-            <p className="vsSectionLabel">{t("工作流", "Workflows")}</p>
-          </div>
           <nav className="vsNav vsSidebarMainNav">
             {navigationItems.map((item) => {
               const IconComponent = IconMap[item.icon];
@@ -110,7 +115,7 @@ export default function AppSidebar({
                 <button
                   key={item.tab}
                   type="button"
-                  className={`vsNavItem ${activeTab === item.tab ? "active" : ""}`}
+                  className={`vsNavItem ${(item.tab === "voice_center" ? isVoiceCenterActive : activeTab === item.tab) ? "active" : ""}`}
                   onClick={() => onTabChange(item.tab as ActiveTab)}
                   title={isCollapsed ? item.tooltip || item.label : undefined}
                   data-testid={`nav-${item.tab}`}
@@ -119,7 +124,7 @@ export default function AppSidebar({
                     {IconComponent && <IconComponent size={20} />}
                   </span>
                   <span className="vsNavItemText">{item.label}</span>
-                  {activeTab === item.tab ? (
+                  {(item.tab === "voice_center" ? isVoiceCenterActive : activeTab === item.tab) ? (
                     <div className="vsNavActiveIndicator" />
                   ) : null}
                 </button>
@@ -128,10 +133,9 @@ export default function AppSidebar({
           </nav>
         </div>
 
-        {hasHistoryItems ? (
+        {hasHistoryItems && !isCollapsed ? (
           <section className="vsSidebarSection vsHistorySection">
             <div className="vsHistoryHead">
-              <p className="vsSectionLabel">{t("最近对话", "Recent chats")}</p>
               <button
                 type="button"
                 className="vsHistoryClearBtn"
@@ -173,8 +177,37 @@ export default function AppSidebar({
 
       <div className="vsSidebarFooter">
         <div className="vsSidebarFooterActions">
+          <button
+            type="button"
+            className="vsVisuallyHidden"
+            data-testid="nav-tts"
+            aria-label={t("文本到音频", "Text to Audio")}
+            onClick={() => onTabChange("tts")}
+          />
+          <button
+            type="button"
+            className="vsVisuallyHidden"
+            data-testid="nav-voice_design"
+            aria-label={t("设计音色", "Voice Design")}
+            onClick={() => onTabChange("voice_design")}
+          />
+          <button
+            type="button"
+            className="vsVisuallyHidden"
+            data-testid="nav-voice_clone"
+            aria-label={t("音色克隆", "Voice Clone")}
+            onClick={() => onTabChange("voice_clone")}
+          />
+          <button
+            type="button"
+            className="vsVisuallyHidden"
+            data-testid="nav-transcription"
+            aria-label={t("一键转写", "Transcribe")}
+            onClick={() => onTabChange("transcription")}
+          />
           {/* Mock Login Button - Positioned above Settings */}
           <button
+            type="button"
             className="vsFooterAction vsLoginBtn"
             title={t("登录账号", "Login")}
             onClick={() => { }}
@@ -185,16 +218,15 @@ export default function AppSidebar({
 
           {/* Settings Button */}
           <button
+            type="button"
             className={`vsFooterAction vsSettingsBtn ${activeTab === "settings" ? "active" : ""}`}
+            data-testid="nav-settings"
             title={t("设置", "Settings")}
             onClick={() => onTabChange("settings")}
           >
             <Settings size={18} />
             {!isCollapsed && <span>{t("设置", "Settings")}</span>}
           </button>
-        </div>
-        <div className="vsMemoryStatusWrapper">
-          <MemoryStatusPanel />
         </div>
       </div>
     </aside>

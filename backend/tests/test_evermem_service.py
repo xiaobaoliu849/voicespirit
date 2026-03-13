@@ -34,6 +34,56 @@ class EverMemServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(kwargs["json"]["sender"], "scope-main")
         self.assertEqual(kwargs["headers"]["Authorization"], "Bearer test-key")
 
+    async def test_add_memory_includes_group_id_when_present(self) -> None:
+        service = EverMemService(api_url="https://memory.example.com", api_key="test-key")
+
+        response = Mock()
+        response.raise_for_status.return_value = None
+        post = AsyncMock(return_value=response)
+
+        with patch("services.evermem_service.httpx.AsyncClient") as client_cls:
+            client = AsyncMock()
+            client.__aenter__.return_value = client
+            client.__aexit__.return_value = None
+            client.post = post
+            client_cls.return_value = client
+
+            await service.add_memory(
+                content="remember this",
+                user_id="scope-main",
+                sender_name="VoiceSpirit",
+                group_id="group-chat-001",
+            )
+
+        _, kwargs = post.call_args
+        self.assertEqual(kwargs["json"]["group_id"], "group-chat-001")
+
+    async def test_create_conversation_meta_uses_scope_and_returns_result(self) -> None:
+        service = EverMemService(api_url="https://memory.example.com", api_key="test-key")
+
+        response = Mock()
+        response.raise_for_status.return_value = None
+        response.json.return_value = {
+            "result": {
+                "group_id": "group-chat-001",
+                "user_id": "scope-main",
+            }
+        }
+        post = AsyncMock(return_value=response)
+
+        with patch("services.evermem_service.httpx.AsyncClient") as client_cls:
+            client = AsyncMock()
+            client.__aenter__.return_value = client
+            client.__aexit__.return_value = None
+            client.post = post
+            client_cls.return_value = client
+
+            result = await service.create_conversation_meta(user_id="scope-main")
+
+        self.assertEqual(result, {"group_id": "group-chat-001", "user_id": "scope-main"})
+        _, kwargs = post.call_args
+        self.assertEqual(kwargs["json"]["user_id"], "scope-main")
+
     async def test_search_memories_includes_pending_messages(self) -> None:
         service = EverMemService(api_url="https://memory.example.com", api_key="test-key")
 
@@ -68,6 +118,30 @@ class EverMemServiceTests(unittest.IsolatedAsyncioTestCase):
         _, kwargs = get.call_args
         self.assertEqual(kwargs["params"]["user_id"], "scope-main")
         self.assertEqual(kwargs["params"]["memory_types"], ["episodic_memory", "profile"])
+
+    async def test_search_memories_passes_group_ids(self) -> None:
+        service = EverMemService(api_url="https://memory.example.com", api_key="test-key")
+
+        response = Mock()
+        response.status_code = 200
+        response.json.return_value = {"result": {"profiles": [], "memories": [], "pending_messages": []}}
+        get = AsyncMock(return_value=response)
+
+        with patch("services.evermem_service.httpx.AsyncClient") as client_cls:
+            client = AsyncMock()
+            client.__aenter__.return_value = client
+            client.__aexit__.return_value = None
+            client.get = get
+            client_cls.return_value = client
+
+            await service.search_memories(
+                query="继续昨天的任务",
+                user_id="scope-main",
+                group_ids=["group-chat-001"],
+            )
+
+        _, kwargs = get.call_args
+        self.assertEqual(kwargs["params"]["group_ids"], ["group-chat-001"])
 
 
 if __name__ == "__main__":

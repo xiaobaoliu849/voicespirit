@@ -8,6 +8,7 @@ import {
 import { AudioDropZone } from "../components/AudioDropZone";
 import ErrorNotice from "../components/ErrorNotice";
 import { useTranscriptionHistory } from "../hooks/useTranscriptionHistory";
+import { useI18n } from "../i18n";
 
 const ASYNC_POLL_INTERVAL_MS = 2500;
 const LARGE_FILE_RECOMMENDATION_BYTES = 25 * 1024 * 1024;
@@ -17,32 +18,36 @@ function isPollingStatus(status: string | null | undefined): boolean {
   return status === "submitted" || status === "running";
 }
 
-function buildJobStatusText(job: TranscriptionJobResponse): string {
+function buildJobStatusText(
+  job: TranscriptionJobResponse,
+  t: (zh: string, en: string) => string
+): string {
   if (job.status === "completed") {
     return job.memory_saved
-      ? "异步转写完成，摘要已写入长期记忆。"
-      : "异步转写完成。";
+      ? t("异步转写完成，摘要已写入长期记忆。", "Async transcription completed and the summary was saved to long-term memory.")
+      : t("异步转写完成。", "Async transcription completed.");
   }
   if (job.status === "failed") {
-    return job.error || "异步转写失败。";
+    return job.error || t("异步转写失败。", "Async transcription failed.");
   }
   if (job.status === "running") {
-    return `远端任务运行中，正在拉取结果… (${job.job_id})`;
+    return t(`远端任务运行中，正在拉取结果… (${job.job_id})`, `Remote job is running. Fetching results... (${job.job_id})`);
   }
   if (job.status === "submitted") {
-    return `远端任务已提交，正在轮询状态… (${job.job_id})`;
+    return t(`远端任务已提交，正在轮询状态… (${job.job_id})`, `Remote job submitted. Polling status... (${job.job_id})`);
   }
   if (job.status === "uploaded") {
-    return job.error || "文件已接收，等待后续处理。";
+    return job.error || t("文件已接收，等待后续处理。", "File received. Waiting for further processing.");
   }
-  return `任务状态: ${job.status}`;
+  return t(`任务状态: ${job.status}`, `Job status: ${job.status}`);
 }
 
 export const TranscriptionPage: React.FC = () => {
+  const { t, language } = useI18n();
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [remoteUrl, setRemoteUrl] = useState("");
   const [transcript, setTranscript] = useState("");
-  const [statusMessage, setStatusMessage] = useState("等待上传或输入远端音频地址…");
+  const [statusMessage, setStatusMessage] = useState(t("等待上传或输入远端音频地址…", "Waiting for a local upload or remote audio URL..."));
   const [job, setJob] = useState<TranscriptionJobResponse | null>(null);
   const [memorySaved, setMemorySaved] = useState(false);
   const [isSyncBusy, setIsSyncBusy] = useState(false);
@@ -67,7 +72,7 @@ export const TranscriptionPage: React.FC = () => {
         }
         setJob(nextJob);
         addOrUpdateJob(nextJob);
-        setStatusMessage(buildJobStatusText(nextJob));
+        setStatusMessage(buildJobStatusText(nextJob, t));
         setMemorySaved(Boolean(nextJob.memory_saved));
         if (nextJob.transcript) {
           setTranscript(nextJob.transcript);
@@ -76,8 +81,8 @@ export const TranscriptionPage: React.FC = () => {
         if (cancelled) {
           return;
         }
-        setError(err instanceof Error ? err : new Error("转写任务刷新失败。"));
-        setStatusMessage("异步任务刷新失败。");
+        setError(err instanceof Error ? err : new Error(t("转写任务刷新失败。", "Failed to refresh transcription job.")));
+        setStatusMessage(t("异步任务刷新失败。", "Async job refresh failed."));
       }
     }, ASYNC_POLL_INTERVAL_MS);
 
@@ -85,7 +90,7 @@ export const TranscriptionPage: React.FC = () => {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [job, addOrUpdateJob]);
+  }, [job, addOrUpdateJob, t]);
 
   function resetRunState() {
     setError(null);
@@ -99,7 +104,7 @@ export const TranscriptionPage: React.FC = () => {
     setJob(null);
     setError(null);
     setInfoMessage("");
-    setStatusMessage(`已选择本地音频: ${file.name}`);
+    setStatusMessage(t(`已选择本地音频: ${file.name}`, `Selected local audio: ${file.name}`));
   }
 
   function handleRemoteUrlChange(event: React.ChangeEvent<HTMLInputElement>) {
@@ -116,7 +121,7 @@ export const TranscriptionPage: React.FC = () => {
     resetRunState();
     setJob(null);
     setIsSyncBusy(true);
-    setStatusMessage("正在上传并同步转写本地音频…");
+    setStatusMessage(t("正在上传并同步转写本地音频…", "Uploading and transcribing local audio..."));
 
     try {
       const result = await transcribeAudio(selectedFile);
@@ -137,14 +142,16 @@ export const TranscriptionPage: React.FC = () => {
       addOrUpdateJob(mockJob);
 
       setStatusMessage(
-        result.memory_saved ? "同步转写完成，摘要已写入长期记忆。" : "同步转写完成。"
+        result.memory_saved
+          ? t("同步转写完成，摘要已写入长期记忆。", "Synchronous transcription completed and the summary was saved to long-term memory.")
+          : t("同步转写完成。", "Synchronous transcription completed.")
       );
       if (selectedFile.size >= LARGE_FILE_RECOMMENDATION_BYTES) {
-        setInfoMessage("本地大文件更适合走链式异步任务，稳定性会更高。");
+        setInfoMessage(t("本地大文件更适合走链式异步任务，稳定性会更高。", "Large local files are better suited for the async pipeline for improved reliability."));
       }
     } catch (err) {
-      setError(err instanceof Error ? err : new Error("本地音频转写失败。"));
-      setStatusMessage("同步转写失败。");
+      setError(err instanceof Error ? err : new Error(t("本地音频转写失败。", "Local audio transcription failed.")));
+      setStatusMessage(t("同步转写失败。", "Synchronous transcription failed."));
     } finally {
       setIsSyncBusy(false);
     }
@@ -159,20 +166,20 @@ export const TranscriptionPage: React.FC = () => {
     resetRunState();
     setSelectedFile(null);
     setIsAsyncBusy(true);
-    setStatusMessage("正在创建远端异步转写任务…");
+    setStatusMessage(t("正在创建远端异步转写任务…", "Creating remote async transcription job..."));
 
     try {
       const createdJob = await createTranscriptionJobFromUrl(normalizedUrl);
       setJob(createdJob);
       addOrUpdateJob(createdJob);
-      setStatusMessage(buildJobStatusText(createdJob));
+      setStatusMessage(buildJobStatusText(createdJob, t));
       setMemorySaved(Boolean(createdJob.memory_saved));
       if (createdJob.transcript) {
         setTranscript(createdJob.transcript);
       }
     } catch (err) {
-      setError(err instanceof Error ? err : new Error("远端异步任务创建失败。"));
-      setStatusMessage("异步任务创建失败。");
+      setError(err instanceof Error ? err : new Error(t("远端异步任务创建失败。", "Failed to create remote async job.")));
+      setStatusMessage(t("异步任务创建失败。", "Async job creation failed."));
     } finally {
       setIsAsyncBusy(false);
     }
@@ -184,9 +191,9 @@ export const TranscriptionPage: React.FC = () => {
     }
     try {
       await navigator.clipboard.writeText(transcript);
-      setInfoMessage("转写文本已复制到剪贴板。");
+      setInfoMessage(t("转写文本已复制到剪贴板。", "Transcript copied to clipboard."));
     } catch {
-      setInfoMessage("复制失败，请手动复制。");
+      setInfoMessage(t("复制失败，请手动复制。", "Copy failed. Please copy it manually."));
     }
   }
 
@@ -201,11 +208,11 @@ export const TranscriptionPage: React.FC = () => {
     anchor.download = "transcript.txt";
     anchor.click();
     URL.revokeObjectURL(url);
-    setInfoMessage("转写文本已导出为 transcript.txt。");
+    setInfoMessage(t("转写文本已导出为 transcript.txt。", "Transcript exported as transcript.txt."));
   }
 
   function handleReservedAction(action: string) {
-    setInfoMessage(`${action} 即将开放，当前版本先保留入口。`);
+    setInfoMessage(t(`${action} 即将开放，当前版本先保留入口。`, `${action} is coming soon. The entry is reserved for now.`));
   }
 
   const isBusy = isSyncBusy || isAsyncBusy || isPollingStatus(job?.status);
@@ -223,20 +230,20 @@ export const TranscriptionPage: React.FC = () => {
                   className={inputMode === "local" ? "vsBtnPrimary" : "vsBtnSecondary"}
                   onClick={() => setInputMode("local")}
                 >
-                  本地音频
+                  {t("本地音频", "Local audio")}
                 </button>
                 <button
                   type="button"
                   className={inputMode === "remote" ? "vsBtnPrimary" : "vsBtnSecondary"}
                   onClick={() => setInputMode("remote")}
                 >
-                  链式转写
+                  {t("链式转写", "Async pipeline")}
                 </button>
               </div>
-              <h2 className="vsTtsPrimaryTitle">转写控制台</h2>
+              <h2 className="vsTtsPrimaryTitle">{t("转写控制台", "Transcription console")}</h2>
             </div>
             <div className="vsTtsPrimaryStats">
-              <span>{inputMode === "local" ? "本地同步流" : "异步任务流"}</span>
+              <span>{inputMode === "local" ? t("本地同步流", "Local sync flow") : t("异步任务流", "Async job flow")}</span>
             </div>
           </header>
 
@@ -247,10 +254,10 @@ export const TranscriptionPage: React.FC = () => {
               <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
                 <div>
                   <h3 style={{ fontSize: "16px", fontWeight: "600", color: "var(--text)", margin: 0 }}>
-                    上传音频
+                    {t("上传音频", "Upload audio")}
                   </h3>
                   <p style={{ fontSize: "12px", color: "var(--muted)", marginTop: "4px" }}>
-                    适合短音频、语音备忘和快速验证。限制 25MB。
+                    {t("适合短音频、语音备忘和快速验证。限制 25MB。", "Best for short clips, voice notes, and quick validation. Limit 25MB.")}
                   </p>
                 </div>
 
@@ -258,9 +265,9 @@ export const TranscriptionPage: React.FC = () => {
                   onFileDrop={handleFileDrop}
                   selectedFile={selectedFile}
                   isProcessing={isBusy}
-                  inputLabel="选择转写音频"
-                  readyText="已选中，可开始同步转写"
-                  subText="支持 MP3, WAV, M4A, FLAC, AAC, OGG"
+                  inputLabel={t("选择转写音频", "Choose transcription audio")}
+                  readyText={t("已选中，可开始同步转写", "Selected. Ready for synchronous transcription")}
+                  subText={t("支持 MP3, WAV, M4A, FLAC, AAC, OGG", "Supports MP3, WAV, M4A, FLAC, AAC, OGG")}
                 />
 
                 <button
@@ -271,10 +278,10 @@ export const TranscriptionPage: React.FC = () => {
                 >
                   {isSyncBusy ? (
                     <>
-                      <span className="spinner-mini"></span> 转写中…
+                      <span className="spinner-mini"></span> {t("转写中…", "Transcribing...")}
                     </>
                   ) : (
-                    "开始同步转写"
+                    t("开始同步转写", "Start sync transcription")
                   )}
                 </button>
               </div>
@@ -282,10 +289,10 @@ export const TranscriptionPage: React.FC = () => {
               <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
                 <div>
                   <h3 style={{ fontSize: "16px", fontWeight: "600", color: "var(--text)", margin: 0 }}>
-                    输入文件 URL
+                    {t("输入文件 URL", "Enter file URL")}
                   </h3>
                   <p style={{ fontSize: "12px", color: "var(--muted)", marginTop: "4px" }}>
-                    适合长音频。支持公网可访问的 http/https/oss 地址。
+                    {t("适合长音频。支持公网可访问的 http/https/oss 地址。", "Best for long audio. Supports public http/https/oss URLs.")}
                   </p>
                 </div>
 
@@ -302,7 +309,7 @@ export const TranscriptionPage: React.FC = () => {
                 </div>
 
                 <div style={{ padding: "12px 16px", background: "var(--panel)", borderRadius: "12px", border: "1px dashed var(--line)", fontSize: "12px", color: "var(--muted)", lineHeight: "1.6" }}>
-                  系统将创建异步任务并自动轮询状态。完成后可在此处或历史记录中查看结果。
+                  {t("系统将创建异步任务并自动轮询状态。完成后可在此处或历史记录中查看结果。", "The system will create an async job and poll automatically. Results will be available here and in history when finished.")}
                 </div>
 
                 <button
@@ -313,10 +320,10 @@ export const TranscriptionPage: React.FC = () => {
                 >
                   {isAsyncBusy || isPollingStatus(job?.status) ? (
                     <>
-                      <span className="spinner-mini"></span> 任务处理中…
+                      <span className="spinner-mini"></span> {t("任务处理中…", "Processing job...")}
                     </>
                   ) : (
-                    "提交异步任务"
+                    t("提交异步任务", "Submit async job")
                   )}
                 </button>
               </div>
@@ -325,24 +332,24 @@ export const TranscriptionPage: React.FC = () => {
             <div style={{ marginTop: "32px", paddingTop: "24px", borderTop: "1px solid var(--line)" }}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "16px" }}>
                 <h3 style={{ fontSize: "12px", fontWeight: "700", color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.05em", margin: 0 }}>
-                  最近记录
+                  {t("最近记录", "Recent jobs")}
                 </h3>
                 <button
                   onClick={() => refreshHistory()}
                   className="vsBtnGhost"
                   style={{ fontSize: "11px", padding: "4px 8px" }}
                 >
-                  刷新列表
+                  {t("刷新列表", "Refresh list")}
                 </button>
               </div>
 
               {historyBusy && history.length === 0 ? (
                 <div style={{ textAlign: "center", padding: "32px 0", color: "var(--muted)", fontSize: "14px", fontStyle: "italic" }}>
-                  加载历史记录中…
+                  {t("加载历史记录中…", "Loading history...")}
                 </div>
               ) : history.length === 0 ? (
                 <div style={{ textAlign: "center", padding: "32px 0", color: "var(--muted)", fontSize: "14px", fontStyle: "italic" }}>
-                  暂无转写记录
+                  {t("暂无转写记录", "No transcription history yet")}
                 </div>
               ) : (
                 <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
@@ -357,14 +364,14 @@ export const TranscriptionPage: React.FC = () => {
                           fetchTranscriptionJob(item.job_id).then(j => {
                             setJob(j);
                             if (j.transcript) setTranscript(j.transcript);
-                            setStatusMessage(buildJobStatusText(j));
+                            setStatusMessage(buildJobStatusText(j, t));
                           });
                         }
                       }}
                     >
                       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                         <span style={{ fontSize: "14px", fontWeight: "600", color: "var(--text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, paddingRight: "8px" }}>
-                          {item.file_name || "未知文件"}
+                          {item.file_name || t("未知文件", "Unknown file")}
                         </span>
                         <span style={{
                           fontSize: "10px",
@@ -380,11 +387,13 @@ export const TranscriptionPage: React.FC = () => {
                       </div>
                       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: "6px" }}>
                         <span style={{ fontSize: "11px", color: "var(--muted)" }}>
-                          {item.updated_at ? new Date(item.updated_at).toLocaleString() : "未知时间"}
+                          {item.updated_at
+                            ? new Date(item.updated_at).toLocaleString(language === "en-US" ? "en-US" : "zh-CN")
+                            : t("未知时间", "Unknown time")}
                         </span>
                         {item.has_transcript && (
                           <span style={{ fontSize: "11px", fontWeight: "600", color: "var(--brand)" }}>
-                            载入结果
+                            {t("载入结果", "Load result")}
                           </span>
                         )}
                       </div>
@@ -400,7 +409,7 @@ export const TranscriptionPage: React.FC = () => {
         <div className="vsTtsSecondary">
           <div className="vsCardSection" style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "16px" }}>
-              <h3 className="vsCardSubTitle" style={{ margin: 0 }}>转写结果</h3>
+              <h3 className="vsCardSubTitle" style={{ margin: 0 }}>{t("转写结果", "Transcription result")}</h3>
               <div style={{ display: "flex", gap: "8px" }}>
                 <button
                   onClick={handleCopy}
@@ -408,7 +417,7 @@ export const TranscriptionPage: React.FC = () => {
                   className="vsBtnSecondary"
                   style={{ height: "30px", fontSize: "12px", padding: "0 12px" }}
                 >
-                  复制
+                  {t("复制", "Copy")}
                 </button>
                 <button
                   onClick={handleExport}
@@ -416,7 +425,7 @@ export const TranscriptionPage: React.FC = () => {
                   className="vsBtnSecondary"
                   style={{ height: "30px", fontSize: "12px", padding: "0 12px" }}
                 >
-                  导出
+                  {t("导出", "Export")}
                 </button>
               </div>
             </div>
@@ -425,7 +434,7 @@ export const TranscriptionPage: React.FC = () => {
               <textarea
                 value={transcript}
                 readOnly
-                placeholder="结果将在这里实时流式填充或在完成后载入…"
+                placeholder={t("结果将在这里实时流式填充或在完成后载入…", "Results will stream here in real time or load once finished...")}
                 className="vsTtsEditor custom-scrollbar"
                 style={{
                   padding: "0",
@@ -439,7 +448,7 @@ export const TranscriptionPage: React.FC = () => {
                 <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", color: "var(--muted)", pointerEvents: "none", opacity: 0.5 }}>
                   <div style={{ fontSize: "40px", marginBottom: "16px" }}>✍️</div>
                   <p style={{ fontSize: "14px", margin: 0, padding: "0 20px", textAlign: "center" }}>
-                    等待上传或输入远端音频地址以开始转写
+                    {t("等待上传或输入远端音频地址以开始转写", "Upload a file or enter a remote audio URL to start transcription")}
                   </p>
                 </div>
               )}
@@ -447,7 +456,7 @@ export const TranscriptionPage: React.FC = () => {
           </div>
 
           <div className="vsCardSection border-top">
-            <h3 className="vsCardSubTitle">任务状态及后续</h3>
+            <h3 className="vsCardSubTitle">{t("任务状态及后续", "Job status and next steps")}</h3>
 
             <div style={{ display: "flex", alignItems: "center", gap: "10px", padding: "12px", background: "var(--panel)", borderRadius: "12px", border: "1px solid var(--line)", marginBottom: "16px" }}>
               <div style={{ width: "10px", height: "10px", borderRadius: "50%", background: isBusy ? "var(--brand)" : transcript ? "#10b981" : "var(--muted)", animation: isBusy ? "pulse 2s infinite" : "none" }} />
@@ -458,7 +467,7 @@ export const TranscriptionPage: React.FC = () => {
               </div>
               {memorySaved && (
                 <span style={{ fontSize: "10px", fontWeight: "700", background: "#10b981", color: "#fff", padding: "2px 6px", borderRadius: "999px" }}>
-                  已入记忆
+                  {t("已入记忆", "Saved to memory")}
                 </span>
               )}
             </div>
@@ -470,9 +479,13 @@ export const TranscriptionPage: React.FC = () => {
             )}
 
             <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-              <span style={{ fontSize: "11px", fontWeight: "700", color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.05em" }}>工具箱 (后续动作)</span>
+              <span style={{ fontSize: "11px", fontWeight: "700", color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.05em" }}>{t("工具箱 (后续动作)", "Toolbox (next actions)")}</span>
               <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
-                {["发送到聊天", "生成摘要", "生成播客脚本"].map((action) => (
+                {[
+                  t("发送到聊天", "Send to chat"),
+                  t("生成摘要", "Generate summary"),
+                  t("生成播客脚本", "Generate podcast script")
+                ].map((action) => (
                   <button
                     key={action}
                     onClick={() => handleReservedAction(action)}

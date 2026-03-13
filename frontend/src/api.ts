@@ -41,6 +41,11 @@ export type ChatResponse = {
   raw: Record<string, unknown>;
 };
 
+export type EverMemConversationMetaResponse = {
+  group_id: string;
+  user_id?: string;
+};
+
 type StreamEventHandlers = {
   onDelta: (chunk: string) => void;
   onDone?: (meta?: { memoriesRetrieved: number; memorySaved: boolean }) => void;
@@ -246,7 +251,7 @@ export type TranscriptionJobListResponse = {
 
 export type VoiceChatServerEvent =
   | { type: "session_open"; provider: string; model: string; voice: string }
-  | { type: "memory_config"; enabled: boolean; scope: string }
+  | { type: "memory_config"; enabled: boolean; scope: string; group_id?: string }
   | {
       type: "memory_context";
       memories_retrieved: number;
@@ -298,6 +303,8 @@ const EVERMEM_REMEMBER_PODCAST_STORAGE_KEY = "evermem_remember_podcast";
 const EVERMEM_REMEMBER_TTS_STORAGE_KEY = "evermem_remember_tts";
 const EVERMEM_STORE_TRANSCRIPT_FULLTEXT_STORAGE_KEY = "evermem_store_transcript_fulltext";
 const EVERMEM_LEGACY_KEY_STORAGE_KEY = "evermem_key";
+const EVERMEM_CHAT_GROUP_ID_STORAGE_KEY = "evermem_chat_group_id";
+const EVERMEM_VOICE_CHAT_GROUP_ID_STORAGE_KEY = "evermem_voice_chat_group_id";
 
 let evermemRuntimeKey = "";
 
@@ -387,15 +394,25 @@ export function getEverMemRuntimeConfig() {
 }
 
 export type EverMemScene = "chat" | "voice_chat" | "transcription" | "podcast" | "tts";
+type EverMemConversationScene = Extract<EverMemScene, "chat" | "voice_chat">;
 
 type EverMemSceneConfig = {
   enabled: true;
   api_url: string;
   api_key?: string;
   scope_id?: string;
+  group_id?: string;
 };
 
-function buildEverMemSceneConfig(useMemory: boolean, scene?: EverMemScene): EverMemSceneConfig | null {
+type EverMemHeaderOptions = {
+  groupId?: string;
+};
+
+function buildEverMemSceneConfig(
+  useMemory: boolean,
+  scene?: EverMemScene,
+  options: EverMemHeaderOptions = {}
+): EverMemSceneConfig | null {
   if (!useMemory) {
     return null;
   }
@@ -414,11 +431,16 @@ function buildEverMemSceneConfig(useMemory: boolean, scene?: EverMemScene): Ever
     api_url: evermem.api_url || "",
     ...(evermem.api_key ? { api_key: evermem.api_key } : {}),
     ...(evermem.scope_id ? { scope_id: evermem.scope_id } : {}),
+    ...(options.groupId ? { group_id: options.groupId } : {}),
   };
 }
 
-function buildEverMemHeaders(useMemory: boolean, scene?: EverMemScene): Record<string, string> {
-  const config = buildEverMemSceneConfig(useMemory, scene);
+function buildEverMemHeaders(
+  useMemory: boolean,
+  scene?: EverMemScene,
+  options: EverMemHeaderOptions = {}
+): Record<string, string> {
+  const config = buildEverMemSceneConfig(useMemory, scene, options);
   if (!config) {
     return {};
   }
@@ -426,12 +448,93 @@ function buildEverMemHeaders(useMemory: boolean, scene?: EverMemScene): Record<s
     "X-EverMem-Enabled": "true",
     "X-EverMem-Url": config.api_url,
     ...(config.api_key ? { "X-EverMem-Key": config.api_key } : {}),
-    ...(config.scope_id ? { "X-EverMem-Scope": config.scope_id } : {})
+    ...(config.scope_id ? { "X-EverMem-Scope": config.scope_id } : {}),
+    ...(config.group_id ? { "X-EverMem-Group-ID": config.group_id } : {}),
   };
 }
 
-export function buildVoiceChatSessionConfig(): EverMemSceneConfig | null {
-  return buildEverMemSceneConfig(true, "voice_chat");
+export function buildVoiceChatSessionConfig(groupId?: string): EverMemSceneConfig | null {
+  return buildEverMemSceneConfig(true, "voice_chat", { groupId });
+}
+
+function resolveEverMemConversationGroupStorageKey(scene: EverMemConversationScene): string {
+  return scene === "voice_chat"
+    ? EVERMEM_VOICE_CHAT_GROUP_ID_STORAGE_KEY
+    : EVERMEM_CHAT_GROUP_ID_STORAGE_KEY;
+}
+
+export function getPersistedEverMemConversationGroupId(scene: EverMemConversationScene): string {
+  return safeStorageGet(resolveEverMemConversationGroupStorageKey(scene)).trim();
+}
+
+export function persistEverMemConversationGroupId(
+  scene: EverMemConversationScene,
+  groupId: string
+): string {
+  const normalized = (groupId || "").trim();
+  const storageKey = resolveEverMemConversationGroupStorageKey(scene);
+  if (!normalized) {
+    safeStorageRemove(storageKey);
+    return "";
+  }
+  safeStorageSet(storageKey, normalized);
+  return normalized;
+}
+
+export function clearPersistedEverMemConversationGroupId(scene: EverMemConversationScene): void {
+  safeStorageRemove(resolveEverMemConversationGroupStorageKey(scene));
+}
+
+export async function createEverMemConversationMeta(
+  scene: EverMemScene,
+  groupId?: string
+): Promise<EverMemConversationMetaResponse | null> {
+  const normalizedGroupId = (groupId || "").trim();
+  const headers = buildEverMemHeaders(
+    true,
+    scene,
+    normalizedGroupId ? { groupId: normalizedGroupId } : {}
+  );
+  if (headers["X-EverMem-Enabled"] !== "true") {
+    return null;
+  }
+  const response = await apiFetch(`${API_BASE_URL}/api/evermem/conversation-meta`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...headers,
+    },
+    body: JSON.stringify(normalizedGroupId ? { group_id: normalizedGroupId } : {}),
+  });
+  if (!response.ok) {
+    await throwApiError(response);
+  }
+  const payload = (await response.json()) as Partial<EverMemConversationMetaResponse>;
+  const resolvedGroupId = typeof payload.group_id === "string" ? payload.group_id.trim() : "";
+  if (!resolvedGroupId) {
+    throw new Error("EverMem conversation meta response is missing group_id.");
+  }
+  return {
+    group_id: resolvedGroupId,
+    ...(typeof payload.user_id === "string" && payload.user_id.trim()
+      ? { user_id: payload.user_id.trim() }
+      : {}),
+  };
+}
+
+export async function ensureEverMemConversationGroupId(
+  scene: EverMemScene,
+  currentGroupId?: string
+): Promise<string> {
+  if (!buildEverMemSceneConfig(true, scene)) {
+    return "";
+  }
+  const existing = (currentGroupId || "").trim();
+  if (existing) {
+    return existing;
+  }
+  const meta = await createEverMemConversationMeta(scene);
+  return meta?.group_id || "";
 }
 
 function apiFetch(
@@ -687,14 +790,19 @@ function handleSseChunk(chunk: string, handlers: StreamEventHandlers): boolean {
 
 export async function streamChatCompletion(
   payload: ChatRequest,
-  handlers: StreamEventHandlers
+  handlers: StreamEventHandlers,
+  options: { memoryGroupId?: string } = {}
 ): Promise<void> {
   const response = await apiFetch(`${API_BASE_URL}/api/chat/completions/stream`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       Accept: "text/event-stream",
-      ...buildEverMemHeaders(true, "chat")
+      ...buildEverMemHeaders(
+        true,
+        "chat",
+        options.memoryGroupId ? { groupId: options.memoryGroupId } : {}
+      )
     },
     body: JSON.stringify(payload)
   });

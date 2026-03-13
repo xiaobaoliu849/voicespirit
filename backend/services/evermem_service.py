@@ -28,6 +28,7 @@ class EverMemService:
         sender: str | None = None,
         sender_name: str = "User",
         flush: bool = False,
+        group_id: str | None = None,
     ) -> dict[str, Any] | None:
         """Add a memory to EverMemOS (v0 API)."""
         if not self.api_key:
@@ -54,6 +55,8 @@ class EverMemService:
             "content": content,
             "flush": flush,
         }
+        if group_id:
+            payload["group_id"] = group_id
 
         try:
             async with httpx.AsyncClient(timeout=30.0) as client:
@@ -63,6 +66,42 @@ class EverMemService:
         except Exception as e:
             logger.error(f"Failed to add memory to EverMemOS: {e}")
             return None
+
+    async def create_conversation_meta(
+        self,
+        *,
+        user_id: str = "guest",
+        group_id: str | None = None,
+    ) -> dict[str, Any] | None:
+        """Create or register a conversation group in EverMemOS (v0 API)."""
+        if not self.api_key:
+            logger.warning("EverMemService: Missing API key. Cannot create conversation meta.")
+            return None
+
+        url = f"{self.api_url}/api/v0/memories/conversation-meta"
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+        }
+        payload = {"user_id": user_id}
+        if group_id:
+            payload["group_id"] = group_id
+
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                resp = await client.post(url, headers=headers, json=payload)
+                resp.raise_for_status()
+                data = resp.json()
+        except Exception as e:
+            logger.error(f"Failed to create EverMemOS conversation meta: {e}")
+            return None
+
+        if isinstance(data, dict):
+            result = data.get("result")
+            if isinstance(result, dict):
+                return result
+            return data
+        return None
 
     async def search_memories(
         self,

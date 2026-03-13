@@ -14,6 +14,7 @@ import {
   type AudioOverviewScriptLine,
   type VoiceInfo
 } from "../api";
+import { createInlineTranslator, type UiLanguage } from "../i18n";
 import type { FormatErrorMessage } from "../utils/errorFormatting";
 
 type MergeStrategy = "auto" | "pydub" | "ffmpeg" | "concat";
@@ -22,12 +23,20 @@ export type AudioOverviewWorkspaceMode = "podcast" | "multi_dialogue";
 type Options = {
   voices: VoiceInfo[];
   formatErrorMessage: FormatErrorMessage;
+  language?: UiLanguage;
 };
 
-export default function useAudioOverview({ voices, formatErrorMessage }: Options) {
+export default function useAudioOverview({
+  voices,
+  formatErrorMessage,
+  language = "zh-CN",
+}: Options) {
+  const t = createInlineTranslator(language);
   const [audioOverviewWorkspaceMode, setAudioOverviewWorkspaceMode] =
     useState<AudioOverviewWorkspaceMode>("podcast");
-  const [audioOverviewTopic, setAudioOverviewTopic] = useState("AI 对个人学习习惯的影响");
+  const [audioOverviewTopic, setAudioOverviewTopic] = useState(
+    t("AI 对个人学习习惯的影响", "How AI affects personal learning habits")
+  );
   const [audioOverviewLanguage, setAudioOverviewLanguage] = useState("zh");
   const [audioOverviewProvider, setAudioOverviewProvider] = useState("DashScope");
   const [audioOverviewModel, setAudioOverviewModel] = useState("");
@@ -39,8 +48,8 @@ export default function useAudioOverview({ voices, formatErrorMessage }: Options
   const [audioOverviewPodcasts, setAudioOverviewPodcasts] = useState<AudioOverviewPodcast[]>([]);
   const [audioOverviewVoiceA, setAudioOverviewVoiceA] = useState("");
   const [audioOverviewVoiceB, setAudioOverviewVoiceB] = useState("");
-  const [audioOverviewSpeakerA, setAudioOverviewSpeakerA] = useState("主播 A");
-  const [audioOverviewSpeakerB, setAudioOverviewSpeakerB] = useState("主播 B");
+  const [audioOverviewSpeakerA, setAudioOverviewSpeakerA] = useState(t("主播 A", "Host A"));
+  const [audioOverviewSpeakerB, setAudioOverviewSpeakerB] = useState(t("主播 B", "Host B"));
   const [audioOverviewRate, setAudioOverviewRate] = useState("+0%");
   const [audioOverviewGapMs, setAudioOverviewGapMs] = useState(250);
   const [audioOverviewMergeStrategy, setAudioOverviewMergeStrategy] =
@@ -105,8 +114,8 @@ export default function useAudioOverview({ voices, formatErrorMessage }: Options
 
   useEffect(() => {
     if (audioOverviewWorkspaceMode === "multi_dialogue") {
-      setAudioOverviewSpeakerA((value) => value || "角色 A");
-      setAudioOverviewSpeakerB((value) => value || "角色 B");
+      setAudioOverviewSpeakerA((value) => value || t("角色 A", "Speaker A"));
+      setAudioOverviewSpeakerB((value) => value || t("角色 B", "Speaker B"));
       return;
     }
 
@@ -114,10 +123,10 @@ export default function useAudioOverview({ voices, formatErrorMessage }: Options
       setAudioOverviewSpeakerA("Host A");
       setAudioOverviewSpeakerB("Host B");
     } else {
-      setAudioOverviewSpeakerA("主播 A");
-      setAudioOverviewSpeakerB("主播 B");
+      setAudioOverviewSpeakerA(t("主播 A", "Host A"));
+      setAudioOverviewSpeakerB(t("主播 B", "Host B"));
     }
-  }, [audioOverviewLanguage, audioOverviewWorkspaceMode]);
+  }, [audioOverviewLanguage, audioOverviewWorkspaceMode, t]);
 
   useEffect(() => {
     void loadAudioOverviewPodcasts();
@@ -161,13 +170,16 @@ export default function useAudioOverview({ voices, formatErrorMessage }: Options
     const retrieved = Number(params.memoriesRetrieved || 0);
     const saved = Boolean(params.memorySaved);
     if (retrieved > 0 && saved) {
-      return `已引用 ${retrieved} 条长期记忆，并写入本次播客草稿。`;
+      return t(
+        `已引用 ${retrieved} 条长期记忆，并写入本次播客草稿。`,
+        `Used ${retrieved} long-term memories and saved this podcast draft back to memory.`
+      );
     }
     if (retrieved > 0) {
-      return `已引用 ${retrieved} 条长期记忆。`;
+      return t(`已引用 ${retrieved} 条长期记忆。`, `Used ${retrieved} long-term memories.`);
     }
     if (saved) {
-      return "已写入本次播客草稿到长期记忆。";
+      return t("已写入本次播客草稿到长期记忆。", "Saved this podcast draft to long-term memory.");
     }
     return "";
   }
@@ -178,7 +190,7 @@ export default function useAudioOverview({ voices, formatErrorMessage }: Options
       const data = await listAudioOverviewPodcasts(30);
       setAudioOverviewPodcasts(data.podcasts);
     } catch (err) {
-      setAudioOverviewError(formatErrorMessage(err, "加载播客列表失败。"));
+      setAudioOverviewError(formatErrorMessage(err, t("加载播客列表失败。", "Failed to load the podcast list.")));
     } finally {
       setAudioOverviewListBusy(false);
     }
@@ -198,9 +210,9 @@ export default function useAudioOverview({ voices, formatErrorMessage }: Options
       } else {
         clearAudioOverviewAudio();
       }
-      setAudioOverviewInfo(`已载入播客 #${podcast.id}。`);
+      setAudioOverviewInfo(t(`已载入播客 #${podcast.id}。`, `Loaded podcast #${podcast.id}.`));
     } catch (err) {
-      setAudioOverviewError(formatErrorMessage(err, "加载播客详情失败。"));
+      setAudioOverviewError(formatErrorMessage(err, t("加载播客详情失败。", "Failed to load podcast details.")));
     }
   }
 
@@ -208,10 +220,10 @@ export default function useAudioOverview({ voices, formatErrorMessage }: Options
     const topic = audioOverviewTopic.trim();
     const scriptLines = normalizeAudioOverviewScriptLines(audioOverviewScriptLines);
     if (!topic) {
-      throw new Error("请先输入播客主题。");
+      throw new Error(t("请先输入播客主题。", "Enter a podcast topic first."));
     }
     if (scriptLines.length < 2) {
-      throw new Error("脚本至少需要 2 条非空台词。");
+      throw new Error(t("脚本至少需要 2 条非空台词。", "The script needs at least 2 non-empty lines."));
     }
 
     if (audioOverviewPodcastId === null) {
@@ -237,7 +249,7 @@ export default function useAudioOverview({ voices, formatErrorMessage }: Options
     event.preventDefault();
     const topic = audioOverviewTopic.trim();
     if (!topic) {
-      setAudioOverviewError("请先输入播客主题。");
+      setAudioOverviewError(t("请先输入播客主题。", "Enter a podcast topic first."));
       return;
     }
 

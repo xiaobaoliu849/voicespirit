@@ -1,10 +1,11 @@
 import {
-  CHAT_QUICK_ACTIONS,
+  getChatQuickActions,
   type QuickAction
 } from "../appConfig";
 import ErrorNotice from "../components/ErrorNotice";
 import type { UseChatResult } from "../hooks/useChat";
 import type { UseVoiceChatResult } from "../hooks/useVoiceChat";
+import { useI18n } from "../i18n";
 import type { ErrorRuntimeContext } from "../types/ui";
 
 type Props = {
@@ -12,8 +13,6 @@ type Props = {
   voiceChat: UseVoiceChatResult;
   errorRuntimeContext: ErrorRuntimeContext;
 };
-
-const quickActions: QuickAction[] = CHAT_QUICK_ACTIONS;
 
 /* ── Inline SVG icons ── */
 const PaperclipIcon = () => (
@@ -61,6 +60,7 @@ function Composer({
   voiceChat: UseVoiceChatResult;
   textChatBlockedReason: string;
 }) {
+  const { t } = useI18n();
   const textChatBlocked = Boolean(textChatBlockedReason);
   return (
     <div className="vsComposer">
@@ -68,20 +68,20 @@ function Composer({
         rows={1}
         value={chat.chatInput}
         onChange={(e) => chat.onInputChange(e.target.value)}
-        placeholder="输入问题或指令，Shift+Enter 换行"
+        placeholder={t("输入问题或指令，Shift+Enter 换行", "Type a question or instruction. Shift+Enter for a new line")}
         onKeyDown={chat.onComposerKeyDown}
         disabled={textChatBlocked}
       />
       {textChatBlocked ? <div className="vsComposerInlineHint">{textChatBlockedReason}</div> : null}
       <div className="vsComposerToolbar">
         <div className="vsComposerToolbarLeft">
-          <button type="button" className="vsToolbarBtn" aria-label="附件">
+          <button type="button" className="vsToolbarBtn" aria-label={t("附件", "Attachment")}>
             <PaperclipIcon />
           </button>
           <button
             type="button"
             className={`vsToolbarBtn ${voiceChat.voiceChatRecording ? "recording" : ""}`}
-            aria-label="语音聊天"
+            aria-label={t("语音聊天", "Voice chat")}
             onClick={() => void voiceChat.onToggleRecording()}
             disabled={!voiceChat.voiceChatSupported || voiceChat.voiceChatBusy}
           >
@@ -93,8 +93,8 @@ function Composer({
             type="submit"
             className="vsSendBtn"
             disabled={chat.chatBusy || textChatBlocked}
-            aria-label="发送"
-            title={textChatBlocked ? textChatBlockedReason : "发送"}
+            aria-label={t("发送", "Send")}
+            title={textChatBlocked ? textChatBlockedReason : t("发送", "Send")}
           >
             {chat.chatBusy ? <SpinnerIcon /> : <SendIcon />}
           </button>
@@ -111,51 +111,25 @@ function VoiceChatRuntimeNotice({
   voiceChat: UseVoiceChatResult;
   errorRuntimeContext: ErrorRuntimeContext;
 }) {
+  const { t } = useI18n();
   const runtimeState = voiceChat.voiceChatConnected || voiceChat.voiceChatRecording
-    ? "会话中"
+    ? t("会话中", "In session")
     : voiceChat.voiceChatBusy
-      ? "连接中"
-      : "待机";
+      ? t("连接中", "Connecting")
+      : t("待机", "Idle");
 
   return (
-    <div
-      style={{
-        marginBottom: 16,
-        padding: 14,
-        borderRadius: 18,
-        border: "1px solid var(--border-color)",
-        background: "var(--surface-color)",
-        boxShadow: "var(--card-shadow)",
-        display: "grid",
-        gap: 8,
-      }}
-    >
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
-        <strong style={{ fontSize: 14 }}>实时语音入口</strong>
+    <div className="vsVoiceRuntimeNotice">
+      <div className="vsVoiceRuntimeRow">
+        <strong className="vsVoiceRuntimeTitle">{t("实时语音", "Realtime voice")}</strong>
         <span className="vsFieldHint">{runtimeState}</span>
       </div>
-      <div className="vsFieldHint" style={{ textAlign: "left" }}>
-        麦克风按钮已同步：使用 {voiceChat.voiceChatProvider} / {voiceChat.voiceChatModel || "默认模型"}。
-        可通过上方供应商与模型快速切换。
-      </div>
-      {voiceChat.voiceChatMemoryScope ? (
-        <div className="vsFieldHint" style={{ textAlign: "left" }}>
-          当前记忆 Scope：{voiceChat.voiceChatMemoryScope}
-        </div>
-      ) : null}
-      <div className="vsEmptyDesc" style={{ minHeight: 0, textAlign: "left" }}>
-        {voiceChat.voiceChatStatus}
-      </div>
-      {voiceChat.voiceChatMemorySourceStatus ? (
-        <div className="vsFieldHint" style={{ textAlign: "left" }}>
-          {voiceChat.voiceChatMemorySourceStatus}
-        </div>
-      ) : null}
-      {voiceChat.voiceChatMemoryWriteStatus ? (
-        <div className="vsFieldHint" style={{ textAlign: "left", color: "#166534" }}>
-          {voiceChat.voiceChatMemoryWriteStatus}
-        </div>
-      ) : null}
+      <p className="vsVoiceRuntimeMeta">
+        {t(
+          `麦克风按钮当前使用 ${voiceChat.voiceChatProvider} / ${voiceChat.voiceChatModel || "默认实时模型"}`,
+          `Microphone is using ${voiceChat.voiceChatProvider} / ${voiceChat.voiceChatModel || "default realtime model"}`
+        )}
+      </p>
       <ErrorNotice
         message={voiceChat.voiceChatError}
         scope="voice-chat"
@@ -171,10 +145,15 @@ function VoiceChatRuntimeNotice({
 }
 
 export default function ChatPage({ chat, voiceChat, errorRuntimeContext }: Props) {
+  const { t } = useI18n();
+  const quickActions: QuickAction[] = getChatQuickActions(t);
   const combinedMessages = [...chat.chatMessages, ...voiceChat.sessionSummary];
   const isEmpty = !combinedMessages.length;
   const textChatBlockedReason = isVoiceRealtimeModel(chat.chatProvider, chat.chatModel)
-    ? "当前是实时语音模型。请点击麦克风开始对话，或切换到普通文本模型后再发送文字。"
+    ? t(
+      "当前是实时语音模型。请点击麦克风开始对话，或切换到普通文本模型后再发送文字。",
+      "The current model is a realtime voice model. Use the microphone to start, or switch to a standard text model before sending."
+    )
     : "";
   const hasSavedMemory = combinedMessages.some((msg) => msg.memorySaved);
   const latestMemoryActivity = [...combinedMessages]
@@ -191,7 +170,7 @@ export default function ChatPage({ chat, voiceChat, errorRuntimeContext }: Props
       <header className="vsTopbar">
         <div className="vsTopbarLeft">
           <label className="vsTopbarField">
-            <span>供应商</span>
+            <span>{t("供应商", "Provider")}</span>
             <select
               value={chat.chatProvider}
               onChange={(e) => chat.onProviderChange(e.target.value)}
@@ -209,11 +188,14 @@ export default function ChatPage({ chat, voiceChat, errorRuntimeContext }: Props
           {/* 记忆状态标识 */}
           {hasSavedMemory || latestMemoryActivity?.memoriesUsed ? (
             <div className="vsChatMemoryChip">
-              {hasSavedMemory ? <span>已存入记忆</span> : null}
+              {hasSavedMemory ? <span>{t("已存入记忆", "Saved to memory")}</span> : null}
               {latestMemoryActivity?.memoriesUsed ? (
                 <span>
                   {hasSavedMemory ? " · " : ""}
-                  已回忆 {latestMemoryActivity.memoriesUsed} 条记忆
+                  {t(
+                    `已回忆 ${latestMemoryActivity.memoriesUsed} 条记忆`,
+                    `Recalled ${latestMemoryActivity.memoriesUsed} memories`
+                  )}
                 </span>
               ) : null}
             </div>
@@ -222,12 +204,12 @@ export default function ChatPage({ chat, voiceChat, errorRuntimeContext }: Props
           <div className="vsTopbarDivider" />
 
           <label className="vsTopbarField vsTopbarModelField">
-            <span>模型</span>
+            <span>{t("模型", "Model")}</span>
             <input
               list="chat-model-options"
               value={chat.chatModel}
               onChange={(e) => chat.onModelChange(e.target.value)}
-              placeholder={chat.chatModelOptions[0] || "输入模型名称"}
+              placeholder={chat.chatModelOptions[0] || t("输入模型名称", "Enter a model name")}
             />
             {chat.chatModelOptions.length ? (
               <datalist id="chat-model-options">
@@ -241,7 +223,7 @@ export default function ChatPage({ chat, voiceChat, errorRuntimeContext }: Props
           {/* ── NEW: Topbar Voice Selection ── */}
           <div className="vsTopbarDivider" />
           <label className="vsTopbarVoiceField">
-            <span>音色</span>
+            <span>{t("音色", "Voice")}</span>
             <select
               value={voiceChat.voiceChatVoice}
               onChange={(e) => voiceChat.onVoiceChange(e.target.value)}
@@ -257,13 +239,20 @@ export default function ChatPage({ chat, voiceChat, errorRuntimeContext }: Props
         </div>
       </header>
 
+      <div className="vsChatRuntimeBar">
+        <VoiceChatRuntimeNotice
+          voiceChat={voiceChat}
+          errorRuntimeContext={errorRuntimeContext}
+        />
+      </div>
+
       {/* ── Body ── */}
       <div className={`vsChatBody ${showWelcome ? "empty" : ""}`}>
         {showWelcome ? (
           /* ═══ EMPTY STATE: centered like Claude/Gemini ═══ */
           <div className="vsChatCentered">
             <div className="vsWelcome">
-              <h2>你好，有什么可以帮你的？</h2>
+              <h1>VoiceSpirit</h1>
             </div>
 
             <form onSubmit={chat.onSubmit} className="vsComposerWrapCentered">
@@ -273,11 +262,6 @@ export default function ChatPage({ chat, voiceChat, errorRuntimeContext }: Props
                 textChatBlockedReason={textChatBlockedReason}
               />
             </form>
-
-            <VoiceChatRuntimeNotice
-              voiceChat={voiceChat}
-              errorRuntimeContext={errorRuntimeContext}
-            />
 
             <div className="vsQuickActions">
               {quickActions.map((action) => (
@@ -295,7 +279,7 @@ export default function ChatPage({ chat, voiceChat, errorRuntimeContext }: Props
               ))}
             </div>
 
-            <p className="vsChatDisclaimer">AI 生成内容可能存在误差，请按需核对关键信息。</p>
+            <p className="vsChatDisclaimer">{t("AI 生成内容可能存在误差。", "AI content may contain mistakes.")}</p>
             <ErrorNotice
               message={chat.chatError}
               scope="chat"
@@ -317,10 +301,12 @@ export default function ChatPage({ chat, voiceChat, errorRuntimeContext }: Props
                 {msg.memorySaved || msg.memoriesUsed || msg.memorySourceSummary ? (
                   <div className="vsBubbleMeta">
                     {msg.memorySaved ? (
-                      <span className="vsBubbleMemoryTag saved">✓ 已记忆</span>
+                      <span className="vsBubbleMemoryTag saved">{t("✓ 已记忆", "✓ Saved")}</span>
                     ) : null}
                     {msg.memoriesUsed ? (
-                      <span className="vsBubbleMemoryTag used">🧠 回忆了 {msg.memoriesUsed} 条</span>
+                      <span className="vsBubbleMemoryTag used">
+                        {t(`🧠 回忆了 ${msg.memoriesUsed} 条`, `🧠 Recalled ${msg.memoriesUsed}`)}
+                      </span>
                     ) : null}
                     {msg.memorySourceSummary ? (
                       <span className="vsBubbleMemoryTag used">{msg.memorySourceSummary}</span>
@@ -342,7 +328,7 @@ export default function ChatPage({ chat, voiceChat, errorRuntimeContext }: Props
             {isVoiceActive && voiceChat.voiceChatTranscript && (
               <div className="bubble user live">
                 <div className="vsBubbleMeta">
-                  <span className="vsStreamingIndicator">(实时输入)</span>
+                  <span className="vsStreamingIndicator">{t("(实时输入)", "(live input)")}</span>
                 </div>
                 <p>{voiceChat.voiceChatTranscript}</p>
               </div>
@@ -350,7 +336,7 @@ export default function ChatPage({ chat, voiceChat, errorRuntimeContext }: Props
             {isVoiceActive && voiceChat.voiceChatReply && (
               <div className="bubble assistant live">
                 <div className="vsBubbleMeta">
-                  <span className="vsStreamingIndicator">(正在回复)</span>
+                  <span className="vsStreamingIndicator">{t("(正在回复)", "(replying)")}</span>
                 </div>
                 <p>{voiceChat.voiceChatReply}</p>
               </div>
@@ -368,15 +354,7 @@ export default function ChatPage({ chat, voiceChat, errorRuntimeContext }: Props
             textChatBlockedReason={textChatBlockedReason}
           />
 
-          {/* Runtime notice only if there's an error or we need status while chatting */}
-          {(voiceChat.voiceChatError || !isVoiceActive) && (
-            <VoiceChatRuntimeNotice
-              voiceChat={voiceChat}
-              errorRuntimeContext={errorRuntimeContext}
-            />
-          )}
-
-          <p className="vsChatDisclaimer">AI 生成内容可能存在误差，请按需核对关键信息。</p>
+          <p className="vsChatDisclaimer">{t("AI 生成内容可能存在误差，请按需核对关键信息。", "AI-generated content may contain mistakes. Verify important details when needed.")}</p>
           <ErrorNotice
             message={chat.chatError}
             scope="chat"

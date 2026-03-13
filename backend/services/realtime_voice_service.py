@@ -20,6 +20,7 @@ logger = logging.getLogger(__name__)
 
 from .config_loader import BackendConfig
 from .evermem_config import EverMemConfig
+from .evermem_service import EverMemService
 
 try:
     from google import genai
@@ -262,6 +263,12 @@ class RealtimeMemorySession:
         self._last_cloud_count = 0
         self._last_retrieve_attempted = False
 
+    def _pending_cache_key(self) -> str:
+        return str(self._config.group_id or self._config.memory_scope).strip()
+
+    def _scope_pending_cache_key(self) -> str:
+        return str(self._config.memory_scope or "").strip()
+
     def configure(self, payload: dict[str, Any] | None) -> None:
         if not isinstance(payload, dict) or not payload.get("enabled"):
             self._config = EverMemConfig()
@@ -276,11 +283,13 @@ class RealtimeMemorySession:
                 "X-EverMem-Url": payload.get("api_url", ""),
                 "X-EverMem-Key": payload.get("api_key", ""),
                 "X-EverMem-Scope": payload.get("scope_id", ""),
+                "X-EverMem-Group-ID": payload.get("group_id", ""),
             }
         )
         logger.info(
-            "voice_memory_config enabled scope=%s url=%s",
+            "voice_memory_config enabled scope=%s group=%s url=%s",
             self._config.memory_scope,
+            self._config.group_id,
             self._config.url,
         )
 
@@ -335,13 +344,18 @@ class RealtimeMemorySession:
                 "reason": "no_candidate_memory",
             }
 
-        queued_count = self._queue_pending_entries(self._config.memory_scope, memory_entries)
+        cache_key = self._pending_cache_key()
+        queued_count = self._queue_pending_entries(cache_key, memory_entries)
+        scope_key = self._scope_pending_cache_key()
+        if scope_key and scope_key != cache_key:
+            self._queue_pending_entries(scope_key, memory_entries)
         result = await self._persist_entries(entries=memory_entries)
         result["enabled"] = True
         result["local_pending_count"] = queued_count
         logger.info(
-            "voice_memory_write scope=%s attempted=%s saved=%s failed=%s local_pending=%s entries=%s",
+            "voice_memory_write scope=%s group=%s attempted=%s saved=%s failed=%s local_pending=%s entries=%s",
             self._config.memory_scope,
+            self._config.group_id,
             result.get("attempted_count", 0),
             result.get("saved_count", 0),
             result.get("failed_count", 0),
@@ -370,6 +384,7 @@ class RealtimeMemorySession:
                     user_id=scope,
                     sender=scope,
                     sender_name="User",
+                    group_id=self._config.group_id or None,
                 )
                 if result:
                     saved_count += 1
@@ -486,7 +501,18 @@ class RealtimeMemorySession:
                 "attempted": self._last_retrieve_attempted,
             }
 
-        local_memories = self._search_pending_entries(self._config.memory_scope, query)
+        cache_key = self._pending_cache_key()
+        local_memories = self._search_pending_entries(cache_key, query)
+        scope_key = self._scope_pending_cache_key()
+        if (
+            scope_key
+            and scope_key != cache_key
+            and self.is_forced_recall_query(query)
+        ):
+            local_memories = self._merge_retrieved_memories(
+                local_memories=local_memories,
+                cloud_memories=self._search_pending_entries(scope_key, query),
+            )
 
         try:
             timeout_seconds = (
@@ -495,11 +521,9 @@ class RealtimeMemorySession:
                 else self._RETRIEVE_TIMEOUT_SECONDS
             )
             memories = await asyncio.wait_for(
-                service.search_memories(
+                self._search_cloud_memories(
+                    service=service,
                     query=query,
-                    user_id=self._config.memory_scope,
-                    memory_types=["episodic_memory", "profile"],
-                    min_score=0.35,
                 ),
                 timeout=timeout_seconds,
             )
@@ -546,6 +570,28 @@ class RealtimeMemorySession:
             "cloud_count": cloud_count,
             "attempted": True,
         }
+
+    async def _search_cloud_memories(
+        self,
+        *,
+        service: EverMemService,
+        query: str,
+    ) -> list[dict[str, Any]]:
+        base_kwargs = {
+            "query": query,
+            "user_id": self._config.memory_scope,
+            "memory_types": ["episodic_memory", "profile"],
+            "min_score": 0.35,
+        }
+        group_id = str(self._config.group_id or "").strip()
+        if group_id:
+            scoped = await service.search_memories(
+                group_ids=[group_id],
+                **base_kwargs,
+            )
+            if scoped:
+                return scoped
+        return await service.search_memories(**base_kwargs)
 
     def _extract_memory_entries(self, text: str) -> list[str]:
         entries: list[str] = []
@@ -692,7 +738,8 @@ class RealtimeMemorySession:
             if not key or key in seen:
                 continue
             seen.add(key)
-            merged.append({"content": content, "source": "local_pending"})
+            source = str(memory.get("source", "local_pending")).strip() or "local_pending"
+            merged.append({"content": content, "source": source})
 
         for memory in cloud_memories:
             content = str(memory.get("content", "")).strip()
@@ -700,7 +747,8 @@ class RealtimeMemorySession:
             if not key or key in seen:
                 continue
             seen.add(key)
-            merged.append({"content": content, "source": "cloud"})
+            source = str(memory.get("source", "cloud")).strip() or "cloud"
+            merged.append({"content": content, "source": source})
 
         return merged
 
@@ -876,8 +924,11 @@ class RealtimeVoiceService:
             return BASE_REALTIME_INSTRUCTIONS
         return (
             f"{BASE_REALTIME_INSTRUCTIONS}\n\n"
-            "Relevant long-term memories for personalization. Use them only when they genuinely help. "
-            "Do not quote or mention this memory block unless the user directly asks.\n"
+            "Relevant long-term memories for personalization are provided below. Use them whenever they are relevant. "
+            "If the user asks what they said earlier, what the current focus is, or asks you to recall/search memory, "
+            "answer from this memory block directly. Do not claim you cannot remember, do not say each conversation is "
+            "independent, and do not ignore the memory block when it is relevant. Only avoid quoting the block verbatim "
+            "unless the user directly asks.\n"
             f"{memory_context}"
         )
 
@@ -1018,6 +1069,7 @@ class RealtimeVoiceService:
                         "memory_config",
                         enabled=bool(memory_session._config.get_service()),
                         scope=memory_session._config.memory_scope,
+                        group_id=memory_session._config.group_id,
                     )
                     continue
                 if command_type == "text_input":
@@ -1152,6 +1204,7 @@ class RealtimeVoiceService:
                         "memory_config",
                         enabled=bool(memory_session._config.get_service()),
                         scope=memory_session._config.memory_scope,
+                        group_id=memory_session._config.group_id,
                     )
                     continue
                 if command_type == "ping":

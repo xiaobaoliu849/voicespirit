@@ -1,11 +1,12 @@
 export type ActiveTab =
-  | "tts"
   | "chat"
   | "translate"
+  | "tts"
   | "voice_design"
   | "voice_clone"
-  | "audio_overview"
   | "transcription"
+  | "voice_center"
+  | "audio_overview"
   | "settings";
 
 export type SidebarItem = {
@@ -26,7 +27,7 @@ export type HistoryItem = {
   content: string;
 };
 
-export const DEFAULT_TEXT = "你好，这是 VoiceSpirit Web 迁移阶段的语音测试。";
+type TranslatePair = (zh: string, en: string) => string;
 
 export const PROVIDERS = [
   "Google",
@@ -37,36 +38,55 @@ export const PROVIDERS = [
   "Groq"
 ];
 
-export const SIDEBAR_ITEMS: SidebarItem[] = [
-  { tab: "chat", label: "聊天", icon: "Bot", tooltip: "AI 助理聊天" },
-  { tab: "translate", label: "翻译", icon: "Languages", tooltip: "多语言智能翻译" },
-  { tab: "tts", label: "语音", icon: "Volume2", tooltip: "文本转语音合成" },
-  { tab: "voice_design", label: "设计音色", icon: "Settings2", tooltip: "自定义设计新音色" },
-  { tab: "voice_clone", label: "音色克隆", icon: "Fingerprint", tooltip: "克隆您的专属音色" },
-  { tab: "audio_overview", label: "播客/多人对话", icon: "Mic2", tooltip: "制作多人播客音频" },
-  { tab: "transcription", label: "转写", icon: "FileAudio", tooltip: "音频转写文本" },
-  { tab: "settings", label: "设置", icon: "Settings", tooltip: "系统设置" }
-];
+export function getDefaultText(t: TranslatePair): string {
+  return t(
+    "你好，这是 VoiceSpirit Web 迁移阶段的语音测试。",
+    "Hello, this is a VoiceSpirit speech test for the web migration build."
+  );
+}
 
-export const CHAT_QUICK_ACTIONS: QuickAction[] = [
-  {
-    title: "写一封邮件",
-    icon: "邮",
-    prompt: "请帮我起草一封语气专业但不生硬的项目进度更新邮件。"
-  },
-  {
-    title: "写段代码",
-    icon: "码",
-    prompt: "请帮我写一个 TypeScript 工具函数，用于安全解析 JSON 并返回默认值。"
-  },
-  {
-    title: "想想方案",
-    icon: "想",
-    prompt: "围绕语音类 AI 应用，给我 10 个可以快速上线验证的产品想法。"
-  },
-  {
-    title: "提炼要点",
-    icon: "总",
-    prompt: "请把下面内容总结为 5 个要点，并给出 2 条可执行建议。"
-  }
-];
+export function getSidebarItems(t: TranslatePair): SidebarItem[] {
+  return [
+    { tab: "chat", label: t("聊天", "Chat"), icon: "Bot", tooltip: t("AI 助理聊天", "AI assistant chat") },
+    { tab: "translate", label: t("翻译", "Translate"), icon: "Languages", tooltip: t("智能翻译", "Translation") },
+    { tab: "voice_center", label: t("语音中心", "Voice Center"), icon: "Mic2", tooltip: t("统一语音工作台", "Voice workspace") },
+    { tab: "audio_overview", label: t("播客", "Podcast"), icon: "FileAudio", tooltip: t("播客与多人对白", "Podcast & mixed dialogue") }
+  ];
+}
+
+export function getChatQuickActions(t: TranslatePair): QuickAction[] {
+  return [
+    {
+      title: t("写一封邮件", "Draft an Email"),
+      icon: t("邮", "M"),
+      prompt: t(
+        "请帮我起草一封语气专业但不生硬的项目进度更新邮件。",
+        "Please draft a professional but warm project status update email."
+      )
+    },
+    {
+      title: t("写段代码", "Write Code"),
+      icon: t("码", "C"),
+      prompt: t(
+        "请帮我写一个 TypeScript 工具函数，用于安全解析 JSON 并返回默认值。",
+        "Please write a TypeScript utility that safely parses JSON and falls back to a default value."
+      )
+    },
+    {
+      title: t("想想方案", "Brainstorm"),
+      icon: t("想", "I"),
+      prompt: t(
+        "围绕语音类 AI 应用，给我 10 个可以快速上线验证的产品想法。",
+        "Give me 10 voice AI product ideas that could be validated quickly."
+      )
+    },
+    {
+      title: t("提炼要点", "Summarize"),
+      icon: t("总", "S"),
+      prompt: t(
+        "请把下面内容总结为 5 个要点，并给出 2 条可执行建议。",
+        "Summarize the following into 5 key points and 2 actionable recommendations."
+      )
+    }
+  ];
+}

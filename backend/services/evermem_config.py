@@ -48,6 +48,7 @@ class EverMemConfig:
         self.url: str = DEFAULT_EVERMEM_URL
         self.key: str | None = None
         self.memory_scope: str = "anonymous"
+        self.group_id: str = ""
         self._service: EverMemService | None = None
 
     def _resolve_scope(self, headers: dict[str, Any]) -> str:
@@ -75,6 +76,7 @@ class EverMemConfig:
         enabled_header = _get_header_value(headers, "X-EverMem-Enabled", "enabled").lower()
         header_url = _get_header_value(headers, "X-EverMem-Url", "api_url", "url")
         header_key = _get_header_value(headers, "X-EverMem-Key", "api_key", "key")
+        self.group_id = _get_header_value(headers, "X-EverMem-Group-ID", "group_id", "groupId")
         env_key = os.getenv("EVERMEM_API_KEY", "").strip()
 
         self.enabled = enabled_header == "true"

@@ -1,4 +1,5 @@
 import type { CustomVoice } from "../api";
+import { useI18n } from "../i18n";
 
 type Props = {
   title: string;
@@ -17,6 +18,7 @@ export default function VoiceCatalog({
   emptyText,
   onDeleteVoice
 }: Props) {
+  const { t } = useI18n();
   return (
     <div className="resultBox">
       <p>
@@ -35,7 +37,7 @@ export default function VoiceCatalog({
               onClick={() => void onDeleteVoice(item.voice)}
               disabled={busy || listBusy}
             >
-              删除
+              {t("删除", "Delete")}
             </button>
           </div>
         ))}

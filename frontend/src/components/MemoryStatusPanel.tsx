@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
 import { getEverMemRuntimeConfig } from "../api";
+import { useI18n } from "../i18n";
 
 export default function MemoryStatusPanel() {
+    const { t } = useI18n();
     const [config, setConfig] = useState(getEverMemRuntimeConfig());
 
     useEffect(() => {
@@ -32,7 +34,7 @@ export default function MemoryStatusPanel() {
             <div style={{ padding: "12px", background: "var(--surface-color)", borderTop: "1px solid var(--border-color)", fontSize: "12px", color: "var(--text-color-muted)" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                     <span style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%", background: "#666" }} />
-                    EverMem 已关闭
+                    {t("EverMem 已关闭", "EverMem disabled")}
                 </div>
             </div>
         );
@@ -42,12 +44,12 @@ export default function MemoryStatusPanel() {
         <div style={{ padding: "12px", background: "var(--surface-color)", borderTop: "1px solid var(--border-color)", fontSize: "12px", color: "var(--text-color)" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
                 <span style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%", background: config.temporary_session ? "#f59e0b" : "#10b981" }} />
-                <span style={{ fontWeight: 600 }}>EverMem 记忆中心</span>
+                <span style={{ fontWeight: 600 }}>{t("EverMem 记忆中心", "EverMem Memory")}</span>
             </div>
 
             <div style={{ color: "var(--text-color-muted)", marginTop: 8 }}>
                 {config.temporary_session ? (
-                    <span style={{ color: "#f59e0b" }}>当前为「临时会话」模式</span>
+                    <span style={{ color: "#f59e0b" }}>{t("当前为「临时会话」模式", "Temporary session mode is active")}</span>
                 ) : (
                     <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 8px" }}>
                         <span style={{ color: config.remember_chat ? "#10b981" : "#666" }}>Chat: {config.remember_chat ? "ON" : "OFF"}</span>

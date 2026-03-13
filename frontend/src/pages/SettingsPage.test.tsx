@@ -4,16 +4,21 @@ import SettingsPage from "./SettingsPage";
 import { createSettingsController } from "../test/factories";
 
 describe("SettingsPage", () => {
-  it("renders provider settings by default", () => {
+  it("renders general settings by default", () => {
     render(<SettingsPage settings={createSettingsController()} errorRuntimeContext={{}} />);
 
-    expect(screen.getByText("AI 供应商参数")).toBeInTheDocument();
-    expect(screen.getByText("默认服务商")).toBeInTheDocument();
+    expect(screen.getByText("通用偏好")).toBeInTheDocument();
+    expect(screen.getByText("界面与语言")).toBeInTheDocument();
+    expect(screen.getByText("界面语言")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "保存全部修改" })).toBeInTheDocument();
   });
 
-  it("switches between memory, transcription, and desktop categories", () => {
+  it("switches between provider, memory, transcription, and desktop categories", () => {
     render(<SettingsPage settings={createSettingsController()} errorRuntimeContext={{}} />);
+
+    fireEvent.click(screen.getByRole("button", { name: /AI 供应商/i }));
+    expect(screen.getByText("AI 供应商参数")).toBeInTheDocument();
+    expect(screen.getByText("默认服务商")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /记忆中心/i }));
     expect(screen.getByText("EverMem 长期记忆中心")).toBeInTheDocument();
