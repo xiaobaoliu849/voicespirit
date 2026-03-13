@@ -27,10 +27,10 @@ BACKEND_DIR = PROJECT_ROOT / "backend"
 FRONTEND_DIST_INDEX = PROJECT_ROOT / "frontend" / "dist" / "index.html"
 HEALTH_URL = "http://127.0.0.1:8000/health"
 APP_URL = "http://127.0.0.1:8000/app/"
-DEFAULT_WINDOW_WIDTH = 1440
-DEFAULT_WINDOW_HEIGHT = 960
-MIN_WINDOW_WIDTH = 1100
-MIN_WINDOW_HEIGHT = 760
+DEFAULT_WINDOW_WIDTH = 1080
+DEFAULT_WINDOW_HEIGHT = 720
+MIN_WINDOW_WIDTH = 920
+MIN_WINDOW_HEIGHT = 620
 LOCAL_DESKTOP_LIB_DIR = PROJECT_ROOT / ".desktop-libs" / "usr" / "lib" / "x86_64-linux-gnu"
 DESKTOP_FONTCONFIG_PATH = PROJECT_ROOT / "desktop_fonts.conf"
 QT_RUNTIME_READY_ENV = "VOICE_SPIRIT_DESKTOP_QT_RUNTIME_READY"
@@ -207,6 +207,19 @@ def load_window_state() -> dict[str, Any]:
         state["maximized"] = raw_state["maximized"]
 
     return state
+
+
+def normalize_window_state_for_launch(window_state: dict[str, Any]) -> dict[str, Any]:
+    normalized = dict(window_state)
+    normalized["width"] = max(int(normalized["width"]), MIN_WINDOW_WIDTH)
+    normalized["height"] = max(int(normalized["height"]), MIN_WINDOW_HEIGHT)
+
+    if normalized["width"] > DEFAULT_WINDOW_WIDTH:
+        normalized["width"] = DEFAULT_WINDOW_WIDTH
+    if normalized["height"] > DEFAULT_WINDOW_HEIGHT:
+        normalized["height"] = DEFAULT_WINDOW_HEIGHT
+
+    return normalized
 
 
 def save_window_state(state: dict[str, Any]) -> None:
@@ -546,9 +559,9 @@ def print_startup_info() -> None:
     print("2. 缺少 pywebview (Missing): pip install pywebview")
     print("3. 找不到前端文件 (No Dist):  cd frontend && npm install && npm run build")
     print("4. 桌面版启动冲突 (Locked):   删除数据目录下的 desktop.lock 文件")
-    print("5. 端口占用 (Port In Use):    排查 8000 端口是否被其他程序占用")
+    print("5. 端口占用 (Port In Use):    排查 8000 端口是否被 house 占用")
     print("6. 缓存异常 (Cache Issues):   使用 --clear-webview / --reset-cache 或菜单重置桌面缓存")
-    print("7. 诊断导出 (Diagnostics):    使用 --export-diagnostics 或菜单导出 JSON")
+    print("7. 诊断导出 (Diagnostics):    使用 --export-diagnostics / 菜单导出 JSON")
     print("=" * 60)
 
 
@@ -798,9 +811,13 @@ def main() -> int:
     if args.check:
         return run_preflight_checks()
     ensure_frontend_dist()
-    instance_lock = SingleInstanceLock(LOCK_PATH)
-    instance_lock.acquire()
-    atexit.register(instance_lock.release)
+
+    try:
+        instance_lock = SingleInstanceLock(LOCK_PATH)
+        instance_lock.acquire()
+    except RuntimeError as exc:
+        print(exc)
+        return 1
 
     try:
         import webview
@@ -823,7 +840,8 @@ def main() -> int:
         )
 
     WEBVIEW_STORAGE_DIR.mkdir(parents=True, exist_ok=True)
-    window_state = load_window_state()
+    window_state = normalize_window_state_for_launch(load_window_state())
+    save_window_state(window_state)
     controller = DesktopController(window_state)
     window = webview.create_window(
         title="VoiceSpirit",
