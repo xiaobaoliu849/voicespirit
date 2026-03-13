@@ -1,20 +1,35 @@
 :root {
-  --text: #111827;
-  --muted: #6b7280;
-  --line: #e5e7eb;
-  --panel: #ffffff;
-  --surface: #f9fafb;
-  --brand: #2563eb;
-  --brand-dark: #1d4ed8;
-  --brand-soft: #eff6ff;
-  --user-bg: #f3f4f6;
+  --bg-primary: #ffffff;
+  --bg-secondary: #f8fafc;
+  --bg-card: #ffffff;
+  --text-primary: #1e293b;
+  --text-secondary: #64748b;
+  --border-color: #e2e8f0;
+  
+  --text: var(--text-primary);
+  --muted: var(--text-secondary);
+  --line: var(--border-color);
+  --line-strong: #cbd5e1;
+  --panel: var(--bg-primary);
+  --panel-strong: var(--bg-secondary);
+  --surface: #f1f5f9;
+  --surface-strong: #e2e8f0;
+  --canvas: #f8fafc;
+  
+  /* VoiceSpirit Brand: Atelier Green (Skill-aligned) */
+  --brand: #35594a;
+  --brand-dark: #254237;
+  --brand-soft: #dce8e1;
+  --accent: #b06a3f;
+  --accent-soft: #f2dfd0;
+  
+  /* Chat styles */
+  --user-bg: #f8fafc;
   --assistant-bg: #ffffff;
-  --sidebar-bg: #f9fafb;
-  --sidebar-line: #e5e7eb;
-  --sidebar-text: #4b5563;
-  --sidebar-text-strong: #111827;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-  color: var(--text);
+  --sidebar-bg: #f8fafc;
+  --sidebar-line: var(--border-color);
+  --sidebar-text: var(--text-secondary);
+  --sidebar-text-strong: var(--text-primary);
 }
 
 * {
@@ -65,15 +80,16 @@ textarea {
 }
 
 .vsSidebar {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
   background: var(--sidebar-bg);
   border-right: 1px solid var(--sidebar-line);
   color: var(--sidebar-text);
-  min-height: 100%;
+  min-height: 0;
   transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  width: 220px;
+  width: 284px;
   overflow: hidden;
+  position: relative;
 }
 
 .vsSidebar.collapsed {
@@ -81,55 +97,71 @@ textarea {
 }
 
 .vsSidebarHeader {
+  height: 64px;
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 16px 16px 12px;
-  position: relative;
-  background: var(--sidebar-bg);
+  justify-content: space-between;
+  padding: 0 16px;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.vsSidebar.collapsed .vsSidebarHeader {
+  justify-content: center;
+  padding: 0;
 }
 
 .vsBrand {
   display: flex;
   align-items: center;
-  gap: 9px;
+  gap: 12px;
   flex: 1;
   min-width: 0;
-  transition: opacity 0.2s;
-}
-
-.vsSidebar.collapsed .vsBrand {
-  opacity: 0;
-  pointer-events: none;
+  height: 38px;
 }
 
 .vsBrandIcon {
-  width: 24px;
-  height: 24px;
-  border-radius: 6px;
+  width: 38px;
+  height: 38px;
+  border-radius: 12px;
   background: var(--brand);
   color: #fff;
-  display: grid;
-  place-items: center;
-  font-size: 12px;
-  font-weight: bold;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
   flex-shrink: 0;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.vsBrandCopy {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-width: 0;
 }
 
 .vsBrand h1 {
   margin: 0;
-  font-size: 15px;
-  font-weight: 600;
+  font-size: 16px;
+  font-weight: 700;
   color: var(--sidebar-text-strong);
-  letter-spacing: 0;
+  line-height: 1;
   white-space: nowrap;
 }
 
+.vsSidebar.collapsed .vsBrandCopy {
+  opacity: 0;
+  width: 0;
+}
+
 .vsCollapseBtn {
-  width: 32px;
-  height: 32px;
-  border-radius: 10px;
-  background: transparent;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: #fff;
   color: var(--sidebar-text);
   display: grid;
   place-items: center;
@@ -138,17 +170,22 @@ textarea {
   transition: all 0.2s;
   flex-shrink: 0;
   z-index: 10;
-  border: 1px solid transparent;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  box-shadow: 0 1px 2px rgba(0,0,0,0.05);
 }
 
 .vsCollapseBtn:hover {
-  background: rgba(0, 0, 0, 0.05);
-  color: var(--sidebar-text-strong);
-  border-color: rgba(0, 0, 0, 0.08);
+  background: #fff;
+  color: var(--brand);
+  border-color: var(--brand);
+  transform: scale(1.05);
 }
 
 .vsSidebar.collapsed .vsCollapseBtn {
   margin: 0 auto;
+  border: none;
+  background: transparent;
+  box-shadow: none;
 }
 
 .vsSidebarAction {
@@ -434,6 +471,53 @@ textarea {
 .vsSidebarFooter {
   background: var(--sidebar-bg);
   border-top: 1px solid var(--sidebar-line);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.vsSidebarFooterActions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.vsFooterAction {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  padding: 10px 12px;
+  text-align: left;
+  background: transparent;
+  color: var(--sidebar-text);
+  font-weight: 500;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.vsFooterAction:hover {
+  background: var(--surface);
+  color: var(--sidebar-text-strong);
+  border-color: var(--line-strong);
+}
+
+.vsFooterAction.active {
+  background: var(--brand-soft);
+  color: var(--brand-dark);
+  font-weight: 600;
+  border-color: var(--brand-soft);
+}
+
+.vsSidebar.collapsed .vsFooterAction {
+  padding: 10px 0;
+  justify-content: center;
 }
 
 .vsProfileCard {
@@ -3590,4 +3674,107 @@ button.danger:focus-visible {
   font-size: 13px;
   color: #94a3b8;
   line-height: 1.5;
+}
+/* Simplified UI Layout & Component Styles */
+.vsMainScrollArea {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  display: block;
+  background: var(--bg-primary);
+  position: relative;
+}
+
+.vsContentMaxContainer {
+  max-width: 1280px;
+  margin: 0 auto;
+  width: 100%;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+}
+
+.vsWorkspaceHeader {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 40px 24px 24px;
+  border-bottom: 1px solid var(--border-color);
+  background: var(--bg-primary);
+}
+
+.vsWorkspaceEyebrow {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  min-height: 28px;
+  padding: 0 12px;
+  border-radius: 999px;
+  background: rgba(53, 89, 74, 0.08);
+  color: var(--brand-dark);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.vsWorkspaceTitle {
+  margin: 0;
+  font-family: var(--display-font);
+  font-size: clamp(28px, 3.2vw, 40px);
+  line-height: 0.98;
+  letter-spacing: -0.03em;
+  color: #241d18;
+}
+
+.vsWorkspaceSummary {
+  margin: 8px 0 0;
+  max-width: 760px;
+  font-size: 14px;
+  line-height: 1.65;
+  color: #64584c;
+}
+
+.vsVoiceCenter {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--bg-card);
+  border-radius: 20px;
+  border: 1px solid var(--border-color);
+  overflow: hidden;
+  box-shadow: var(--shadow-sm);
+}
+
+.vsVoiceCenterNav {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 8px;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.vsVoiceSubTab {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border-radius: 12px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  background: transparent;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.vsVoiceSubTab.active {
+  background: var(--bg-card);
+  color: var(--brand-dark);
+  border-color: var(--border-color);
+  box-shadow: var(--shadow-sm);
 }

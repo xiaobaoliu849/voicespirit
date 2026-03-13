@@ -1,9 +1,10 @@
 import { useState, useEffect } from "react";
 import {
-  SIDEBAR_ITEMS,
+  getSidebarItems,
   type ActiveTab,
   type HistoryItem
 } from "../appConfig";
+import { useI18n } from "../i18n";
 import MemoryStatusPanel from "./MemoryStatusPanel";
 import {
   Bot,
@@ -17,7 +18,8 @@ import {
   ChevronLeft,
   ChevronRight,
   MessageSquarePlus,
-  MessageSquare
+  MessageSquare,
+  X
 } from "lucide-react";
 
 const IconMap: Record<string, React.ElementType> = {
@@ -36,7 +38,9 @@ type Props = {
   chatHistoryItems: HistoryItem[];
   onTabChange: (tab: ActiveTab) => void;
   onNewChatSession: () => void;
-  onHistorySelect: (content: string) => void;
+  onHistorySelect: (id: string) => void;
+  onClearHistory: () => void;
+  onDeleteHistoryItem: (id: string) => void;
 };
 
 export default function AppSidebar({
@@ -44,13 +48,16 @@ export default function AppSidebar({
   chatHistoryItems,
   onTabChange,
   onNewChatSession,
-  onHistorySelect
+  onHistorySelect,
+  onClearHistory,
+  onDeleteHistoryItem,
 }: Props) {
+  const { t } = useI18n();
   const [isCollapsed, setIsCollapsed] = useState(() => {
     const saved = localStorage.getItem("vs_sidebar_collapsed");
     return saved === "true";
   });
-  const navigationItems = SIDEBAR_ITEMS.filter((item) => item.tab !== "chat");
+  const navigationItems = getSidebarItems(t);
   const hasHistoryItems = chatHistoryItems.length > 0;
 
   useEffect(() => {
@@ -59,103 +66,132 @@ export default function AppSidebar({
 
   return (
     <aside className={`vsSidebar ${isCollapsed ? "collapsed" : ""}`}>
-      {/* ── Header ── */}
       <div className="vsSidebarHeader">
+        <div className="vsBrand">
+          <div className="vsBrandIcon">VS</div>
+          <div className="vsBrandCopy">
+            <h1>VoiceSpirit</h1>
+          </div>
+        </div>
         <button
           className="vsCollapseBtn"
           onClick={() => setIsCollapsed(!isCollapsed)}
-          title={isCollapsed ? "展开侧边栏" : "收起侧边栏"}
+          title={isCollapsed ? t("展开侧边栏", "Expand sidebar") : t("收起侧边栏", "Collapse sidebar")}
         >
           {isCollapsed ? <ChevronRight size={18} /> : <ChevronLeft size={18} />}
         </button>
-        <div className="vsBrand">
-          <div className="vsBrandIcon">VS</div>
-          <h1>VoiceSpirit</h1>
+      </div>
+
+      <div className="vsSidebarTop">
+        <div className="vsSidebarAction">
+          <button
+            type="button"
+            className="vsNewChatBtn"
+            onClick={onNewChatSession}
+            title={isCollapsed ? t("新建对话", "New chat") : undefined}
+          >
+            <span className="vsNewChatIcon">
+              <MessageSquarePlus size={18} />
+            </span>
+            <span className="vsNewChatText">{t("新建对话", "New chat")}</span>
+          </button>
         </div>
       </div>
 
-      {/* ── Main Actions ── */}
-      <div className="vsSidebarAction">
-        <button
-          type="button"
-          className="vsNewChatBtn"
-          onClick={onNewChatSession}
-          title={isCollapsed ? "新建对话" : undefined}
-        >
-          <span className="vsNewChatIcon">
-            <MessageSquarePlus size={18} />
-          </span>
-          <span className="vsNewChatText">新建对话</span>
-        </button>
-      </div>
-
-      {/* ── Navigation ── */}
-      <div className="vsSidebarNavScroll custom-scrollbar">
-        <nav className="vsNav vsSidebarMainNav">
-          {navigationItems.map((item) => {
-            const IconComponent = IconMap[item.icon];
-            return (
-              <button
-                key={item.tab}
-                type="button"
-                className={`vsNavItem ${activeTab === item.tab ? "active" : ""}`}
-                onClick={() => onTabChange(item.tab as ActiveTab)}
-                title={isCollapsed ? item.tooltip || item.label : undefined}
-                data-testid={`nav-${item.tab}`}
-              >
-                <span className="vsNavIcon" aria-hidden="true">
-                  {IconComponent && <IconComponent size={20} />}
-                </span>
-                <span className="vsNavItemText">{item.label}</span>
-                {activeTab === item.tab ? (
-                  <div className="vsNavActiveIndicator" />
-                ) : null}
-              </button>
-            );
-          })}
-        </nav>
+      <div className="vsSidebarBody">
+        <div className="vsSidebarNavScroll custom-scrollbar">
+          <div className="vsSidebarSectionHead">
+            <p className="vsSectionLabel">{t("工作流", "Workflows")}</p>
+          </div>
+          <nav className="vsNav vsSidebarMainNav">
+            {navigationItems.map((item) => {
+              const IconComponent = IconMap[item.icon];
+              return (
+                <button
+                  key={item.tab}
+                  type="button"
+                  className={`vsNavItem ${activeTab === item.tab ? "active" : ""}`}
+                  onClick={() => onTabChange(item.tab as ActiveTab)}
+                  title={isCollapsed ? item.tooltip || item.label : undefined}
+                  data-testid={`nav-${item.tab}`}
+                >
+                  <span className="vsNavIcon" aria-hidden="true">
+                    {IconComponent && <IconComponent size={20} />}
+                  </span>
+                  <span className="vsNavItemText">{item.label}</span>
+                  {activeTab === item.tab ? (
+                    <div className="vsNavActiveIndicator" />
+                  ) : null}
+                </button>
+              );
+            })}
+          </nav>
+        </div>
 
         {hasHistoryItems ? (
           <section className="vsSidebarSection vsHistorySection">
             <div className="vsHistoryHead">
-              <p className="vsSectionLabel">最近对话</p>
+              <p className="vsSectionLabel">{t("最近对话", "Recent chats")}</p>
               <button
                 type="button"
                 className="vsHistoryClearBtn"
-                onClick={onNewChatSession}
-                title={isCollapsed ? "清除全部对话" : undefined}
+                onClick={onClearHistory}
+                title={isCollapsed ? t("清除全部对话", "Clear all chats") : undefined}
               >
-                {isCollapsed ? "✕" : "清除全部"}
+                {isCollapsed ? "✕" : t("清除全部", "Clear all")}
               </button>
             </div>
-            <div className="vsHistoryList">
+            <div className="vsHistoryList custom-scrollbar">
               {chatHistoryItems.map((item) => (
-                <button
-                  key={item.id}
-                  type="button"
-                  className="vsHistoryItem"
-                  onClick={() => onHistorySelect(item.content)}
-                  title={isCollapsed ? item.content : undefined}
-                >
-                  <span className="vsHistoryIcon">
-                    <MessageSquare size={16} />
-                  </span>
-                  <span className="vsHistoryText">{item.content}</span>
-                </button>
+                <div key={item.id} className="vsHistoryRow">
+                  <button
+                    type="button"
+                    className="vsHistoryItem"
+                    onClick={() => onHistorySelect(item.id)}
+                    title={isCollapsed ? item.content : undefined}
+                  >
+                    <span className="vsHistoryIcon">
+                      <MessageSquare size={16} />
+                    </span>
+                    <span className="vsHistoryText">{item.content}</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="vsHistoryDeleteBtn"
+                    aria-label={t(`删除历史 ${item.content}`, `Delete history ${item.content}`)}
+                    title={t("删除这条历史", "Delete this history item")}
+                    onClick={() => onDeleteHistoryItem(item.id)}
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
               ))}
             </div>
           </section>
         ) : null}
       </div>
 
-      {/* ── Footer ── */}
       <div className="vsSidebarFooter">
-        <div className="vsProfileCard">
-          <div className="vsProfileAvatar">A</div>
-          <div className="vsProfileInfo">
-            <p className="vsProfileName">本地工作区</p>
-            <p className="vsProfilePlan">当前会话环境</p>
-          </div>
+        <div className="vsSidebarFooterActions">
+          {/* Mock Login Button - Positioned above Settings */}
+          <button
+            className="vsFooterAction vsLoginBtn"
+            title={t("登录账号", "Login")}
+            onClick={() => { }}
+          >
+            <Fingerprint size={18} />
+            {!isCollapsed && <span>{t("登录账号", "Login")}</span>}
+          </button>
+
+          {/* Settings Button */}
+          <button
+            className={`vsFooterAction vsSettingsBtn ${activeTab === "settings" ? "active" : ""}`}
+            title={t("设置", "Settings")}
+            onClick={() => onTabChange("settings")}
+          >
+            <Settings size={18} />
+            {!isCollapsed && <span>{t("设置", "Settings")}</span>}
+          </button>
         </div>
         <div className="vsMemoryStatusWrapper">
           <MemoryStatusPanel />
