@@ -1,13 +1,21 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import {
+  createAudioAgentRun,
+  type AudioAgentEvent,
   createAudioOverviewPodcast,
   deleteAudioOverviewPodcast,
+  type AudioAgentRunDetail,
+  type AudioAgentSource,
+  type AudioAgentStep,
+  executeAudioAgentRun,
   fetchAudioOverviewPodcastAudio,
-  generateAudioOverviewScript,
+  getAudioAgentRun,
   getEverMemRuntimeConfig,
   getAudioOverviewPodcast,
+  listAudioAgentRunEvents,
   listAudioOverviewPodcasts,
   saveAudioOverviewScript,
+  synthesizeAudioAgentRun,
   synthesizeAudioOverviewPodcast,
   updateAudioOverviewPodcast,
   type AudioOverviewPodcast,
@@ -72,6 +80,18 @@ export default function useAudioOverview({
   );
   const [audioOverviewMemoriesRetrieved, setAudioOverviewMemoriesRetrieved] = useState(0);
   const [audioOverviewMemorySaved, setAudioOverviewMemorySaved] = useState(false);
+  const [audioAgentSourceText, setAudioAgentSourceText] = useState("");
+  const [audioAgentSourceUrlsText, setAudioAgentSourceUrlsText] = useState("");
+  const [audioAgentGenerationConstraints, setAudioAgentGenerationConstraints] = useState("");
+  const [audioAgentRunId, setAudioAgentRunId] = useState<number | null>(null);
+  const [audioAgentStatus, setAudioAgentStatus] = useState("");
+  const [audioAgentCurrentStep, setAudioAgentCurrentStep] = useState("");
+  const [audioAgentSteps, setAudioAgentSteps] = useState<AudioAgentStep[]>([]);
+  const [audioAgentSources, setAudioAgentSources] = useState<AudioAgentSource[]>([]);
+  const [audioAgentResultProvider, setAudioAgentResultProvider] = useState("");
+  const [audioAgentResultModel, setAudioAgentResultModel] = useState("");
+  const [audioAgentEvents, setAudioAgentEvents] = useState<AudioAgentEvent[]>([]);
+  const [audioAgentErrorMessage, setAudioAgentErrorMessage] = useState("");
 
   const audioOverviewVoiceOptions = useMemo(() => {
     const localePrefix = audioOverviewLanguage === "en" ? "en-US" : "zh-CN";
@@ -155,33 +175,92 @@ export default function useAudioOverview({
       .filter((line) => line.text.length > 0);
   }
 
+  function resetAudioAgentState() {
+    setAudioAgentRunId(null);
+    setAudioAgentStatus("");
+    setAudioAgentCurrentStep("");
+    setAudioAgentSteps([]);
+    setAudioAgentSources([]);
+    setAudioAgentResultProvider("");
+    setAudioAgentResultModel("");
+    setAudioAgentEvents([]);
+    setAudioAgentErrorMessage("");
+  }
+
+  function applyAudioAgentRun(run: AudioAgentRunDetail) {
+    setAudioAgentRunId(run.id);
+    setAudioAgentStatus(run.status);
+    setAudioAgentCurrentStep(run.current_step);
+    setAudioAgentSteps(run.steps);
+    setAudioAgentSources(run.sources);
+    const resultProvider = typeof run.result_payload.provider === "string" ? run.result_payload.provider : "";
+    const resultModel = typeof run.result_payload.model === "string" ? run.result_payload.model : "";
+    setAudioAgentResultProvider(resultProvider);
+    setAudioAgentResultModel(resultModel);
+    setAudioAgentErrorMessage(run.error_message || "");
+  }
+
+  function applyAudioAgentEvents(events: AudioAgentEvent[]) {
+    setAudioAgentEvents(events);
+  }
+
+  function buildAgentStepInfo(run: AudioAgentRunDetail) {
+    const stepLabels: Record<string, string> = {
+      retrieve: t("正在检索资料...", "Retrieving sources..."),
+      assemble_evidence: t("正在整理资料...", "Assembling evidence..."),
+      generate_script: t("正在生成脚本...", "Generating script..."),
+      persist_draft: t("正在保存草稿...", "Persisting draft..."),
+      synthesize_audio: t("正在合成音频...", "Synthesizing audio...")
+    };
+    return stepLabels[run.current_step] || t("Agent 执行中...", "Agent is running...");
+  }
+
+  async function waitForAudioAgentRunCompletion(runId: number) {
+    const maxAttempts = 120;
+    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+      const [current, eventData] = await Promise.all([
+        getAudioAgentRun(runId),
+        listAudioAgentRunEvents(runId, 50)
+      ]);
+      applyAudioAgentRun(current);
+      applyAudioAgentEvents(eventData.events);
+      setAudioOverviewInfo(buildAgentStepInfo(current));
+      if (current.status === "draft_ready") {
+        return current;
+      }
+      if (current.status === "failed") {
+        const message = current.error_message || t("Agent 执行失败。", "Agent execution failed.");
+        throw new Error(message);
+      }
+      await new Promise((resolve) => window.setTimeout(resolve, 800));
+    }
+    throw new Error(t("Agent 执行超时，请稍后重试。", "Agent execution timed out. Please try again later."));
+  }
+
+  async function syncRunBackToPodcast(run: AudioAgentRunDetail) {
+    const nextPodcastId =
+      typeof run.podcast_id === "number" && run.podcast_id > 0 ? run.podcast_id : null;
+    if (nextPodcastId === null) {
+      throw new Error(
+        t(
+          "Agent 已完成执行，但没有生成播客草稿。",
+          "The agent finished but did not create a podcast draft."
+        )
+      );
+    }
+    const savedPodcast = await getAudioOverviewPodcast(nextPodcastId);
+    applyAudioOverviewPodcast(savedPodcast);
+    setAudioOverviewScriptLines(normalizeAudioOverviewScriptLines(savedPodcast.script_lines));
+    setAudioOverviewLanguage(savedPodcast.language?.toLowerCase().startsWith("en") ? "en" : "zh");
+    return nextPodcastId;
+  }
+
   function applyAudioOverviewPodcast(podcast: AudioOverviewPodcast) {
     setAudioOverviewPodcastId(podcast.id);
     setAudioOverviewTopic(podcast.topic);
     setAudioOverviewLanguage(podcast.language?.toLowerCase().startsWith("en") ? "en" : "zh");
     setAudioOverviewScriptLines(podcast.script_lines);
     setAudioOverviewMenuOpen(false);
-  }
-
-  function buildAudioOverviewMemoryInfo(params: {
-    memoriesRetrieved?: number;
-    memorySaved?: boolean;
-  }) {
-    const retrieved = Number(params.memoriesRetrieved || 0);
-    const saved = Boolean(params.memorySaved);
-    if (retrieved > 0 && saved) {
-      return t(
-        `已引用 ${retrieved} 条长期记忆，并写入本次播客草稿。`,
-        `Used ${retrieved} long-term memories and saved this podcast draft back to memory.`
-      );
-    }
-    if (retrieved > 0) {
-      return t(`已引用 ${retrieved} 条长期记忆。`, `Used ${retrieved} long-term memories.`);
-    }
-    if (saved) {
-      return t("已写入本次播客草稿到长期记忆。", "Saved this podcast draft to long-term memory.");
-    }
-    return "";
   }
 
   async function loadAudioOverviewPodcasts() {
@@ -201,6 +280,7 @@ export default function useAudioOverview({
     setAudioOverviewInfo("");
     setAudioOverviewMemoriesRetrieved(0);
     setAudioOverviewMemorySaved(false);
+    resetAudioAgentState();
     try {
       const podcast = await getAudioOverviewPodcast(podcastId);
       applyAudioOverviewPodcast(podcast);
@@ -258,56 +338,77 @@ export default function useAudioOverview({
     setAudioOverviewBusy(true);
     setAudioOverviewMemoriesRetrieved(0);
     setAudioOverviewMemorySaved(false);
+    resetAudioAgentState();
     try {
       const runtimeMemory = getEverMemRuntimeConfig();
       const memoryConfigured = runtimeMemory.enabled;
       const shouldUseMemory = audioOverviewUseMemory && memoryConfigured;
       setAudioOverviewMemoryConfigured(memoryConfigured);
+      setAudioOverviewInfo(
+        t("Agent 正在检索资料并生成脚本...", "The agent is retrieving context and generating the script...")
+      );
 
-      const generated = await generateAudioOverviewScript({
+      const run = await createAudioAgentRun({
         topic,
         language: audioOverviewLanguage,
-        turn_count: audioOverviewTurnCount,
         provider: audioOverviewProvider,
-        model: audioOverviewModel.trim() || undefined
-      }, { useMemory: shouldUseMemory });
-      const normalized = normalizeAudioOverviewScriptLines(generated.script_lines);
-      const memoryInfo = buildAudioOverviewMemoryInfo({
-        memoriesRetrieved: generated.memories_retrieved,
-        memorySaved: generated.memory_saved
+        model: audioOverviewModel.trim() || undefined,
+        use_memory: shouldUseMemory,
+        source_text: audioAgentSourceText.trim() || undefined,
+        source_urls: audioAgentSourceUrlsText
+          .split(/\r?\n/)
+          .map((item) => item.trim())
+          .filter((item) => item.length > 0),
+        generation_constraints: audioAgentGenerationConstraints.trim() || undefined,
+        turn_count: audioOverviewTurnCount,
+        auto_execute: true
       });
-
-      setAudioOverviewLanguage(generated.language);
-      setAudioOverviewScriptLines(normalized);
-      setAudioOverviewMemoriesRetrieved(generated.memories_retrieved || 0);
-      setAudioOverviewMemorySaved(Boolean(generated.memory_saved));
+      applyAudioAgentRun(run);
+      const completedRun =
+        run.status === "draft_ready" ? run : await waitForAudioAgentRunCompletion(run.id);
       clearAudioOverviewAudio();
-
-      if (audioOverviewPodcastId === null) {
-        const created = await createAudioOverviewPodcast({
-          topic,
-          language: generated.language,
-          script_lines: normalized
-        });
-        applyAudioOverviewPodcast(created);
-        setAudioOverviewInfo(
-          `脚本已生成，并保存为播客 #${created.id}。${memoryInfo ? ` ${memoryInfo}` : ""}`
-        );
-      } else {
-        const updated = await updateAudioOverviewPodcast(audioOverviewPodcastId, {
-          topic,
-          language: generated.language,
-          script_lines: normalized
-        });
-        applyAudioOverviewPodcast(updated);
-        setAudioOverviewInfo(
-          `播客 #${updated.id} 的脚本已重新生成。${memoryInfo ? ` ${memoryInfo}` : ""}`
-        );
-      }
+      const nextPodcastId = await syncRunBackToPodcast(completedRun);
+      setAudioOverviewInfo(
+        t(
+          `Agent 已完成检索与写稿，并保存为播客 #${nextPodcastId}。`,
+          `The agent finished retrieval and drafting, and saved podcast #${nextPodcastId}.`
+        )
+      );
 
       await loadAudioOverviewPodcasts();
     } catch (err) {
       setAudioOverviewError(formatErrorMessage(err, "生成脚本失败。"));
+    } finally {
+      setAudioOverviewBusy(false);
+    }
+  }
+
+  async function onRetryAgentRun() {
+    if (audioAgentRunId === null) {
+      setAudioOverviewError(t("当前没有可重试的 Agent 任务。", "There is no agent run to retry."));
+      return;
+    }
+    setAudioOverviewError("");
+    setAudioOverviewInfo(t("正在重试 Agent 任务...", "Retrying the agent run..."));
+    setAudioOverviewBusy(true);
+    try {
+      const scheduled = await executeAudioAgentRun(audioAgentRunId);
+      applyAudioAgentRun(scheduled);
+      const completedRun =
+        scheduled.status === "draft_ready" || scheduled.status === "completed"
+          ? scheduled
+          : await waitForAudioAgentRunCompletion(audioAgentRunId);
+      const nextPodcastId = await syncRunBackToPodcast(completedRun);
+      clearAudioOverviewAudio();
+      await loadAudioOverviewPodcasts();
+      setAudioOverviewInfo(
+        t(
+          `Agent 重试完成，已更新播客 #${nextPodcastId}。`,
+          `Agent retry completed and updated podcast #${nextPodcastId}.`
+        )
+      );
+    } catch (err) {
+      setAudioOverviewError(formatErrorMessage(err, t("重试 Agent 任务失败。", "Failed to retry the agent run.")));
     } finally {
       setAudioOverviewBusy(false);
     }
@@ -336,15 +437,64 @@ export default function useAudioOverview({
     setAudioOverviewInfo("");
     setAudioOverviewSynthBusy(true);
     try {
-      const podcastId = await ensureAudioOverviewPodcastSaved();
-      const result = await synthesizeAudioOverviewPodcast(podcastId, {
+      const payload = {
         voice_a: audioOverviewVoiceA || undefined,
         voice_b: audioOverviewVoiceB || undefined,
         rate: audioOverviewRate || "+0%",
         language: audioOverviewLanguage,
         gap_ms: audioOverviewGapMs,
         merge_strategy: audioOverviewMergeStrategy
-      });
+      } as const;
+      let podcastId = await ensureAudioOverviewPodcastSaved();
+      let result:
+        | {
+          line_count: number;
+          merge_strategy: string;
+          gap_ms_applied: number;
+          cache_hits: number;
+        }
+        | null = null;
+
+      if (audioAgentRunId !== null) {
+        setAudioOverviewInfo(
+          t("Agent 正在合成音频...", "The agent is synthesizing audio...")
+        );
+        const run = await synthesizeAudioAgentRun(audioAgentRunId, payload);
+        applyAudioAgentRun(run);
+        const eventData = await listAudioAgentRunEvents(audioAgentRunId, 50);
+        applyAudioAgentEvents(eventData.events);
+        podcastId =
+          typeof run.podcast_id === "number" && run.podcast_id > 0 ? run.podcast_id : podcastId;
+        result = {
+          line_count:
+            typeof run.result_payload.line_count === "number"
+              ? run.result_payload.line_count
+              : audioOverviewScriptLines.length,
+          merge_strategy:
+            typeof run.result_payload.merge_strategy === "string"
+              ? run.result_payload.merge_strategy
+              : audioOverviewMergeStrategy,
+          gap_ms_applied:
+            typeof run.result_payload.gap_ms_applied === "number"
+              ? run.result_payload.gap_ms_applied
+              : 0,
+          cache_hits:
+            typeof run.result_payload.cache_hits === "number"
+              ? run.result_payload.cache_hits
+              : 0
+        };
+      } else {
+        const synthResult = await synthesizeAudioOverviewPodcast(podcastId, payload);
+        result = {
+          line_count: synthResult.line_count,
+          merge_strategy: synthResult.merge_strategy,
+          gap_ms_applied: synthResult.gap_ms_applied,
+          cache_hits: synthResult.cache_hits
+        };
+      }
+      if (podcastId === null) {
+        throw new Error(t("当前没有可合成的播客草稿。", "There is no podcast draft to synthesize."));
+      }
       const blob = await fetchAudioOverviewPodcastAudio(podcastId);
       setAudioOverviewAudioBlob(blob);
       await loadAudioOverviewPodcasts();
@@ -370,6 +520,10 @@ export default function useAudioOverview({
       setAudioOverviewPodcastId(null);
       setAudioOverviewTopic("");
       setAudioOverviewScriptLines([]);
+      setAudioAgentSourceText("");
+      setAudioAgentSourceUrlsText("");
+      setAudioAgentGenerationConstraints("");
+      resetAudioAgentState();
       clearAudioOverviewAudio();
       setAudioOverviewMenuOpen(false);
       await loadAudioOverviewPodcasts();
@@ -390,6 +544,10 @@ export default function useAudioOverview({
     setAudioOverviewMenuOpen(false);
     setAudioOverviewMemoriesRetrieved(0);
     setAudioOverviewMemorySaved(false);
+    setAudioAgentSourceText("");
+    setAudioAgentSourceUrlsText("");
+    setAudioAgentGenerationConstraints("");
+    resetAudioAgentState();
     clearAudioOverviewAudio();
   }
 
@@ -516,6 +674,19 @@ export default function useAudioOverview({
     audioOverviewMemoryConfigured,
     audioOverviewMemoriesRetrieved,
     audioOverviewMemorySaved,
+    audioAgentSourceText,
+    audioAgentSourceUrlsText,
+    audioAgentGenerationConstraints,
+    audioAgentRunId,
+    audioAgentStatus,
+    audioAgentCurrentStep,
+    audioAgentSteps,
+    audioAgentSources,
+    audioAgentResultProvider,
+    audioAgentResultModel,
+    audioAgentEvents,
+    audioAgentErrorMessage,
+    audioAgentCanRetry: audioAgentRunId !== null && audioAgentStatus === "failed",
     audioOverviewScriptLines,
     audioOverviewVoiceOptions,
     audioOverviewVoiceA,
@@ -538,6 +709,9 @@ export default function useAudioOverview({
     onProviderChange: setAudioOverviewProvider,
     onModelChange: setAudioOverviewModel,
     onUseMemoryChange: setAudioOverviewUseMemory,
+    onSourceTextChange: setAudioAgentSourceText,
+    onSourceUrlsTextChange: setAudioAgentSourceUrlsText,
+    onGenerationConstraintsChange: setAudioAgentGenerationConstraints,
     onTurnCountChange,
     onSaveScript,
     onCopyScript,
@@ -556,7 +730,8 @@ export default function useAudioOverview({
     onGapMsChange,
     onMergeStrategyChange: setAudioOverviewMergeStrategy,
     onRefreshList: loadAudioOverviewPodcasts,
-    onLoadPodcast: loadAudioOverviewPodcastById
+    onLoadPodcast: loadAudioOverviewPodcastById,
+    onRetryAgentRun
   };
 }
 

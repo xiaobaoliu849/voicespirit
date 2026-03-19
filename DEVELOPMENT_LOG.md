@@ -258,6 +258,63 @@ Voice Spirit 2.0 是一个基于PySide6的语音合成和AI助手桌面应用程
   - `backend/docs/request_tracing.md` 增加 `voicespirit.error` 日志格式样例
 
 ### 验证结果
+
+## 2026-03-19 续做记录（Audio Agent 最小闭环）
+
+### 本次完成
+- 新增 Audio Agent 架构设计文档：
+  - `docs/Audio_Agent_Architecture_Plan.md`
+- 后端新增轻量 agent runtime 骨架：
+  - `backend/services/audio_agent_repository.py`
+  - `backend/services/audio_agent_service.py`
+  - `backend/services/audio_retrieval_service.py`
+  - `backend/services/audio_script_writer.py`
+  - `backend/routers/audio_agent.py`
+- 新增并挂载 API：
+  - `POST /api/audio-agent/runs`
+  - `GET /api/audio-agent/runs`
+  - `GET /api/audio-agent/runs/{id}`
+  - `GET /api/audio-agent/runs/{id}/events`
+  - `POST /api/audio-agent/runs/{id}/execute`
+  - `POST /api/audio-agent/runs/{id}/synthesize`
+- SQLite 新增 agent 运行时表：
+  - `audio_agent_runs`
+  - `audio_agent_steps`
+  - `audio_agent_sources`
+  - `audio_agent_events`
+- 生成链路升级为固定 agent 流程：
+  - `prepare -> retrieve -> assemble_evidence -> generate_script -> persist_draft -> synthesize_audio`
+- `Audio Overview` 前端已切到新的 agent run 流程：
+  - 生成脚本时创建并轮询 run
+  - 自动载入 run 生成的播客草稿
+  - 有 run 时优先走 run 级合成
+- UI 新增 agent 信息展示：
+  - 顶部 run 状态
+  - 主区域 Agent 运行状态条
+  - 右侧步骤列表、来源列表、最近事件、失败信息
+  - 失败后支持 retry
+- 高级设置新增可控输入：
+  - 手动资料
+  - 来源 URL 列表
+  - 生成约束
+  - 以上字段已接入后端 run 和脚本提示词
+
+### 验证结果
+- 后端测试：
+  - `cd backend && .venv/bin/python -m unittest tests.test_api_smoke.ApiSmokeTests.test_audio_agent_run_endpoints` 通过
+- 前端测试：
+  - `cd frontend && npx vitest run src/components/podcast/PodcastTopicStep.test.tsx src/components/podcast/PodcastSidebar.test.tsx src/components/podcast/PodcastHeader.test.tsx src/pages/AudioOverviewPage.test.tsx` 通过
+- 前端构建：
+  - `cd frontend && npm run build` 通过
+
+### 当前停点
+- 当前已具备最小可用的 audio-agent 产品闭环，但 URL 仍只是“显式来源记录”，尚未升级为“抓取并摘要网页内容”。
+- 事件进度目前采用轮询 `get_run/events`，尚未升级到 SSE。
+- run 级合成已接通，但更细的恢复动作（如按失败步骤 retry）还未实现。
+
+### 明日建议起手
+- 优先把 URL 来源从记录模式升级为抓取/抽取/摘要模式。
+- 然后再考虑 SSE 实时进度或更细粒度的失败恢复。
 - 后端测试：
   - `cd backend && .venv/bin/python -m unittest discover -s tests -p 'test_*.py' -v` 通过（13/13）。
 - 前端构建：

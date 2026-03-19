@@ -37,6 +37,11 @@ export function createChatController(
     onNewSession: vi.fn(),
     onSelectHistory: vi.fn(),
     replaceSession: vi.fn(),
+    injectMessage: vi.fn(),
+    useMemory: true,
+    setUseMemory: vi.fn(),
+    deepThinking: false,
+    setDeepThinking: vi.fn(),
     ...overrides
   };
 }
@@ -127,6 +132,7 @@ export function createTranslateController(
     translateError: "",
     translateInfo: "",
     translateResult: "Mock translation",
+    speakingTarget: null,
     onSubmit: vi.fn(),
     onProviderChange: vi.fn(),
     onModelChange: vi.fn(),
@@ -136,7 +142,11 @@ export function createTranslateController(
     onSwapLanguages: vi.fn(),
     onCopySource: vi.fn(),
     onCopyResult: vi.fn(),
+    onSpeakSource: vi.fn(),
+    onSpeakResult: vi.fn(),
     onPasteInput: vi.fn(),
+    onClearSource: vi.fn(),
+    onClearResult: vi.fn(),
     onClearAll: vi.fn(),
     ...overrides
   };
@@ -349,6 +359,19 @@ export function createAudioOverviewController(
     audioOverviewMemoryConfigured: false,
     audioOverviewMemoriesRetrieved: 0,
     audioOverviewMemorySaved: false,
+    audioAgentSourceText: "",
+    audioAgentSourceUrlsText: "",
+    audioAgentGenerationConstraints: "",
+    audioAgentRunId: null,
+    audioAgentStatus: "",
+    audioAgentCurrentStep: "",
+    audioAgentSteps: [],
+    audioAgentSources: [],
+    audioAgentResultProvider: "",
+    audioAgentResultModel: "",
+    audioAgentEvents: [],
+    audioAgentErrorMessage: "",
+    audioAgentCanRetry: false,
     audioOverviewScriptLines: [
       { role: "A", text: "第一段内容" },
       { role: "B", text: "第二段内容" }
@@ -374,6 +397,9 @@ export function createAudioOverviewController(
     onProviderChange: vi.fn(),
     onModelChange: vi.fn(),
     onUseMemoryChange: vi.fn(),
+    onSourceTextChange: vi.fn(),
+    onSourceUrlsTextChange: vi.fn(),
+    onGenerationConstraintsChange: vi.fn(),
     onTurnCountChange: vi.fn(),
     onSaveScript: vi.fn(),
     onCopyScript: vi.fn(),
@@ -393,6 +419,7 @@ export function createAudioOverviewController(
     onMergeStrategyChange: vi.fn(),
     onRefreshList: vi.fn(),
     onLoadPodcast: vi.fn(),
+    onRetryAgentRun: vi.fn(),
     ...overrides
   };
 }

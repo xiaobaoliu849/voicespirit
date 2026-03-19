@@ -32,6 +32,8 @@ export type ChatRequest = {
   messages: ChatMessage[];
   temperature?: number;
   max_tokens?: number;
+  use_memory?: boolean;
+  deep_thinking?: boolean;
 };
 
 export type ChatResponse = {
@@ -207,6 +209,96 @@ export type AudioOverviewSynthesizeResponse = {
   merge_strategy: string;
 };
 
+export type AudioAgentStep = {
+  id: number;
+  run_id: number;
+  step_name: string;
+  status: string;
+  attempt_index: number;
+  started_at: string;
+  finished_at: string;
+  meta: Record<string, unknown>;
+  error_code: string;
+  error_message: string;
+};
+
+export type AudioAgentSource = {
+  id: number;
+  run_id: number;
+  source_type: string;
+  title: string;
+  uri: string;
+  snippet: string;
+  content: string;
+  score: number;
+  meta: Record<string, unknown>;
+  created_at: string;
+};
+
+export type AudioAgentEvent = {
+  id: number;
+  run_id: number;
+  event_type: string;
+  payload: Record<string, unknown>;
+  created_at: string;
+};
+
+export type AudioAgentRun = {
+  id: number;
+  podcast_id: number | null;
+  topic: string;
+  language: string;
+  status: string;
+  current_step: string;
+  provider: string;
+  model: string;
+  use_memory: boolean;
+  input_payload: Record<string, unknown>;
+  result_payload: Record<string, unknown>;
+  error_code: string;
+  error_message: string;
+  created_at: string;
+  updated_at: string;
+  completed_at: string;
+};
+
+export type AudioAgentRunDetail = AudioAgentRun & {
+  steps: AudioAgentStep[];
+  sources: AudioAgentSource[];
+};
+
+export type AudioAgentRunListResponse = {
+  count: number;
+  runs: AudioAgentRun[];
+};
+
+export type AudioAgentEventListResponse = {
+  count: number;
+  events: AudioAgentEvent[];
+};
+
+export type AudioAgentCreateRunRequest = {
+  topic: string;
+  language?: string;
+  provider?: string;
+  model?: string;
+  use_memory?: boolean;
+  source_urls?: string[];
+  source_text?: string;
+  generation_constraints?: string;
+  turn_count?: number;
+  auto_execute?: boolean;
+};
+
+export type AudioAgentSynthesizeRequest = {
+  voice_a?: string;
+  voice_b?: string;
+  rate?: string;
+  language?: string;
+  gap_ms?: number;
+  merge_strategy?: "auto" | "pydub" | "ffmpeg" | "concat";
+};
+
 export type ApiRuntimeInfo = {
   name?: string;
   version?: string;
@@ -217,6 +309,20 @@ export type ApiRuntimeInfo = {
   raw?: Record<string, unknown>;
 };
 
+export type AuthUser = {
+  id: string;
+  email: string;
+  is_admin: boolean;
+  is_active: boolean;
+  created_at: string;
+};
+
+export type AuthSessionResponse = {
+  access_token: string;
+  token_type: string;
+  user: AuthUser;
+};
+
 export type ApiErrorDetail = {
   code?: string;
   message?: string;
@@ -225,6 +331,7 @@ export type ApiErrorDetail = {
 
 export type TranscriptionResponse = {
   transcript: string;
+  job_id?: string;
   memory_saved?: boolean;
 };
 
@@ -291,6 +398,10 @@ export const API_BASE_URL =
   import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
 export const API_TOKEN = import.meta.env.VITE_API_TOKEN || "";
 export const API_ADMIN_TOKEN = import.meta.env.VITE_API_ADMIN_TOKEN || "";
+const API_TOKEN_STORAGE_KEY = "voicespirit_api_token";
+const API_ADMIN_TOKEN_STORAGE_KEY = "voicespirit_api_admin_token";
+const AUTH_USER_EMAIL_STORAGE_KEY = "voicespirit_auth_user_email";
+const AUTH_USER_ADMIN_STORAGE_KEY = "voicespirit_auth_user_admin";
 const CLIENT_ID_STORAGE_KEY = "voicespirit_client_id";
 const EVERMEM_ENABLED_STORAGE_KEY = "evermem_enabled";
 const EVERMEM_API_URL_STORAGE_KEY = "evermem_api_url";
@@ -307,6 +418,15 @@ const EVERMEM_CHAT_GROUP_ID_STORAGE_KEY = "evermem_chat_group_id";
 const EVERMEM_VOICE_CHAT_GROUP_ID_STORAGE_KEY = "evermem_voice_chat_group_id";
 
 let evermemRuntimeKey = "";
+
+export type AuthRuntimeConfig = {
+  apiToken: string;
+  adminToken: string;
+  userEmail: string;
+  isAdmin: boolean;
+  hasEnvApiToken: boolean;
+  hasEnvAdminToken: boolean;
+};
 
 function safeStorageGet(key: string): string {
   try {
@@ -347,6 +467,87 @@ export function getClientId(): string {
   const next = createClientId();
   safeStorageSet(CLIENT_ID_STORAGE_KEY, next);
   return next;
+}
+
+function getStoredApiToken(): string {
+  return safeStorageGet(API_TOKEN_STORAGE_KEY).trim();
+}
+
+function getStoredAdminToken(): string {
+  return safeStorageGet(API_ADMIN_TOKEN_STORAGE_KEY).trim();
+}
+
+function getStoredUserEmail(): string {
+  return safeStorageGet(AUTH_USER_EMAIL_STORAGE_KEY).trim();
+}
+
+function getStoredUserAdmin(): boolean {
+  return safeStorageGet(AUTH_USER_ADMIN_STORAGE_KEY) === "true";
+}
+
+function resolveAuthToken(useAdminToken: boolean): string {
+  if (useAdminToken) {
+    return getStoredAdminToken() || getStoredApiToken() || API_ADMIN_TOKEN || API_TOKEN;
+  }
+  return getStoredApiToken() || API_TOKEN;
+}
+
+export function getAuthRuntimeConfig(): AuthRuntimeConfig {
+  return {
+    apiToken: getStoredApiToken(),
+    adminToken: getStoredAdminToken(),
+    userEmail: getStoredUserEmail(),
+    isAdmin: getStoredUserAdmin(),
+    hasEnvApiToken: Boolean(API_TOKEN),
+    hasEnvAdminToken: Boolean(API_ADMIN_TOKEN),
+  };
+}
+
+export function configureAuthRuntime(config: {
+  apiToken?: string;
+  adminToken?: string;
+  userEmail?: string;
+  isAdmin?: boolean;
+}): AuthRuntimeConfig {
+  const apiToken = (config.apiToken || "").trim();
+  const adminToken = (config.adminToken || "").trim();
+  const userEmail = (config.userEmail || "").trim();
+  if (apiToken) {
+    safeStorageSet(API_TOKEN_STORAGE_KEY, apiToken);
+  } else {
+    safeStorageRemove(API_TOKEN_STORAGE_KEY);
+  }
+  if (adminToken) {
+    safeStorageSet(API_ADMIN_TOKEN_STORAGE_KEY, adminToken);
+  } else {
+    safeStorageRemove(API_ADMIN_TOKEN_STORAGE_KEY);
+  }
+  if (userEmail) {
+    safeStorageSet(AUTH_USER_EMAIL_STORAGE_KEY, userEmail);
+  } else {
+    safeStorageRemove(AUTH_USER_EMAIL_STORAGE_KEY);
+  }
+  safeStorageSet(AUTH_USER_ADMIN_STORAGE_KEY, String(config.isAdmin === true));
+  return getAuthRuntimeConfig();
+}
+
+export function clearAuthRuntime(): AuthRuntimeConfig {
+  safeStorageRemove(API_TOKEN_STORAGE_KEY);
+  safeStorageRemove(API_ADMIN_TOKEN_STORAGE_KEY);
+  safeStorageRemove(AUTH_USER_EMAIL_STORAGE_KEY);
+  safeStorageRemove(AUTH_USER_ADMIN_STORAGE_KEY);
+  return getAuthRuntimeConfig();
+}
+
+function applyAuthSession(session: AuthSessionResponse): AuthRuntimeConfig {
+  const token = String(session.access_token || "").trim();
+  const user = session.user;
+  return configureAuthRuntime({
+    apiToken: token,
+    adminToken: user?.is_admin ? token : "",
+    userEmail: String(user?.email || "").trim(),
+    isAdmin: Boolean(user?.is_admin),
+  });
 }
 
 export function configureEverMemRuntime(config: {
@@ -425,12 +626,13 @@ function buildEverMemSceneConfig(
   if (scene === "transcription" && !evermem.remember_recordings) return null;
   if (scene === "podcast" && !evermem.remember_podcast) return null;
   if (scene === "tts" && !evermem.remember_tts) return null;
+  const resolvedScopeId = evermem.scope_id || `client:${getClientId()}`;
 
   return {
     enabled: true,
     api_url: evermem.api_url || "",
     ...(evermem.api_key ? { api_key: evermem.api_key } : {}),
-    ...(evermem.scope_id ? { scope_id: evermem.scope_id } : {}),
+    ...(resolvedScopeId ? { scope_id: resolvedScopeId } : {}),
     ...(options.groupId ? { group_id: options.groupId } : {}),
   };
 }
@@ -543,10 +745,7 @@ function apiFetch(
   options: { useAdminToken?: boolean } = {}
 ): Promise<Response> {
   const headers = new Headers(init.headers || {});
-  const token =
-    options.useAdminToken && API_ADMIN_TOKEN
-      ? API_ADMIN_TOKEN
-      : API_TOKEN;
+  const token = resolveAuthToken(options.useAdminToken === true);
   if (token && !headers.has("Authorization")) {
     headers.set("Authorization", `Bearer ${token}`);
   }
@@ -596,6 +795,50 @@ export async function fetchApiRuntimeInfo(): Promise<ApiRuntimeInfo> {
     auth_mode: typeof obj.auth_mode === "string" ? obj.auth_mode : undefined,
     raw: obj
   };
+}
+
+export async function loginAuthUser(email: string, password: string): Promise<AuthRuntimeConfig> {
+  const response = await fetch(`${API_BASE_URL}/api/auth/login`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Client-ID": getClientId(),
+    },
+    body: JSON.stringify({ email, password }),
+  });
+  if (!response.ok) {
+    await throwApiError(response);
+  }
+  return applyAuthSession((await response.json()) as AuthSessionResponse);
+}
+
+export async function registerAuthUser(email: string, password: string): Promise<AuthRuntimeConfig> {
+  const response = await fetch(`${API_BASE_URL}/api/auth/register`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Client-ID": getClientId(),
+    },
+    body: JSON.stringify({ email, password }),
+  });
+  if (!response.ok) {
+    await throwApiError(response);
+  }
+  return applyAuthSession((await response.json()) as AuthSessionResponse);
+}
+
+export async function fetchCurrentAuthUser(): Promise<AuthRuntimeConfig> {
+  const response = await apiFetch(`${API_BASE_URL}/api/auth/me`);
+  if (!response.ok) {
+    await throwApiError(response);
+  }
+  const user = (await response.json()) as AuthUser;
+  return configureAuthRuntime({
+    apiToken: getStoredApiToken(),
+    adminToken: user.is_admin ? getStoredApiToken() : getStoredAdminToken(),
+    userEmail: user.email,
+    isAdmin: user.is_admin,
+  });
 }
 
 export async function fetchVoices(locale?: string, engine?: TtsEngine): Promise<VoicesResponse> {
@@ -1226,4 +1469,86 @@ export async function fetchAudioOverviewPodcastAudio(
     await throwApiError(response);
   }
   return response.blob();
+}
+
+export async function createAudioAgentRun(
+  payload: AudioAgentCreateRunRequest
+): Promise<AudioAgentRunDetail> {
+  const response = await apiFetch(`${API_BASE_URL}/api/audio-agent/runs`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...buildEverMemHeaders(payload.use_memory ?? true, "podcast")
+    },
+    body: JSON.stringify(payload)
+  });
+  if (!response.ok) {
+    await throwApiError(response);
+  }
+  return response.json();
+}
+
+export async function listAudioAgentRuns(limit: number = 20): Promise<AudioAgentRunListResponse> {
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/audio-agent/runs?limit=${encodeURIComponent(String(limit))}`
+  );
+  if (!response.ok) {
+    await throwApiError(response);
+  }
+  return response.json();
+}
+
+export async function getAudioAgentRun(runId: number): Promise<AudioAgentRunDetail> {
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/audio-agent/runs/${encodeURIComponent(String(runId))}`
+  );
+  if (!response.ok) {
+    await throwApiError(response);
+  }
+  return response.json();
+}
+
+export async function executeAudioAgentRun(runId: number): Promise<AudioAgentRunDetail> {
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/audio-agent/runs/${encodeURIComponent(String(runId))}/execute`,
+    {
+      method: "POST",
+      headers: buildEverMemHeaders(true, "podcast")
+    }
+  );
+  if (!response.ok) {
+    await throwApiError(response);
+  }
+  return response.json();
+}
+
+export async function listAudioAgentRunEvents(
+  runId: number,
+  limit: number = 200
+): Promise<AudioAgentEventListResponse> {
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/audio-agent/runs/${encodeURIComponent(String(runId))}/events?limit=${encodeURIComponent(String(limit))}`
+  );
+  if (!response.ok) {
+    await throwApiError(response);
+  }
+  return response.json();
+}
+
+export async function synthesizeAudioAgentRun(
+  runId: number,
+  payload: AudioAgentSynthesizeRequest
+): Promise<AudioAgentRunDetail> {
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/audio-agent/runs/${encodeURIComponent(String(runId))}/synthesize`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    }
+  );
+  if (!response.ok) {
+    await throwApiError(response);
+  }
+  return response.json();
 }

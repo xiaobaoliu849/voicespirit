@@ -53,6 +53,29 @@ export default function AudioOverviewPage({
               {audioOverview.audioOverviewInfo ? (
                 <p className="vsSettingsNotice ok" style={{ marginBottom: "20px" }}>{audioOverview.audioOverviewInfo}</p>
               ) : null}
+              {audioOverview.audioAgentRunId !== null ? (
+                <div className="vsPodcastSideCard" style={{ marginBottom: "20px" }}>
+                  <div className="vsPodcastSideHeader">
+                    <h3>{t("Agent 运行状态", "Agent Run Status")}</h3>
+                    {audioOverview.audioAgentCanRetry ? (
+                      <button
+                        type="button"
+                        className="ghost vsPodcastMiniBtn"
+                        onClick={() => void audioOverview.onRetryAgentRun()}
+                        disabled={audioOverview.audioOverviewBusy || audioOverview.audioOverviewSynthBusy}
+                      >
+                        {t("重试", "Retry")}
+                      </button>
+                    ) : null}
+                  </div>
+                  <p className="muted" style={{ margin: 0 }}>
+                    {t(
+                      `Run #${audioOverview.audioAgentRunId} · 状态 ${audioOverview.audioAgentStatus || "queued"} · 当前步骤 ${audioOverview.audioAgentCurrentStep || "prepare"} · 来源 ${audioOverview.audioAgentSources.length} 条`,
+                      `Run #${audioOverview.audioAgentRunId} · Status ${audioOverview.audioAgentStatus || "queued"} · Step ${audioOverview.audioAgentCurrentStep || "prepare"} · ${audioOverview.audioAgentSources.length} sources`
+                    )}
+                  </p>
+                </div>
+              ) : null}
             </div>
 
             <div className="vsPodcastMain" style={{ display: "flex", flexDirection: "column", gap: "24px" }}>

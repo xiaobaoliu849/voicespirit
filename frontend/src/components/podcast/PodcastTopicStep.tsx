@@ -118,6 +118,45 @@ export default function PodcastTopicStep({ audioOverview }: Props) {
                 {audioOverview.audioOverviewMemorySaved ? t(" 已写入本次播客草稿。", " Saved back into this podcast draft.") : ""}
               </p>
             ) : null}
+
+            <label className="vsPodcastField">
+              <span className="vsPodcastFieldLabel">{t("手动资料", "Manual source text")}</span>
+              <textarea
+                rows={4}
+                value={audioOverview.audioAgentSourceText}
+                onChange={(e) => audioOverview.onSourceTextChange(e.target.value)}
+                placeholder={t(
+                  "补充你已经掌握的背景资料、采访提纲、会议纪要或重点观点。",
+                  "Add background notes, interview outlines, meeting notes, or key points you already have."
+                )}
+              />
+            </label>
+
+            <label className="vsPodcastField">
+              <span className="vsPodcastFieldLabel">{t("来源 URL 列表", "Source URL list")}</span>
+              <textarea
+                rows={4}
+                value={audioOverview.audioAgentSourceUrlsText}
+                onChange={(e) => audioOverview.onSourceUrlsTextChange(e.target.value)}
+                placeholder={t(
+                  "每行一个 URL。后续可以扩展为抓取网页内容；当前阶段主要用于记录显式来源。",
+                  "One URL per line. For now these are stored as explicit sources and can be expanded to fetched web content later."
+                )}
+              />
+            </label>
+
+            <label className="vsPodcastField">
+              <span className="vsPodcastFieldLabel">{t("生成约束", "Generation constraints")}</span>
+              <textarea
+                rows={4}
+                value={audioOverview.audioAgentGenerationConstraints}
+                onChange={(e) => audioOverview.onGenerationConstraintsChange(e.target.value)}
+                placeholder={t(
+                  "例如：更像 NotebookLM 风格、避免夸张表述、口语化、控制在 6 分钟内、面向普通用户。",
+                  "For example: more like NotebookLM, avoid exaggerated claims, conversational tone, under 6 minutes, for mainstream users."
+                )}
+              />
+            </label>
           </div>
         ) : null}
       </div>

@@ -20,5 +20,8 @@ describe("PodcastTopicStep", () => {
 
     expect(screen.getByText("LLM 供应商")).toBeInTheDocument();
     expect(screen.getByText("对话轮数")).toBeInTheDocument();
+    expect(screen.getByText("手动资料")).toBeInTheDocument();
+    expect(screen.getByText("来源 URL 列表")).toBeInTheDocument();
+    expect(screen.getByText("生成约束")).toBeInTheDocument();
   });
 });

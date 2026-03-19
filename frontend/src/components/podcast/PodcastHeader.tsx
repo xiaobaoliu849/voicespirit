@@ -15,6 +15,14 @@ export default function PodcastHeader({ audioOverview }: Props) {
       </div>
       <div className="vsPodcastHeaderActions">
         <span className="vsPodcastStatusChip">{audioOverview.currentAudioOverviewLabel}</span>
+        {audioOverview.audioAgentRunId !== null ? (
+          <span className="vsPodcastStatusChip">
+            {t(
+              `Agent Run #${audioOverview.audioAgentRunId} · ${audioOverview.audioAgentStatus || "queued"}`,
+              `Agent Run #${audioOverview.audioAgentRunId} · ${audioOverview.audioAgentStatus || "queued"}`
+            )}
+          </span>
+        ) : null}
         <span
           className={`vsPodcastStatusChip ${audioOverview.audioOverviewMemoryConfigured ? "is-memory" : "is-muted"}`}
         >

@@ -4,6 +4,7 @@ import asyncio
 import json
 import os
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from typing import Any
@@ -15,6 +16,7 @@ from starlette.requests import Request
 from starlette.routing import Mount, Route, WebSocketRoute
 
 from main import create_app
+from routers import audio_agent as audio_agent_router
 from routers import audio_overview as audio_overview_router
 from routers import chat as chat_router
 from routers import evermem as evermem_router
@@ -24,12 +26,14 @@ from routers import translate as translate_router
 from routers import tts as tts_router
 from routers import voices as voices_router
 from services.audio_overview_service import AudioOverviewService, AudioOverviewServiceError
+from services.audio_agent_service import AudioAgentService
 from services.config_loader import BackendConfig
 from services.evermem_config import EverMemConfig
 from services.realtime_voice_service import RealtimeVoiceService
 from services.settings_service import SettingsService
 from services.transcription_publish_adapter import build_transcription_publisher
 from services.transcription_service import TranscriptionService
+from services.user_auth_service import user_auth_service
 
 
 class ApiSmokeTests(unittest.TestCase):
@@ -262,6 +266,93 @@ class ApiSmokeTests(unittest.TestCase):
                     )
             finally:
                 settings_router.settings_service = original_service
+
+    def test_user_register_login_and_admin_write_access(self) -> None:
+        async def fake_chat_completion(**kwargs: Any) -> dict[str, Any]:
+            _ = kwargs
+            return {
+                "provider": "DashScope",
+                "model": "qwen-plus",
+                "reply": "ok",
+                "raw": {"id": "user-auth-test"},
+            }
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            config_path = Path(tmp_dir) / "config.json"
+            config_path.write_text("{}", encoding="utf-8")
+            db_path = Path(tmp_dir) / "voice_spirit_auth.db"
+            original_db_path = user_auth_service.db_path
+            original_config = user_auth_service.config
+            original_settings_service = settings_router.settings_service
+            user_auth_service.db_path = db_path
+            user_auth_service.config = BackendConfig(config_path)
+            user_auth_service._init_db()
+            settings_router.settings_service = SettingsService(config=BackendConfig(config_path))
+            try:
+                with patch.dict(
+                    os.environ,
+                    {
+                        "VOICESPIRIT_API_TOKEN": "",
+                        "VOICESPIRIT_ADMIN_TOKEN": "",
+                        "VOICESPIRIT_JWT_SECRET": "test-jwt-secret",
+                    },
+                    clear=False,
+                ):
+                    registered = self._request(
+                        "POST",
+                        "/api/auth/register",
+                        json={"email": "owner@example.com", "password": "pass1234"},
+                    )
+                    self.assertEqual(registered.status_code, 200)
+                    register_payload = registered.json()
+                    self.assertEqual(register_payload["user"]["email"], "owner@example.com")
+                    self.assertTrue(register_payload["user"]["is_admin"])
+                    token = register_payload["access_token"]
+
+                    me = self._request(
+                        "GET",
+                        "/api/auth/me",
+                        headers={"Authorization": f"Bearer {token}"},
+                    )
+                    self.assertEqual(me.status_code, 200)
+                    self.assertEqual(me.json()["email"], "owner@example.com")
+
+                    with patch.object(chat_router.llm_service, "chat_completion", new=fake_chat_completion):
+                        missing = self._request(
+                            "POST",
+                            "/api/chat/completions",
+                            json={"provider": "DashScope", "messages": [{"role": "user", "content": "hello"}]},
+                        )
+                        self.assertEqual(missing.status_code, 401)
+
+                        ok = self._request(
+                            "POST",
+                            "/api/chat/completions",
+                            headers={"Authorization": f"Bearer {token}"},
+                            json={"provider": "DashScope", "messages": [{"role": "user", "content": "hello"}]},
+                        )
+                        self.assertEqual(ok.status_code, 200)
+
+                    saved = self._request(
+                        "PUT",
+                        "/api/settings/",
+                        headers={"Authorization": f"Bearer {token}"},
+                        json={"merge": True, "settings": {"general_settings": {"log_level": "WARNING"}}},
+                    )
+                    self.assertEqual(saved.status_code, 200)
+
+                    logged_in = self._request(
+                        "POST",
+                        "/api/auth/login",
+                        json={"email": "owner@example.com", "password": "pass1234"},
+                    )
+                    self.assertEqual(logged_in.status_code, 200)
+                    self.assertEqual(logged_in.json()["user"]["email"], "owner@example.com")
+            finally:
+                user_auth_service.db_path = original_db_path
+                user_auth_service.config = original_config
+                user_auth_service._init_db()
+                settings_router.settings_service = original_settings_service
 
     def test_tts_speak_endpoint(self) -> None:
         async def fake_generate_audio(
@@ -1412,6 +1503,162 @@ class ApiSmokeTests(unittest.TestCase):
                 self.assertTrue(r_delete.json()["deleted"])
             finally:
                 audio_overview_router.audio_overview_service = original_service
+
+    def test_audio_agent_run_endpoints(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            db_path = Path(tmp_dir) / "voice_spirit_test.db"
+            test_service = AudioAgentService(db_path=db_path)
+            original_service = audio_agent_router.audio_agent_service
+            audio_agent_router.audio_agent_service = test_service
+            try:
+                r_create = self._request(
+                    "POST",
+                    "/api/audio-agent/runs",
+                    json={
+                        "topic": "做一期关于睡眠习惯的播客",
+                        "language": "zh",
+                        "provider": "DashScope",
+                        "use_memory": False,
+                        "turn_count": 6,
+                        "source_urls": ["https://example.com/a", "https://example.com/b"],
+                        "source_text": "用户希望内容更贴近年轻上班族。",
+                        "auto_execute": False,
+                    },
+                )
+                self.assertEqual(r_create.status_code, 200)
+                created = r_create.json()
+                self.assertEqual(created["topic"], "做一期关于睡眠习惯的播客")
+                self.assertEqual(created["status"], "queued")
+                self.assertEqual(created["current_step"], "retrieve")
+                self.assertEqual(created["language"], "zh")
+                self.assertEqual(len(created["steps"]), 1)
+                self.assertEqual(created["steps"][0]["step_name"], "prepare")
+                run_id = created["id"]
+
+                async def fake_generate_script(
+                    *,
+                    topic: str,
+                    language: str,
+                    turn_count: int,
+                    provider: str,
+                    model: str | None,
+                    sources: list[dict[str, Any]],
+                    generation_constraints: str = "",
+                ) -> dict[str, Any]:
+                    _ = (model, generation_constraints)
+                    return {
+                        "provider": provider,
+                        "model": "qwen-plus",
+                        "reply": "A: 开场\nB: 回应\nA: 深入\nB: 总结",
+                        "script_lines": [
+                            {"role": "A", "text": f"欢迎来到节目，今天聊{topic}。"},
+                            {"role": "B", "text": "年轻上班族的睡眠问题，常常和压力、作息紊乱有关。"},
+                            {"role": "A", "text": f"这次我们按 {turn_count} 轮的结构来展开。"},
+                            {"role": "B", "text": f"本次草稿参考了 {len(sources)} 条线索。"},
+                        ],
+                        "evidence_summary": "1. 用户希望内容更贴近年轻上班族。",
+                    }
+
+                with patch.object(test_service.script_writer, "generate_script", new=fake_generate_script):
+                    r_execute = self._request(
+                        "POST",
+                        f"/api/audio-agent/runs/{run_id}/execute",
+                    )
+                    self.assertEqual(r_execute.status_code, 200)
+                    executed = r_execute.json()
+                    self.assertIn(executed["status"], {"queued", "running", "draft_ready"})
+
+                    loaded = executed
+                    for _ in range(20):
+                        loaded_response = self._request("GET", f"/api/audio-agent/runs/{run_id}")
+                        self.assertEqual(loaded_response.status_code, 200)
+                        loaded = loaded_response.json()
+                        if loaded["status"] == "draft_ready":
+                            break
+                        time.sleep(0.05)
+                self.assertEqual(loaded["status"], "draft_ready")
+                self.assertTrue(bool(loaded["podcast_id"]))
+                self.assertEqual(len(loaded["sources"]), 3)
+                self.assertEqual(loaded["result_payload"]["provider"], "DashScope")
+                self.assertEqual(len(loaded["result_payload"]["script_lines"]), 4)
+                podcast_id = int(loaded["podcast_id"])
+
+                async def fake_run_synthesize(
+                    podcast_id: int,
+                    *,
+                    voice_a: str | None = None,
+                    voice_b: str | None = None,
+                    rate: str = "+0%",
+                    language: str | None = None,
+                    gap_ms: int = 250,
+                    merge_strategy: str = "auto",
+                ) -> dict[str, Any]:
+                    _ = (voice_a, voice_b, language)
+                    audio_file = Path(tmp_dir) / "audio_out" / f"agent_podcast_{podcast_id}.mp3"
+                    audio_file.parent.mkdir(parents=True, exist_ok=True)
+                    audio_file.write_bytes(b"ID3agent-audio")
+                    test_service.audio_overview_service.update_podcast(podcast_id, audio_path=str(audio_file))
+                    return {
+                        "podcast_id": podcast_id,
+                        "audio_path": str(audio_file),
+                        "line_count": 4,
+                        "voice_a": "zh-CN-YunxiNeural",
+                        "voice_b": "zh-CN-XiaoxiaoNeural",
+                        "rate": rate,
+                        "cache_hits": 2,
+                        "gap_ms": gap_ms,
+                        "gap_ms_applied": 0,
+                        "merge_strategy": merge_strategy,
+                    }
+
+                with patch.object(
+                    test_service.audio_overview_service,
+                    "synthesize_podcast_audio",
+                    new=fake_run_synthesize,
+                ):
+                    r_run_synth = self._request(
+                        "POST",
+                        f"/api/audio-agent/runs/{run_id}/synthesize",
+                        json={
+                            "voice_a": "zh-CN-YunxiNeural",
+                            "voice_b": "zh-CN-XiaoxiaoNeural",
+                            "gap_ms": 300,
+                            "merge_strategy": "auto",
+                        },
+                    )
+                self.assertEqual(r_run_synth.status_code, 200)
+                synthesized = r_run_synth.json()
+                self.assertEqual(synthesized["status"], "completed")
+                self.assertEqual(synthesized["current_step"], "synthesize_audio")
+                self.assertEqual(synthesized["result_payload"]["cache_hits"], 2)
+                self.assertEqual(synthesized["podcast_id"], podcast_id)
+
+                self.assertEqual(loaded["id"], run_id)
+                self.assertFalse(loaded["use_memory"])
+                self.assertEqual(loaded["input_payload"]["turn_count"], 6)
+
+                r_list = self._request("GET", "/api/audio-agent/runs?limit=10")
+                self.assertEqual(r_list.status_code, 200)
+                listed = r_list.json()
+                self.assertEqual(listed["count"], 1)
+                self.assertEqual(listed["runs"][0]["id"], run_id)
+
+                r_events = self._request("GET", f"/api/audio-agent/runs/{run_id}/events")
+                self.assertEqual(r_events.status_code, 200)
+                events = r_events.json()
+                self.assertGreaterEqual(events["count"], 2)
+                event_types = [item["event_type"] for item in events["events"]]
+                self.assertIn("run_created", event_types)
+                self.assertIn("draft_created", event_types)
+                self.assertIn("podcast_saved", event_types)
+                self.assertIn("synthesis_completed", event_types)
+                self.assertIn("execution_deferred", event_types)
+
+                r_missing = self._request("GET", "/api/audio-agent/runs/999999")
+                self.assertEqual(r_missing.status_code, 404)
+                self.assertEqual(r_missing.json()["detail"]["code"], "AUDIO_AGENT_RUN_NOT_FOUND")
+            finally:
+                audio_agent_router.audio_agent_service = original_service
 
 
 if __name__ == "__main__":
