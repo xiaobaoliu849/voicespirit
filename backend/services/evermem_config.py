@@ -6,7 +6,7 @@ import logging
 import os
 from typing import Any
 
-from .evermem_service import EverMemService
+from .evermem_service import EverMemService # type: ignore
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +38,9 @@ def _get_header_value(headers: dict[str, Any], *names: str) -> str:
 
 
 def _hash_scope(prefix: str, raw: str) -> str:
-    digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()[:24]
+    # Use explicit intermediate variables to help the IDE linter resolve types
+    full_digest: str = hashlib.sha256(str(raw).encode("utf-8")).hexdigest()
+    digest: str = full_digest[:24] # type: ignore
     return f"{prefix}_{digest}"
 
 
@@ -56,15 +58,18 @@ class EverMemConfig:
         if explicit_scope:
             return explicit_scope
 
-        authorization = _get_header_value(headers, "Authorization")
-        if authorization.lower().startswith("bearer "):
-            token = authorization[7:].strip()
-            if token:
-                return _hash_scope("token", token)
-
         client_id = _get_header_value(headers, "X-Client-ID")
         if client_id:
             return _hash_scope("client", client_id)
+
+        authorization = str(_get_header_value(headers, "Authorization"))
+        if authorization.lower().startswith("bearer "):
+            # Split and slice in a way that is most likely to be understood by the linter
+            token_raw: str = authorization[7:] # type: ignore
+            token: str = token_raw.strip()
+            if token:
+                token_str = str(token)
+                return _hash_scope("token", token_str)
 
         request_id = _get_header_value(headers, "X-Request-ID")
         if request_id:

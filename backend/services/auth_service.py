@@ -7,6 +7,7 @@ from typing import Any
 from fastapi import Header, HTTPException, status
 
 from .config_loader import BackendConfig
+from .user_auth_service import user_auth_service
 
 _config = BackendConfig()
 WRITE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
@@ -48,11 +49,13 @@ def resolve_admin_token() -> str:
 
 
 def is_auth_enabled() -> bool:
-    return bool(resolve_api_token() or resolve_admin_token())
+    return bool(resolve_api_token() or resolve_admin_token() or user_auth_service.has_users())
 
 
 def should_enforce_auth(method: str, path: str) -> bool:
     if not is_auth_enabled():
+        return False
+    if path.startswith("/api/auth/"):
         return False
     return path.startswith("/api/") and method.upper() in WRITE_METHODS
 
@@ -60,7 +63,7 @@ def should_enforce_auth(method: str, path: str) -> bool:
 def should_require_admin_auth(method: str, path: str) -> bool:
     if not should_enforce_auth(method, path):
         return False
-    if not resolve_admin_token():
+    if not resolve_admin_token() and not user_auth_service.has_users():
         return False
     return path.startswith("/api/settings")
 
@@ -121,13 +124,14 @@ def _extract_bearer_token(authorization: str | None) -> str:
     return token
 
 
-def validate_auth_header(authorization: str | None, *, require_admin: bool = False) -> None:
+def validate_auth_header(authorization: str | None, *, require_admin: bool = False) -> dict[str, Any] | None:
     expected_api = resolve_api_token()
     expected_admin = resolve_admin_token()
-    if not expected_api and not expected_admin:
+    has_user_auth = user_auth_service.has_users()
+    if not expected_api and not expected_admin and not has_user_auth:
         return
 
-    if require_admin and expected_admin:
+    if require_admin:
         if not authorization:
             raise _missing_admin_token_exception()
         value = authorization.strip()
@@ -136,14 +140,21 @@ def validate_auth_header(authorization: str | None, *, require_admin: bool = Fal
         provided = value[7:].strip()
         if not provided:
             raise _missing_admin_token_exception()
-        if not secrets.compare_digest(provided, expected_admin):
-            raise _invalid_admin_token_exception()
-        return
+        if expected_admin and secrets.compare_digest(provided, expected_admin):
+            return {"auth_type": "static_admin"}
+        user = user_auth_service.verify_access_token(provided)
+        if user and bool(user.get("is_admin")):
+            return user
+        raise _invalid_admin_token_exception()
 
     provided_token = _extract_bearer_token(authorization)
     allowed = [token for token in (expected_api, expected_admin) if token]
-    if not any(secrets.compare_digest(provided_token, token) for token in allowed):
-        raise _invalid_token_exception()
+    if any(secrets.compare_digest(provided_token, token) for token in allowed):
+        return {"auth_type": "static"}
+    user = user_auth_service.verify_access_token(provided_token)
+    if user is not None:
+        return user
+    raise _invalid_token_exception()
 
 
 async def require_api_auth(

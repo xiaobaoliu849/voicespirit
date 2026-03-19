@@ -3,11 +3,15 @@ from __future__ import annotations
 import json
 from typing import Any, Literal
 
-from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, HTTPException, Request # type: ignore
+from fastapi.responses import StreamingResponse # type: ignore
+from pydantic import BaseModel, Field # type: ignore
 
-from services.llm_service import LLMService
+try:
+    from services.llm_service import LLMService # type: ignore
+except ImportError:
+    from backend.services.llm_service import LLMService # type: ignore
+
 
 router = APIRouter()
 llm_service = LLMService()
@@ -24,6 +28,8 @@ class ChatRequest(BaseModel):
     messages: list[ChatMessage] = Field(..., min_length=1)
     temperature: float = Field(default=0.7, ge=0.0, le=2.0)
     max_tokens: int = Field(default=1024, ge=1, le=8192)
+    use_memory: bool = Field(default=True)
+    deep_thinking: bool = Field(default=False)
 
 
 class ChatResponse(BaseModel):
@@ -67,6 +73,8 @@ async def create_chat_completion(payload: ChatRequest) -> ChatResponse:
             messages=[item.model_dump() for item in payload.messages],
             temperature=payload.temperature,
             max_tokens=payload.max_tokens,
+            use_memory=payload.use_memory,
+            deep_thinking=payload.deep_thinking,
         )
     except ValueError as exc:
         raise HTTPException(
@@ -107,6 +115,8 @@ async def create_chat_completion_stream(payload: ChatRequest, request: Request) 
                 temperature=payload.temperature,
                 max_tokens=payload.max_tokens,
                 request_headers=dict(request.headers),
+                use_memory=payload.use_memory,
+                deep_thinking=payload.deep_thinking,
             ):
                 event_type = str(event.get("type", "message"))
                 event_data = {k: v for k, v in event.items() if k != "type"}

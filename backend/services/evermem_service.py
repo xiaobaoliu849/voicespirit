@@ -11,7 +11,7 @@ import logging
 import uuid
 from typing import Any
 
-import httpx
+import httpx # type: ignore
 
 logger = logging.getLogger(__name__)
 
@@ -119,7 +119,7 @@ class EverMemService:
 
         search_url = f"{self.api_url}/api/v0/memories/search"
         headers = {"Authorization": f"Bearer {self.api_key}"}
-        params = {
+        params: dict[str, Any] = {
             "user_id": user_id,
             "query": query,
             "retrieve_method": "hybrid",
