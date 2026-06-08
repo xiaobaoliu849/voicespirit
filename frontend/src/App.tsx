@@ -1,10 +1,20 @@
-import { useRef, useState } from "react";
-import type { ChatMessage } from "./api";
+import { useEffect, useRef, useState } from "react";
+import {
+  clearAuthRuntime,
+  fetchCurrentAuthUser,
+  loginAuthUser,
+  getAuthRuntimeConfig,
+  registerAuthUser,
+  type AuthRuntimeConfig,
+  type ChatMessage,
+} from "./api";
 import {
   getDefaultText,
   type ActiveTab
 } from "./appConfig";
+import AuthDialog from "./components/AuthDialog";
 import AppSidebar from "./components/AppSidebar";
+import SettingsModal from "./components/SettingsModal";
 import useChat from "./hooks/useChat";
 import useAudioOverview from "./hooks/useAudioOverview";
 import useSettings from "./hooks/useSettings";
@@ -14,7 +24,6 @@ import useVoiceChat from "./hooks/useVoiceChat";
 import useVoiceManagement from "./hooks/useVoiceManagement";
 import AudioOverviewPage from "./pages/AudioOverviewPage";
 import ChatPage from "./pages/ChatPage";
-import SettingsPage from "./pages/SettingsPage";
 import TranslatePage from "./pages/TranslatePage";
 import VoiceCenterPage from "./pages/VoiceCenterPage";
 import { I18nProvider, createInlineTranslator, localizeText, type UiLanguage } from "./i18n";
@@ -139,6 +148,9 @@ function resolveVoiceCenterTab(activeTab: ActiveTab): "tts" | "design" | "clone"
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<ActiveTab>("chat");
+  const [authDialogOpen, setAuthDialogOpen] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [authRuntime, setAuthRuntime] = useState<AuthRuntimeConfig>(() => getAuthRuntimeConfig());
   const [conversationHistory, setConversationHistory] = useState<ConversationArchiveEntry[]>(
     () => loadConversationHistory()
   );
@@ -179,6 +191,38 @@ export default function App() {
     activeTab === "voice_design" ||
     activeTab === "voice_clone" ||
     activeTab === "transcription";
+  const authReady = Boolean(
+    authRuntime.apiToken ||
+    authRuntime.adminToken ||
+    authRuntime.hasEnvApiToken ||
+    authRuntime.hasEnvAdminToken
+  );
+  const authLabel = authRuntime.userEmail
+    ? authRuntime.userEmail
+    : authReady
+      ? createInlineTranslator(uiLanguage)("已连接", "Connected")
+      : createInlineTranslator(uiLanguage)("登录账号", "Login");
+
+  useEffect(() => {
+    if (!authRuntime.apiToken || authRuntime.userEmail) {
+      return;
+    }
+    let disposed = false;
+    void fetchCurrentAuthUser()
+      .then((next) => {
+        if (!disposed) {
+          setAuthRuntime(next);
+        }
+      })
+      .catch(() => {
+        if (!disposed) {
+          setAuthRuntime(clearAuthRuntime());
+        }
+      });
+    return () => {
+      disposed = true;
+    };
+  }, [authRuntime.apiToken, authRuntime.userEmail]);
 
   function pushConversationHistory(entry: ConversationArchiveEntry | null) {
     if (!entry) {
@@ -255,20 +299,37 @@ export default function App() {
     });
   }
 
+  async function handleAuthLogin(email: string, password: string) {
+    setAuthRuntime(await loginAuthUser(email, password));
+  }
+
+  async function handleAuthRegister(email: string, password: string) {
+    setAuthRuntime(await registerAuthUser(email, password));
+  }
+
+  function handleAuthLogout() {
+    setAuthRuntime(clearAuthRuntime());
+  }
+
   return (
     <I18nProvider language={uiLanguage}>
       <main className={isDesktopEmbedded ? "vsApp desktopEmbedded" : "vsApp"}>
         <AppSidebar
           activeTab={activeTab}
+          authLabel={authLabel}
+          authReady={authReady}
           chatHistoryItems={conversationHistory.map((item) => ({
             id: item.id,
             content: item.content,
           }))}
+          onAuthClick={() => setAuthDialogOpen(true)}
           onTabChange={setActiveTab}
           onNewChatSession={handleNewChatSession}
           onHistorySelect={handleHistorySelect}
           onClearHistory={handleClearConversationHistory}
           onDeleteHistoryItem={handleDeleteConversationHistoryItem}
+          onOpenSettings={() => setIsSettingsOpen(true)}
+          isSettingsOpen={isSettingsOpen}
         />
 
         <section className="vsMainScrollArea">
@@ -290,6 +351,10 @@ export default function App() {
                     design={voiceManagement.design}
                     clone={voiceManagement.clone}
                     errorRuntimeContext={errorRuntimeContext}
+                    onSendToChat={(text) => {
+                      chat.injectMessage("assistant", text);
+                      setActiveTab("chat");
+                    }}
                   />
                 ) : null}
 
@@ -300,13 +365,25 @@ export default function App() {
                 {activeTab === "audio_overview" ? (
                   <AudioOverviewPage audioOverview={audioOverview} errorRuntimeContext={errorRuntimeContext} />
                 ) : null}
-
-                {activeTab === "settings" ? <SettingsPage settings={settings} /> : null}
               </div>
             </div>
           </div>
         </section>
       </main>
+      <SettingsModal
+        open={isSettingsOpen}
+        onClose={() => setIsSettingsOpen(false)}
+        settings={settings}
+        errorRuntimeContext={errorRuntimeContext}
+      />
+      <AuthDialog
+        open={authDialogOpen}
+        auth={authRuntime}
+        onClose={() => setAuthDialogOpen(false)}
+        onLogin={handleAuthLogin}
+        onRegister={handleAuthRegister}
+        onLogout={handleAuthLogout}
+      />
     </I18nProvider>
   );
 }

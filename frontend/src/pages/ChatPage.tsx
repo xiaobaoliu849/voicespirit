@@ -159,6 +159,13 @@ export default function ChatPage({ chat, voiceChat, errorRuntimeContext }: Props
   const latestMemoryActivity = [...combinedMessages]
     .reverse()
     .find((msg) => msg.memorySaved || msg.memoriesUsed);
+  const showMemoryChip = Boolean(hasSavedMemory || latestMemoryActivity?.memoriesUsed);
+  const showVoiceRuntimeBar =
+    Boolean(voiceChat.voiceChatProvider) ||
+    voiceChat.voiceChatRecording ||
+    voiceChat.voiceChatConnected ||
+    voiceChat.voiceChatBusy ||
+    Boolean(voiceChat.voiceChatError);
   // Use a variable to track if we should show the welcome/empty state
   // We hide it if there's an active voice session even if message list is empty
   const showWelcome = isEmpty && !voiceChat.voiceChatRecording && !voiceChat.voiceChatConnected;
@@ -183,10 +190,9 @@ export default function ChatPage({ chat, voiceChat, errorRuntimeContext }: Props
             </select>
           </label>
 
-          <div className="vsTopbarDivider" />
+          {showMemoryChip ? <div className="vsTopbarDivider" /> : null}
 
-          {/* 记忆状态标识 */}
-          {hasSavedMemory || latestMemoryActivity?.memoriesUsed ? (
+          {showMemoryChip ? (
             <div className="vsChatMemoryChip">
               {hasSavedMemory ? <span>{t("已存入记忆", "Saved to memory")}</span> : null}
               {latestMemoryActivity?.memoriesUsed ? (
@@ -205,22 +211,21 @@ export default function ChatPage({ chat, voiceChat, errorRuntimeContext }: Props
 
           <label className="vsTopbarField vsTopbarModelField">
             <span>{t("模型", "Model")}</span>
-            <input
-              list="chat-model-options"
+            <select
               value={chat.chatModel}
               onChange={(e) => chat.onModelChange(e.target.value)}
-              placeholder={chat.chatModelOptions[0] || t("输入模型名称", "Enter a model name")}
-            />
-            {chat.chatModelOptions.length ? (
-              <datalist id="chat-model-options">
-                {chat.chatModelOptions.map((item) => (
-                  <option key={item} value={item} />
-                ))}
-              </datalist>
-            ) : null}
+            >
+              {chat.chatModelOptions.map((item) => (
+                <option key={item} value={item}>
+                  {item}
+                </option>
+              ))}
+              {!chat.chatModelOptions.includes(chat.chatModel) && chat.chatModel && (
+                <option value={chat.chatModel}>{chat.chatModel}</option>
+              )}
+            </select>
           </label>
 
-          {/* ── NEW: Topbar Voice Selection ── */}
           <div className="vsTopbarDivider" />
           <label className="vsTopbarVoiceField">
             <span>{t("音色", "Voice")}</span>
@@ -239,12 +244,14 @@ export default function ChatPage({ chat, voiceChat, errorRuntimeContext }: Props
         </div>
       </header>
 
-      <div className="vsChatRuntimeBar">
-        <VoiceChatRuntimeNotice
-          voiceChat={voiceChat}
-          errorRuntimeContext={errorRuntimeContext}
-        />
-      </div>
+      {showVoiceRuntimeBar ? (
+        <div className="vsChatRuntimeBar">
+          <VoiceChatRuntimeNotice
+            voiceChat={voiceChat}
+            errorRuntimeContext={errorRuntimeContext}
+          />
+        </div>
+      ) : null}
 
       {/* ── Body ── */}
       <div className={`vsChatBody ${showWelcome ? "empty" : ""}`}>

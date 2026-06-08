@@ -5,6 +5,7 @@ import {
   getEverMemRuntimeConfig,
   fetchApiRuntimeInfo,
   fetchSettings,
+  fetchProviderModels,
   updateSettings,
   type AppSettings,
   type DesktopStatusResponse,
@@ -19,24 +20,28 @@ const PROVIDER_API_KEY_FIELD: Record<string, string> = {
   SiliconFlow: "siliconflow_api_key",
   Groq: "groq_api_key",
   DashScope: "dashscope_api_key",
-  Google: "google_api_key"
+  Google: "google_api_key",
+  Xiaomi: "xiaomi_api_key"
 };
 
 function parseModelValue(
   value: SettingsModelValue | undefined
-): { defaultModel: string; availableModels: string[] } {
+): { defaultModel: string; availableModels: string[]; enabledModels: string[] } {
   if (typeof value === "string") {
-    return { defaultModel: value, availableModels: [] };
+    return { defaultModel: value, availableModels: [], enabledModels: [] };
   }
   if (!value || typeof value !== "object") {
-    return { defaultModel: "", availableModels: [] };
+    return { defaultModel: "", availableModels: [], enabledModels: [] };
   }
   const defaultModel =
     typeof value.default === "string" ? value.default : "";
   const availableModels = Array.isArray(value.available)
     ? value.available.filter((item) => typeof item === "string")
     : [];
-  return { defaultModel, availableModels };
+  const enabledModels = Array.isArray(value.enabled)
+    ? value.enabled.filter((item) => typeof item === "string")
+    : [];
+  return { defaultModel, availableModels, enabledModels };
 }
 
 type Options = {
@@ -52,6 +57,7 @@ type ProviderModelCatalog = Record<
   {
     defaultModel: string;
     availableModels: string[];
+    enabledModels: string[];
   }
 >;
 
@@ -67,7 +73,10 @@ export default function useSettings({ formatErrorMessage }: Options) {
   const [settingsApiKey, setSettingsApiKey] = useState("");
   const [settingsApiUrl, setSettingsApiUrl] = useState("");
   const [settingsDefaultModel, setSettingsDefaultModel] = useState("");
-  const [settingsAvailableModelsText, setSettingsAvailableModelsText] = useState("");
+  const [settingsAvailableModels, setSettingsAvailableModels] = useState<string[]>([]);
+  const [settingsEnabledModels, setSettingsEnabledModels] = useState<string[]>([]);
+  const [settingsFetchingModels, setSettingsFetchingModels] = useState(false);
+  const settingsAvailableModelsText = settingsAvailableModels.join("\n");
   const [transcriptionUploadMode, setTranscriptionUploadMode] = useState("static");
   const [transcriptionPublicBaseUrl, setTranscriptionPublicBaseUrl] = useState("");
   const [transcriptionS3Bucket, setTranscriptionS3Bucket] = useState("");
@@ -76,6 +85,8 @@ export default function useSettings({ formatErrorMessage }: Options) {
   const [transcriptionS3AccessKeyId, setTranscriptionS3AccessKeyId] = useState("");
   const [transcriptionS3SecretAccessKey, setTranscriptionS3SecretAccessKey] = useState("");
   const [transcriptionS3KeyPrefix, setTranscriptionS3KeyPrefix] = useState("transcription");
+  const [xiaomiApiKey, setXiaomiApiKey] = useState("");
+  const [xiaomiApiUrl, setXiaomiApiUrl] = useState("");
 
   const [evermemEnabled, setEvermemEnabled] = useState(false);
   const [evermemApiUrl, setEvermemApiUrl] = useState("");
@@ -203,22 +214,20 @@ export default function useSettings({ formatErrorMessage }: Options) {
   const t = useMemo(() => createInlineTranslator(displayLanguage), [displayLanguage]);
 
   const providerSection = useMemo(() => {
-    const availableModels = settingsAvailableModelsText
-      .split(/\r?\n/)
-      .map((item) => item.trim())
-      .filter(Boolean);
     return {
       provider: settingsProvider,
       apiKeyConfigured: Boolean(trimOrEmpty(settingsApiKey)),
       apiUrlConfigured: Boolean(trimOrEmpty(settingsApiUrl)),
       defaultModelConfigured: Boolean(trimOrEmpty(settingsDefaultModel)),
-      availableModelCount: availableModels.length,
-      availableModels
+      availableModelCount: settingsAvailableModels.length,
+      availableModels: settingsAvailableModels,
+      enabledModels: settingsEnabledModels
     };
   }, [
     settingsApiKey,
     settingsApiUrl,
-    settingsAvailableModelsText,
+    settingsAvailableModels,
+    settingsEnabledModels,
     settingsDefaultModel,
     settingsProvider
   ]);
@@ -415,12 +424,17 @@ export default function useSettings({ formatErrorMessage }: Options) {
     const apiKey = keyField ? settingsData.api_keys[keyField] || "" : "";
     const apiUrl = settingsData.api_urls[settingsProvider] || "";
     const modelValue = settingsData.default_models[settingsProvider];
-    const { defaultModel, availableModels } = parseModelValue(modelValue);
+    const { defaultModel, availableModels, enabledModels } = parseModelValue(modelValue);
 
     setSettingsApiKey(apiKey);
     setSettingsApiUrl(apiUrl);
     setSettingsDefaultModel(defaultModel);
-    setSettingsAvailableModelsText(availableModels.join("\n"));
+    setSettingsAvailableModels(availableModels);
+    setSettingsEnabledModels(enabledModels);
+
+    const xiaomiSettings = settingsData.xiaomi || {};
+    if (typeof xiaomiSettings.api_key === "string") setXiaomiApiKey(xiaomiSettings.api_key);
+    if (typeof xiaomiSettings.api_url === "string") setXiaomiApiUrl(xiaomiSettings.api_url);
 
     const memorySettings = settingsData.memory_settings || {};
     const transcriptionSettings = settingsData.transcription_settings || {};
@@ -483,6 +497,55 @@ export default function useSettings({ formatErrorMessage }: Options) {
     });
   }, [settingsData, settingsProvider]);
 
+  async function onFetchModels() {
+    if (!settingsProvider) return;
+    setSettingsFetchingModels(true);
+    setSettingsError("");
+    try {
+      const res = await fetchProviderModels(settingsProvider, settingsApiKey, settingsApiUrl);
+      setSettingsAvailableModels(res.models);
+      setSettingsEnabledModels((prev) => {
+        return prev.filter(m => res.models.includes(m));
+      });
+      setSettingsInfo(
+        t(
+          `已从 ${settingsProvider} 获取 ${res.models.length} 个模型。请手动勾选要启用的模型。`,
+          `Fetched ${res.models.length} models from ${settingsProvider}. Please tick the ones you want to enable.`
+        )
+      );
+    } catch (err) {
+      setSettingsError(formatErrorMessage(err, t("获取模型列表失败。", "Failed to fetch models.")));
+    } finally {
+      setSettingsFetchingModels(false);
+    }
+  }
+
+  function onToggleModelEnabled(modelId: string) {
+    setSettingsEnabledModels((prev) => {
+      if (prev.includes(modelId)) {
+        return prev.filter((id) => id !== modelId);
+      } else {
+        return [...prev, modelId];
+      }
+    });
+  }
+
+  function onEnableAllModels() {
+    setSettingsEnabledModels([...settingsAvailableModels]);
+  }
+
+  function onDisableAllModels() {
+    setSettingsEnabledModels([]);
+  }
+
+  const onAvailableModelsChange = (text: string) => {
+    const list = text
+      .split(/\r?\n/)
+      .map((item) => item.trim())
+      .filter(Boolean);
+    setSettingsAvailableModels(list);
+  };
+
   async function onSubmit(event: FormEvent) {
     event.preventDefault();
     setSettingsError("");
@@ -498,11 +561,6 @@ export default function useSettings({ formatErrorMessage }: Options) {
       );
       return;
     }
-
-    const availableModels = settingsAvailableModelsText
-      .split(/\r?\n/)
-      .map((item) => item.trim())
-      .filter(Boolean);
 
     setSettingsSaving(true);
     try {
@@ -533,7 +591,8 @@ export default function useSettings({ formatErrorMessage }: Options) {
         default_models: {
           [settingsProvider]: {
             default: settingsDefaultModel.trim(),
-            available: availableModels
+            available: settingsAvailableModels,
+            enabled: settingsEnabledModels
           }
         },
         memory_settings: {
@@ -558,6 +617,10 @@ export default function useSettings({ formatErrorMessage }: Options) {
           s3_access_key_id: transcriptionS3AccessKeyId.trim(),
           s3_secret_access_key: transcriptionS3SecretAccessKey.trim(),
           s3_key_prefix: transcriptionS3KeyPrefix.trim() || "transcription"
+        },
+        xiaomi: {
+          api_key: xiaomiApiKey.trim(),
+          api_url: xiaomiApiUrl.trim()
         },
         ui_settings: {
           display_language: displayLanguage,
@@ -596,10 +659,15 @@ export default function useSettings({ formatErrorMessage }: Options) {
     settingsApiUrl,
     settingsDefaultModel,
     settingsAvailableModelsText,
+    settingsAvailableModels,
+    settingsEnabledModels,
+    settingsFetchingModels,
     transcriptionUploadMode,
     transcriptionPublicBaseUrl,
     transcriptionS3Bucket,
     transcriptionS3Region,
+    xiaomiApiKey,
+    xiaomiApiUrl,
     transcriptionS3EndpointUrl,
     transcriptionS3AccessKeyId,
     transcriptionS3SecretAccessKey,
@@ -637,8 +705,14 @@ export default function useSettings({ formatErrorMessage }: Options) {
     onProviderChange: setSettingsProvider,
     onApiKeyChange: setSettingsApiKey,
     onApiUrlChange: setSettingsApiUrl,
+    onXiaomiApiKeyChange: setXiaomiApiKey,
+    onXiaomiApiUrlChange: setXiaomiApiUrl,
     onDefaultModelChange: setSettingsDefaultModel,
-    onAvailableModelsChange: setSettingsAvailableModelsText,
+    onAvailableModelsChange,
+    onToggleModelEnabled,
+    onEnableAllModels,
+    onDisableAllModels,
+    onFetchModels,
     onTranscriptionUploadModeChange: setTranscriptionUploadMode,
     onTranscriptionPublicBaseUrlChange: setTranscriptionPublicBaseUrl,
     onTranscriptionS3BucketChange: setTranscriptionS3Bucket,

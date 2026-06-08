@@ -27,7 +27,10 @@ vi.mock("./api", async () => {
     transcribeAudio: vi.fn(),
     createTranscriptionJob: vi.fn(),
     createTranscriptionJobFromUrl: vi.fn(),
-    fetchTranscriptionJob: vi.fn()
+    fetchTranscriptionJob: vi.fn(),
+    createAudioAgentRun: vi.fn(),
+    getAudioAgentRun: vi.fn(),
+    listAudioAgentRunEvents: vi.fn()
   };
 });
 
@@ -40,14 +43,43 @@ const mockedListCustomVoices = vi.mocked(api.listCustomVoices);
 const mockedListAudioOverviewPodcasts = vi.mocked(api.listAudioOverviewPodcasts);
 const mockedGetAudioOverviewPodcast = vi.mocked(api.getAudioOverviewPodcast);
 const mockedFetchAudioOverviewPodcastAudio = vi.mocked(api.fetchAudioOverviewPodcastAudio);
-const mockedGenerateAudioOverviewScript = vi.mocked(api.generateAudioOverviewScript);
-const mockedCreateAudioOverviewPodcast = vi.mocked(api.createAudioOverviewPodcast);
 const mockedTranslateText = vi.mocked(api.translateText);
 const mockedStreamChatCompletion = vi.mocked(api.streamChatCompletion);
 const mockedTranscribeAudio = vi.mocked(api.transcribeAudio);
 const mockedCreateTranscriptionJob = vi.mocked(api.createTranscriptionJob);
 const mockedCreateTranscriptionJobFromUrl = vi.mocked(api.createTranscriptionJobFromUrl);
 const mockedFetchTranscriptionJob = vi.mocked(api.fetchTranscriptionJob);
+const mockedCreateAudioAgentRun = vi.mocked(api.createAudioAgentRun);
+const mockedGetAudioAgentRun = vi.mocked(api.getAudioAgentRun);
+const mockedListAudioAgentRunEvents = vi.mocked(api.listAudioAgentRunEvents);
+
+const mockAgentRunDetail = {
+  id: 1,
+  podcast_id: 99,
+  topic: "新主题",
+  language: "zh",
+  status: "draft_ready",
+  current_step: "persist_draft",
+  provider: "DashScope",
+  model: "qwen-plus",
+  use_memory: true,
+  input_payload: {},
+  result_payload: {
+    provider: "DashScope",
+    model: "qwen-plus",
+    script_lines: [
+      { role: "A", text: "测试生成1" },
+      { role: "B", text: "测试生成2" }
+    ]
+  },
+  error_code: "",
+  error_message: "",
+  created_at: "2026-03-07T10:00:00Z",
+  updated_at: "2026-03-07T10:00:00Z",
+  completed_at: "2026-03-07T10:00:00Z",
+  steps: [],
+  sources: []
+};
 
 function setClipboardWriteText(writeText: (value: string) => Promise<void>) {
   Object.defineProperty(globalThis.navigator, "clipboard", {
@@ -90,11 +122,14 @@ describe("App interactions", () => {
     });
     mockedFetchSettings.mockResolvedValue({
       config_path: "/tmp/config.json",
-      providers: ["DashScope", "Google"],
+      providers: ["DashScope", "Google", "Xiaomi"],
       settings: {
-        api_keys: { dashscope_api_key: "" },
-        api_urls: { DashScope: "" },
-        default_models: { DashScope: { default: "qwen-plus", available: ["qwen-plus"] } },
+        api_keys: { dashscope_api_key: "", xiaomi_api_key: "" },
+        api_urls: { DashScope: "", Xiaomi: "" },
+        default_models: {
+          DashScope: { default: "qwen-plus", available: ["qwen-plus"] },
+          Xiaomi: { default: "mimo-v2.5-pro", available: ["mimo-v2.5-pro", "mimo-v2.5"] }
+        },
         general_settings: {},
         memory_settings: {},
         output_directory: "/tmp",
@@ -102,6 +137,7 @@ describe("App interactions", () => {
         qwen_tts_settings: {},
         transcription_settings: {},
         minimax: {},
+        xiaomi: { api_key: "", api_url: "" },
         ui_settings: {},
         shortcuts: {}
       }
@@ -185,6 +221,13 @@ describe("App interactions", () => {
     mockedFetchAudioOverviewPodcastAudio.mockResolvedValue(
       new Blob(["audio"], { type: "audio/mpeg" })
     );
+    mockedCreateAudioAgentRun.mockResolvedValue(mockAgentRunDetail);
+    mockedGetAudioAgentRun.mockResolvedValue(mockAgentRunDetail);
+    mockedListAudioAgentRunEvents.mockResolvedValue({
+      count: 0,
+      events: []
+    });
+
     Object.defineProperty(globalThis.URL, "createObjectURL", {
       value: vi.fn(() => "blob:test-url"),
       configurable: true
@@ -335,7 +378,7 @@ describe("App interactions", () => {
         })
       );
     });
-    expect(await screen.findByText("合成结果及监视器")).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "导出 MP3" })).toBeInTheDocument();
     expect(screen.getByText("已将本次语音生成偏好写入长期记忆。")).toBeInTheDocument();
     expect(document.querySelector("audio")).toHaveAttribute("src", "blob:test-url");
   });
@@ -480,7 +523,7 @@ describe("App interactions", () => {
       settings: {
         api_keys: { dashscope_api_key: "" },
         api_urls: { DashScope: "" },
-        default_models: { DashScope: { default: "qwen-plus", available: ["qwen-plus"] } },
+        default_models: { DashScope: { default: "qwen-plus", available: ["qwen-plus", "qwen-max"] } },
         general_settings: {},
         memory_settings: {},
         output_directory: "/tmp",
@@ -488,6 +531,7 @@ describe("App interactions", () => {
         qwen_tts_settings: {},
         transcription_settings: {},
         minimax: {},
+        xiaomi: { api_key: "", api_url: "" },
         ui_settings: {},
         shortcuts: {}
       }
@@ -507,6 +551,7 @@ describe("App interactions", () => {
         qwen_tts_settings: {},
         transcription_settings: {},
         minimax: {},
+        xiaomi: { api_key: "", api_url: "" },
         ui_settings: {},
         shortcuts: {}
       }
@@ -516,11 +561,13 @@ describe("App interactions", () => {
     const settingsBtn2 = screen.getByTestId("nav-settings");
     fireEvent.click(settingsBtn2);
 
+    await screen.findByDisplayValue("qwen-plus");
+
     const apiKeyInput = screen.getByPlaceholderText("输入供应商 API Key");
     fireEvent.change(apiKeyInput, { target: { value: "new-key" } });
 
-    const modelInput = screen.getByPlaceholderText("例如：qwen-plus / deepseek-chat");
-    fireEvent.change(modelInput, { target: { value: "qwen-max" } });
+    const modelSelect = screen.getByLabelText("默认主模型");
+    fireEvent.change(modelSelect, { target: { value: "qwen-max" } });
 
     fireEvent.click(screen.getByRole("button", { name: /文件转写/i }));
 
@@ -528,7 +575,7 @@ describe("App interactions", () => {
     fireEvent.change(publicBaseUrlInput, {
       target: { value: "https://cdn.example.com/transcription" }
     });
-    fireEvent.change(screen.getByRole("combobox"), {
+    fireEvent.change(screen.getByTestId("transcription-upload-mode"), {
       target: { value: "s3" }
     });
     fireEvent.change(screen.getByPlaceholderText("例如: voicespirit-assets"), {
@@ -550,7 +597,7 @@ describe("App interactions", () => {
       target: { value: "secret" }
     });
 
-    const saveButton = screen.getByRole("button", { name: "保存全部修改" });
+    const saveButton = screen.getByRole("button", { name: "保存" });
     const settingsForm = saveButton.closest("form");
     expect(settingsForm).not.toBeNull();
     fireEvent.submit(settingsForm!);
@@ -586,20 +633,13 @@ describe("App interactions", () => {
   it("generates an audio overview script", async () => {
     localStorage.setItem("evermem_enabled", "true");
     localStorage.setItem("evermem_url", "https://api.evermind.ai");
-    mockedGenerateAudioOverviewScript.mockResolvedValue({
-      topic: "新主题",
-      language: "zh",
-      script_lines: [
-        { role: "A", text: "测试生成1" },
-        { role: "B", text: "测试生成2" }
-      ],
-      turn_count: 8,
-      provider: "DashScope",
-      model: "",
-      memories_retrieved: 2,
-      memory_saved: true
+    mockedCreateAudioAgentRun.mockResolvedValue(mockAgentRunDetail);
+    mockedGetAudioAgentRun.mockResolvedValue(mockAgentRunDetail);
+    mockedListAudioAgentRunEvents.mockResolvedValue({
+      count: 0,
+      events: []
     });
-    mockedCreateAudioOverviewPodcast.mockResolvedValue({
+    mockedGetAudioOverviewPodcast.mockResolvedValue({
       id: 99,
       topic: "新主题",
       language: "zh",
@@ -623,17 +663,16 @@ describe("App interactions", () => {
     fireEvent.click(screen.getByRole("button", { name: "生成脚本" }));
 
     await waitFor(() => {
-      expect(mockedGenerateAudioOverviewScript).toHaveBeenCalledWith(
+      expect(mockedCreateAudioAgentRun).toHaveBeenCalledWith(
         expect.objectContaining({
-          topic: "新主题"
-        }),
-        { useMemory: true }
+          topic: "新主题",
+          use_memory: true
+        })
       );
-      expect(mockedCreateAudioOverviewPodcast).toHaveBeenCalled();
     });
 
     expect(
-      await screen.findByText("脚本已生成，并保存为播客 #99。 已引用 2 条长期记忆，并写入本次播客草稿。")
+      await screen.findByText("Agent 已完成检索与写稿，并保存为播客 #99。")
     ).toBeInTheDocument();
     expect(screen.getByDisplayValue("测试生成1")).toBeInTheDocument();
   });

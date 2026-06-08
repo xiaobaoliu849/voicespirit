@@ -18,6 +18,7 @@ type Options = {
     {
       defaultModel: string;
       availableModels: string[];
+      enabledModels?: string[];
     }
   >;
   preferredProvider?: string;
@@ -64,12 +65,19 @@ function resolveDefaultModel(
   if (!providerMeta) {
     return "";
   }
-  const availableModels = Array.isArray(providerMeta.availableModels)
+  const enabledModels = Array.isArray(providerMeta.enabledModels)
+    ? providerMeta.enabledModels.filter((item) => item.trim())
+    : [];
+  const rawAvailable = Array.isArray(providerMeta.availableModels)
     ? providerMeta.availableModels.filter((item) => item.trim())
     : [];
+  const availableModels = enabledModels.length > 0 ? enabledModels : rawAvailable;
+
   const textModels = availableModels.filter((item) => !isVoiceRealtimeModel(provider, item));
   const preferredDefault = (providerMeta.defaultModel || "").trim();
-  if (preferredDefault && !isVoiceRealtimeModel(provider, preferredDefault)) {
+  const isPreferredValid = enabledModels.length === 0 || enabledModels.includes(preferredDefault);
+
+  if (preferredDefault && isPreferredValid && !isVoiceRealtimeModel(provider, preferredDefault)) {
     return preferredDefault;
   }
   if (textModels.length > 0) {
@@ -82,7 +90,18 @@ function resolveTextModelOptions(
   provider: string,
   providerModelCatalog: Options["providerModelCatalog"],
 ): string[] {
-  const availableModels = providerModelCatalog?.[provider]?.availableModels || [];
+  const providerMeta = providerModelCatalog?.[provider];
+  if (!providerMeta) {
+    return [];
+  }
+  const enabledModels = Array.isArray(providerMeta.enabledModels)
+    ? providerMeta.enabledModels.filter((item) => item.trim())
+    : [];
+  const rawAvailable = Array.isArray(providerMeta.availableModels)
+    ? providerMeta.availableModels.filter((item) => item.trim())
+    : [];
+  const availableModels = enabledModels.length > 0 ? enabledModels : rawAvailable;
+
   const normalized = availableModels
     .map((item) => item.trim())
     .filter(Boolean);
@@ -108,6 +127,8 @@ export default function useChat({
   const [chatBusy, setChatBusy] = useState(false);
   const [chatError, setChatError] = useState("");
   const [chatMemoryGroupId, setChatMemoryGroupId] = useState(() => getPersistedEverMemConversationGroupId("chat"));
+  const [useMemory, setUseMemory] = useState(true);
+  const [deepThinking, setDeepThinking] = useState(false);
   const lastPreferredProviderRef = useRef(preferredProvider);
 
   const chatProviderOptions = providerOptions.length > 0 ? providerOptions : ["Google"];
@@ -215,7 +236,9 @@ export default function useChat({
           model: chatModel.trim() || undefined,
           messages: nextHistory,
           temperature: 0.7,
-          max_tokens: 1024
+          max_tokens: 1024,
+          use_memory: useMemory,
+          deep_thinking: deepThinking
         },
         {
           onDelta: (chunk) => {
@@ -295,6 +318,11 @@ export default function useChat({
     }
   }
 
+  function injectMessage(role: "user" | "assistant", content: string) {
+    if (!content.trim()) return;
+    setChatMessages((prev) => [...prev, { role, content }]);
+  }
+
   function onComposerKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
@@ -324,6 +352,11 @@ export default function useChat({
     onNewSession,
     onSelectHistory: setChatInput,
     replaceSession,
+    injectMessage,
+    useMemory,
+    setUseMemory,
+    deepThinking,
+    setDeepThinking,
   };
 }
 

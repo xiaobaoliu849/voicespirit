@@ -16,7 +16,7 @@ describe('VoiceClonePage', () => {
                 errorRuntimeContext={{}}
             />
         );
-        expect(screen.getByText('音色克隆工作室 (Voice Clone)')).toBeInTheDocument();
+        expect(screen.getByText('通过上传音频样板复刻特定人声')).toBeInTheDocument();
         expect(screen.getByDisplayValue('cloned-voice')).toBeInTheDocument();
         expect(screen.getByText('test-audio.mp3')).toBeInTheDocument();
         expect(screen.getByText('开始克隆音色')).toBeInTheDocument();

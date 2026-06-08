@@ -8,14 +8,14 @@ describe('ChatPage', () => {
         render(
             <ChatPage
                 chat={createChatController()}
-                voiceChat={createVoiceChatController()}
+                voiceChat={createVoiceChatController({ voiceChatProvider: "" })}
                 errorRuntimeContext={{}}
             />
         );
-        expect(screen.getByText('你好，有什么可以帮你的？')).toBeInTheDocument();
+        expect(screen.getByText('VoiceSpirit')).toBeInTheDocument();
         expect(screen.getByRole('button', { name: '发送' })).toBeInTheDocument();
-        expect(screen.getByText('实时语音入口')).toBeInTheDocument();
-        expect(screen.getByText(/麦克风按钮当前使用/)).toBeInTheDocument();
+        expect(screen.queryByText('实时语音')).not.toBeInTheDocument();
+        expect(screen.queryByText(/麦克风按钮当前使用/)).not.toBeInTheDocument();
     });
 
     it('shows voice chat startup errors even when the realtime session failed to open', () => {
@@ -30,7 +30,7 @@ describe('ChatPage', () => {
             />
         );
 
-        expect(screen.getByText('实时语音不可用')).toBeInTheDocument();
+        expect(screen.getByText('实时语音')).toBeInTheDocument();
         expect(screen.getByText('Google API Key 未配置，无法启动实时语音会话。')).toBeInTheDocument();
     });
 

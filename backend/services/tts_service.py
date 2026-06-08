@@ -18,16 +18,20 @@ except ImportError:
 TTS_ENGINE_EDGE = "edge"
 TTS_ENGINE_QWEN_FLASH = "qwen_flash"
 TTS_ENGINE_MINIMAX = "minimax"
+TTS_ENGINE_XIAOMI = "xiaomi"
 SUPPORTED_TTS_ENGINES = {
     TTS_ENGINE_EDGE,
     TTS_ENGINE_QWEN_FLASH,
     TTS_ENGINE_MINIMAX,
+    TTS_ENGINE_XIAOMI,
 }
 
 DEFAULT_EDGE_VOICE = "zh-CN-XiaoxiaoNeural"
 DEFAULT_QWEN_FLASH_MODEL = "qwen3-tts-flash-2025-11-27"
 DEFAULT_MINIMAX_MODEL = "speech-02-turbo"
 DEFAULT_MINIMAX_URL = "https://api.minimax.chat/v1/t2a_v2"
+DEFAULT_XIAOMI_MODEL = "mimo-v2.5-tts"
+DEFAULT_XIAOMI_URL = "https://api.xiaomimimo.com"
 
 FALLBACK_EDGE_VOICES = [
     {"name": "zh-CN-XiaoxiaoNeural", "short_name": "Xiaoxiao", "locale": "zh-CN", "gender": "Female"},
@@ -60,6 +64,17 @@ MINIMAX_VOICES = [
     {"name": "English_Trustworthy_Man", "short_name": "Trustworthy Man", "locale": "en-US", "gender": "Male"},
     {"name": "Japanese_GracefulMaiden", "short_name": "Graceful Maiden", "locale": "ja-JP", "gender": "Female"},
     {"name": "Korean_CalmLady", "short_name": "Calm Lady", "locale": "ko-KR", "gender": "Female"},
+]
+
+XIAOMI_VOICES = [
+    {"name": "mimo_default", "short_name": "小米默认 (mimo_default)", "locale": "zh-CN", "gender": "Female"},
+    {"name": "茉莉", "short_name": "茉莉 (Moli)", "locale": "zh-CN", "gender": "Female"},
+    {"name": "冰糖", "short_name": "冰糖 (Bingtang)", "locale": "zh-CN", "gender": "Female"},
+    {"name": "苏打", "short_name": "苏打 (Soda)", "locale": "zh-CN", "gender": "Male"},
+    {"name": "白桦", "short_name": "白桦 (Baihua)", "locale": "zh-CN", "gender": "Male"},
+    {"name": "Mia", "short_name": "Mia (Mia)", "locale": "en-US", "gender": "Female"},
+    {"name": "Chloe", "short_name": "Chloe (Chloe)", "locale": "en-US", "gender": "Female"},
+    {"name": "Milo", "short_name": "Milo (Milo)", "locale": "en-US", "gender": "Male"},
 ]
 
 
@@ -114,6 +129,7 @@ class TTSService:
         return self.config.get_provider_settings("DashScope").get("api_key", "").strip()
 
     def _minimax_settings(self) -> tuple[str, str]:
+        self.config.reload()
         settings = self.config.get_all().get("minimax", {})
         api_key = str(settings.get("api_key", "")).strip()
         base_url = str(settings.get("api_url", "")).strip()
@@ -121,6 +137,19 @@ class TTSService:
             base_url = str(self.config.get_all().get("api_urls", {}).get("MiniMax", "")).strip()
         if not base_url:
             base_url = DEFAULT_MINIMAX_URL
+        if not base_url.startswith(("http://", "https://")):
+            base_url = f"https://{base_url}"
+        return api_key, base_url
+
+    def _xiaomi_settings(self) -> tuple[str, str]:
+        self.config.reload()
+        settings = self.config.get_all().get("xiaomi", {})
+        api_key = str(settings.get("api_key", "")).strip()
+        base_url = str(settings.get("api_url", "")).strip()
+        if not base_url:
+            base_url = str(self.config.get_all().get("api_urls", {}).get("Xiaomi", "")).strip()
+        if not base_url:
+            base_url = DEFAULT_XIAOMI_URL
         if not base_url.startswith(("http://", "https://")):
             base_url = f"https://{base_url}"
         return api_key, base_url
@@ -197,22 +226,98 @@ class TTSService:
 
         path.write_bytes(bytes.fromhex(audio_hex))
 
+    async def _generate_xiaomi_audio(self, text: str, voice: str, path: Path) -> None:
+        api_key, base_url = self._xiaomi_settings()
+        if not api_key:
+            raise RuntimeError("Xiaomi API Key is not configured.")
+
+        url = f"{base_url}/v1/chat/completions"
+        payload = {
+            "model": DEFAULT_XIAOMI_MODEL,
+            "messages": [{"role": "assistant", "content": text}],
+            "audio": {
+                "format": "mp3",
+                "voice": voice or "mimo_default",
+            },
+        }
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        }
+
+        # Run asynchronous HTTP request
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            response = await client.post(url, json=payload, headers=headers)
+
+        if response.status_code != 200:
+            raise RuntimeError(f"Xiaomi API error: {response.status_code} - {response.text}")
+
+        try:
+            data = response.json()
+        except Exception as exc:
+            raise RuntimeError("Xiaomi returned an invalid JSON payload.") from exc
+
+        choices = data.get("choices", [])
+        if not choices:
+            raise RuntimeError(f"Xiaomi TTS returned no choices. Response: {data}")
+
+        message = choices[0].get("message", {})
+        audio_data = message.get("audio", {}).get("data", "")
+        if not audio_data:
+            raise RuntimeError(f"Xiaomi TTS returned no audio data. Response: {data}")
+
+        import base64
+        audio_bytes = base64.b64decode(audio_data)
+        path.write_bytes(audio_bytes)
+
+    def detect_engine_by_voice(self, voice: str | None) -> str:
+        if not voice:
+            return TTS_ENGINE_EDGE
+        # 1. Check Qwen custom/designed/cloned prefixes or names
+        if voice.startswith(("qwen3-tts-vd", "qwen3-tts-vc")):
+            return TTS_ENGINE_QWEN_FLASH
+        if any(v["name"] == voice for v in QWEN_FLASH_VOICES):
+            return TTS_ENGINE_QWEN_FLASH
+        # 2. Check MiniMax voices
+        if any(v["name"] == voice for v in MINIMAX_VOICES):
+            return TTS_ENGINE_MINIMAX
+        # 3. Check Xiaomi voices
+        if any(v["name"] == voice for v in XIAOMI_VOICES):
+            return TTS_ENGINE_XIAOMI
+        # 4. Check standard edge names
+        if voice.endswith("Neural") or "-" in voice:
+            return TTS_ENGINE_EDGE
+        # Fallback default for other custom voice design/clones
+        return TTS_ENGINE_QWEN_FLASH
+
     async def generate_audio(
         self,
         text: str,
         voice: str | None,
         rate: str = "+0%",
-        engine: str = TTS_ENGINE_EDGE,
+        engine: str | None = None,
     ) -> tuple[str, str, bool]:
         cleaned = self._clean_text(text)
-        normalized_engine = self._normalize_engine(engine)
+
+        # Auto-detect or correct the engine based on the selected voice
+        if engine is None or engine == TTS_ENGINE_EDGE:
+            detected_engine = self.detect_engine_by_voice(voice)
+        else:
+            detected_engine = self._normalize_engine(engine)
+            # If the voice is specific to another engine, correct it!
+            if voice:
+                detected_engine = self.detect_engine_by_voice(voice)
+
+        normalized_engine = detected_engine
 
         if normalized_engine == TTS_ENGINE_EDGE:
             selected_voice = voice or self._detect_edge_voice(cleaned)
         elif normalized_engine == TTS_ENGINE_QWEN_FLASH:
             selected_voice = voice or QWEN_FLASH_VOICES[0]["name"]
-        else:
+        elif normalized_engine == TTS_ENGINE_MINIMAX:
             selected_voice = voice or MINIMAX_VOICES[0]["name"]
+        else:
+            selected_voice = voice or XIAOMI_VOICES[0]["name"]
 
         filename = self._make_filename(cleaned, selected_voice, rate, normalized_engine)
         path = self.output_dir / filename
@@ -224,13 +329,88 @@ class TTSService:
             await self._generate_edge_audio(cleaned, selected_voice, rate, path)
         elif normalized_engine == TTS_ENGINE_QWEN_FLASH:
             await self._generate_qwen_flash_audio(cleaned, selected_voice, path)
-        else:
+        elif normalized_engine == TTS_ENGINE_MINIMAX:
             await self._generate_minimax_audio(cleaned, selected_voice, path)
+        else:
+            await self._generate_xiaomi_audio(cleaned, selected_voice, path)
 
         if not path.exists() or path.stat().st_size == 0:
             raise RuntimeError("Failed to generate audio file.")
 
         return str(path), selected_voice, False
+
+    async def generate_dialogue_audio(
+        self,
+        text: str,
+        voice_a: str | None,
+        voice_b: str | None,
+        rate: str = "+0%",
+        engine: str = "edge",
+    ) -> str:
+        import shutil
+        import uuid
+        from pathlib import Path
+        import re
+
+        # 1. Parse dialogue text into alternating script lines
+        lines = []
+        SCRIPT_LINE_PATTERN = re.compile(r"^([ABab])[：:]\s*(.+)$")
+        for raw in text.strip().splitlines():
+            line = raw.strip()
+            if not line:
+                continue
+            match = SCRIPT_LINE_PATTERN.match(line)
+            if match:
+                role = match.group(1).strip().upper()
+                content = match.group(2).strip()
+                if content:
+                    lines.append({"role": role, "text": content})
+            else:
+                role = "A" if len(lines) % 2 == 0 else "B"
+                lines.append({"role": role, "text": line})
+
+        if not lines:
+            raise ValueError("No valid dialogue lines found.")
+
+        # 2. Synthesize each line using the respective speaker's voice
+        segment_paths = []
+        for idx, line in enumerate(lines):
+            selected_voice = voice_a if line["role"] == "A" else voice_b
+            file_path, _, _ = await self.generate_audio(
+                text=line["text"],
+                voice=selected_voice,
+                rate=rate,
+                engine=engine,
+            )
+            segment_paths.append(Path(file_path))
+
+        # 3. Merge audio files using pydub (with 250ms silence gap) or binary concat fallback
+        output_name = f"dialogue_{uuid.uuid4().hex[:8]}.mp3"
+        output_path = self.output_dir / output_name
+
+        try:
+            from pydub import AudioSegment
+            combined = None
+            silence = AudioSegment.silent(duration=250)
+            for idx, segment in enumerate(segment_paths):
+                audio = AudioSegment.from_file(str(segment))
+                if combined is None:
+                    combined = audio
+                else:
+                    combined += silence + audio
+            if combined is not None:
+                combined.export(str(output_path), format="mp3", bitrate="192k")
+                return str(output_path)
+        except Exception:
+            pass
+
+        # Fallback merge via concat
+        with output_path.open("wb") as target:
+            for segment in segment_paths:
+                with segment.open("rb") as source:
+                    shutil.copyfileobj(source, target, length=1024 * 1024)
+
+        return str(output_path)
 
     async def list_voices(
         self,
@@ -242,6 +422,8 @@ class TTSService:
             return self._filter_by_locale(QWEN_FLASH_VOICES, locale)
         if normalized_engine == TTS_ENGINE_MINIMAX:
             return self._filter_by_locale(MINIMAX_VOICES, locale)
+        if normalized_engine == TTS_ENGINE_XIAOMI:
+            return self._filter_by_locale(XIAOMI_VOICES, locale)
 
         if edge_tts is None:
             return self._filter_by_locale(FALLBACK_EDGE_VOICES, locale)

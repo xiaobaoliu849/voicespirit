@@ -3,13 +3,13 @@ import base64
 import mimetypes
 import os
 import re
-from typing import List
+from typing import List, Any, Optional
 import time
 from pathlib import Path
-import requests
-import httpx
-from PySide6.QtCore import QObject, Signal, QRunnable, Slot, QThreadPool
-from tenacity import retry, stop_after_attempt, wait_fixed
+import requests # type: ignore
+import httpx # type: ignore
+from PySide6.QtCore import QObject, Signal, QRunnable, Slot, QThreadPool # type: ignore
+from tenacity import retry, stop_after_attempt, wait_fixed # type: ignore
 try:
     import websockets.exceptions
 except ImportError:
@@ -46,12 +46,12 @@ try:
     from google import genai
     from google.genai import types
 except ImportError:
-    genai = None
-    types = None
+    genai: Any = None
+    types: Any = None
     logging.error("google-genai library not found. Please install it: pip install google-genai")
 
 try:
-    import dashscope
+    import dashscope # type: ignore
     print("Dashscope导入成功")
     print("Dashscope位置：", dashscope.__file__)
     # 检查ImageSynthesis是否可用
@@ -218,9 +218,9 @@ class GeminiLiveSession(QObject, QRunnable):
         self.latest_resumption_token = None       # Updated by server during session
         
         # Thread-safe queue for input from main thread
-        self.input_queue = queue.Queue() 
+        self.input_queue: Any = queue.Queue() 
         self.stopping = False
-        self.loop = None
+        self.loop: Any = None
         self.session = None
 
     @Slot()
@@ -473,9 +473,9 @@ class QwenRealtimeSession(QObject, QRunnable):
         self.region = region  # "cn" for China, "intl" for Singapore
         
         # Thread-safe queue for input from main thread
-        self.input_queue = queue.Queue()
+        self.input_queue: Any = queue.Queue()
         self.stopping = False
-        self.loop = None
+        self.loop: Any = None
         self.conversation = None
         self._is_first_response = True
         
@@ -508,7 +508,7 @@ class QwenRealtimeSession(QObject, QRunnable):
             return
 
         # Set dashscope API key globally for the SDK
-        import dashscope
+        import dashscope # type: ignore
         dashscope.api_key = self.api_key
 
         # Create a new event loop for this thread
@@ -780,7 +780,7 @@ class ApiClient(QObject):
     available_models = {} # Stores { "provider_name": ["model1", "model2", ...] }
 
     def __init__(self, config_manager, thread_pool, parent=None):
-        super().__init__(parent)
+        super().__init__(parent) # type: ignore
         self.config_manager = config_manager
         self.thread_pool = thread_pool # Store the thread pool instance
         self.api_clients = {}
@@ -1229,7 +1229,7 @@ class ApiClient(QObject):
                 # Dynamically fetch models from Google GenAI
                 try:
                     # genai.Client has models.list() but returns Model objects with .name, not .id
-                    for model in client_or_module.models.list():
+                    for model in client_or_module.models.list(): # type: ignore
                         # Google model names are like "models/gemini-2.0-flash-exp"
                         # Extract just the model name part after "models/"
                         model_name = getattr(model, 'name', None)
@@ -1266,7 +1266,7 @@ class ApiClient(QObject):
                  logging.debug(f"Using models.list() for Groq")
                  model_list_response = client_or_module.models.list()
                  data = getattr(model_list_response, 'data', model_list_response)
-                 for model in data:
+                 for model in (data or []):
                      model_id = getattr(model, 'id', None)
                      if model_id:
                           model_ids.append(model_id)
@@ -1453,7 +1453,7 @@ class ApiClient(QObject):
                         
                     if image_data and image_mime_type:
                         # Include image if present
-                        from google.genai import types as genai_types
+                        from google.genai import types as genai_types # type: ignore
                         current_parts.append(genai_types.Part.from_bytes(
                             data=base64.b64decode(image_data), 
                             mime_type=image_mime_type
@@ -1461,7 +1461,7 @@ class ApiClient(QObject):
                     
                     # Add audio data for Google GenAI
                     if audio_data:
-                        from google.genai import types as genai_types
+                        from google.genai import types as genai_types # type: ignore
                         audio_bytes = base64.b64decode(audio_data)
                         current_parts.append(genai_types.Part.from_bytes(
                             data=audio_bytes,
@@ -1482,8 +1482,8 @@ class ApiClient(QObject):
                     )
                     
                     for chunk in response:
-                        if hasattr(chunk, 'text') and chunk.text:
-                            self.chat_stream_chunk.emit(chunk.text)
+                        if hasattr(chunk, 'text') and chunk.text: # type: ignore
+                            self.chat_stream_chunk.emit(chunk.text) # type: ignore
                     
                     return None
                 except Exception as e:
@@ -1491,7 +1491,7 @@ class ApiClient(QObject):
                     self.chat_response_error.emit(f"Google API Error: {e}")
                     return None
             
-            elif isinstance(client_or_module, (OpenAI, Groq)):
+            elif isinstance(client_or_module, (OpenAI, Groq)): # type: ignore
                 response_stream = client_or_module.chat.completions.create(**create_args)
             else:
                 raise ValueError(f"Unsupported client type for streaming: {type(client_or_module)}")
@@ -1502,8 +1502,8 @@ class ApiClient(QObject):
                 any_chunk_received = True
                 
                 # Check for Audio Delta
-                if hasattr(chunk, 'choices') and chunk.choices:
-                    delta = chunk.choices[0].delta
+                if hasattr(chunk, 'choices') and chunk.choices: # type: ignore
+                    delta = chunk.choices[0].delta # type: ignore
                     if hasattr(delta, 'audio') and delta.audio:
                          if 'data' in delta.audio:
                               # Decode Base64 audio chunk
@@ -1669,7 +1669,7 @@ class ApiClient(QObject):
             if not ds_key or ds_key == "YOUR_DASHSCOPE_API_KEY":
                 raise Exception("DashScope API Key not configured or is a placeholder.")
 
-            import dashscope
+            import dashscope # type: ignore
             os.environ["DASHSCOPE_API_KEY"] = ds_key
             dashscope.api_key = ds_key
             dashscope.base_http_api_url = 'https://dashscope.aliyuncs.com/api/v1'
@@ -1744,7 +1744,7 @@ class ApiClient(QObject):
         if ImageSynthesis is None:
             raise Exception("DashScope SDK not installed. Please run: pip install dashscope")
             
-        logging.info(f"Calling DashScope ImageSynthesis: model={model}, size={size}, prompt='{prompt[:50]}...'")
+        logging.info(f"Calling DashScope ImageSynthesis: model={model}, size={size}, prompt='{prompt[:50]}...'") # type: ignore
         try:
             client = ImageSynthesis()
             response = client.call(

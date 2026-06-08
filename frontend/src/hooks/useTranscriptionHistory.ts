@@ -132,6 +132,14 @@ export function useTranscriptionHistory() {
     setHistory([]);
     safeSaveHistory([]);
   };
+  
+  const removeJob = (jobId: string) => {
+    setHistory((prev) => {
+      const next = prev.filter(item => item.job_id !== jobId);
+      safeSaveHistory(next);
+      return next;
+    });
+  };
 
   return {
     history,
@@ -143,5 +151,6 @@ export function useTranscriptionHistory() {
     addOrUpdateJob,
     retryJob,
     clearHistory,
+    removeJob,
   };
 }

@@ -15,15 +15,19 @@ export default function useTts({ defaultText, formatErrorMessage, language = "zh
   const t = createInlineTranslator(language);
   const [ttsMode, setTtsMode] = useState<TtsWorkspaceMode>("text");
   const [ttsEngine, setTtsEngine] = useState<TtsEngine>("edge");
+  const [ttsEngineB, setTtsEngineB] = useState<TtsEngine>("edge");
   const [text, setText] = useState(defaultText);
   const [dialogueText, setDialogueText] = useState("");
   const [pdfText, setPdfText] = useState("");
   const [pdfFile, setPdfFile] = useState<File | null>(null);
   const [voices, setVoices] = useState<VoiceInfo[]>([]);
+  const [voicesB, setVoicesB] = useState<VoiceInfo[]>([]);
   const [voice, setVoice] = useState("");
+  const [voiceB, setVoiceB] = useState("");
   const [rate, setRate] = useState("+0%");
   const [audioUrl, setAudioUrl] = useState("");
   const [loadingVoices, setLoadingVoices] = useState(true);
+  const [loadingVoicesB, setLoadingVoicesB] = useState(true);
   const [generating, setGenerating] = useState(false);
   const [ttsError, setTtsError] = useState("");
   const [ttsInfo, setTtsInfo] = useState("");
@@ -61,17 +65,58 @@ export default function useTts({ defaultText, formatErrorMessage, language = "zh
     };
   }, [formatErrorMessage, ttsEngine]);
 
+  useEffect(() => {
+    let disposed = false;
+
+    async function loadVoicesB() {
+      try {
+        setLoadingVoicesB(true);
+        const data = await fetchVoices(undefined, ttsEngineB);
+        if (disposed) {
+          return;
+        }
+        setVoicesB(data.voices);
+        if (data.voices.length > 0) {
+          setVoiceB(data.voices[0].name);
+        } else {
+          setVoiceB("");
+        }
+      } catch (err) {
+        if (!disposed) {
+          setTtsError(formatErrorMessage(err, t("未知错误", "Unknown error.")));
+        }
+      } finally {
+        if (!disposed) {
+          setLoadingVoicesB(false);
+        }
+      }
+    }
+
+    void loadVoicesB();
+    return () => {
+      disposed = true;
+    };
+  }, [formatErrorMessage, ttsEngineB]);
+
   const voiceOptions = useMemo(() => {
     return voices.map((item) => ({
       value: item.name,
       label: `${item.short_name || item.name} (${item.locale})`
     }));
   }, [voices]);
+
+  const voiceOptionsB = useMemo(() => {
+    return voicesB.map((item) => ({
+      value: item.name,
+      label: `${item.short_name || item.name} (${item.locale})`
+    }));
+  }, [voicesB]);
   const engineOptions = useMemo(
     () => [
       { value: "edge" as TtsEngine, label: "Edge TTS", hint: t("系统级稳定合成，适合基础朗读。", "Stable system-level synthesis for standard narration.") },
       { value: "qwen_flash" as TtsEngine, label: "Qwen TTS Flash", hint: t("阿里云 Qwen 音色，更适合中文与角色感。", "Alibaba Qwen voices, well suited to Chinese and stylized delivery.") },
       { value: "minimax" as TtsEngine, label: "MiniMax TTS", hint: t("MiniMax 多风格音色，适合配音与角色化朗读。", "MiniMax multi-style voices for dubbing and character reads.") },
+      { value: "xiaomi" as TtsEngine, label: "Xiaomi TTS", hint: t("小米精品音色，支持唱歌模式与情感微调。", "Xiaomi high-quality voices, supporting singing mode and emotional nuances.") },
     ],
     [t]
   );
@@ -115,6 +160,7 @@ export default function useTts({ defaultText, formatErrorMessage, language = "zh
       const result = await fetchSpeakAudio({
         text: activeSourceText,
         voice: voice || undefined,
+        voiceB: ttsMode === "dialogue" ? (voiceB || undefined) : undefined,
         rate,
         engine: ttsEngine,
       });
@@ -182,29 +228,36 @@ export default function useTts({ defaultText, formatErrorMessage, language = "zh
   return {
     ttsMode,
     ttsEngine,
+    ttsEngineB,
     text,
     dialogueText,
     pdfText,
     pdfFile,
     voices,
+    voicesB,
     voice,
+    voiceB,
     rate,
     audioUrl,
     loadingVoices,
+    loadingVoicesB,
     generating,
     ttsError,
     ttsInfo,
     engineOptions,
     voiceOptions,
+    voiceOptionsB,
     activeSourceText,
     onSubmit,
     onTtsModeChange,
     onEngineChange,
+    onEngineBChange: setTtsEngineB,
     onTextChange,
     onDialogueTextChange,
     onPdfFileChange,
     onPdfTextChange,
     onVoiceChange: setVoice,
+    onVoiceBChange: setVoiceB,
     onRateChange: setRate
   };
 }

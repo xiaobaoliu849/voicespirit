@@ -1,4 +1,4 @@
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { translateText } from "../api";
 import { createInlineTranslator, type UiLanguage } from "../i18n";
 import type { FormatErrorMessage } from "../utils/errorFormatting";
@@ -7,6 +7,8 @@ type Options = {
   formatErrorMessage: FormatErrorMessage;
   language?: UiLanguage;
 };
+
+type SpeakTarget = "source" | "result" | null;
 
 export default function useTranslate({ formatErrorMessage, language = "zh-CN" }: Options) {
   const t = createInlineTranslator(language);
@@ -21,6 +23,13 @@ export default function useTranslate({ formatErrorMessage, language = "zh-CN" }:
   const [translateBusy, setTranslateBusy] = useState(false);
   const [translateError, setTranslateError] = useState("");
   const [translateInfo, setTranslateInfo] = useState("");
+  const [speakingTarget, setSpeakingTarget] = useState<SpeakTarget>(null);
+
+  useEffect(() => () => {
+    if (typeof window !== "undefined" && "speechSynthesis" in window) {
+      window.speechSynthesis.cancel();
+    }
+  }, []);
 
   function normalizeLanguage(value: string) {
     return value.trim().toLowerCase();
@@ -125,7 +134,85 @@ export default function useTranslate({ formatErrorMessage, language = "zh-CN" }:
     }
   }
 
+  function stopSpeaking(message?: string) {
+    if (typeof window !== "undefined" && "speechSynthesis" in window) {
+      window.speechSynthesis.cancel();
+    }
+    setSpeakingTarget(null);
+    if (message) {
+      setTranslateInfo(message);
+      setTranslateError("");
+    }
+  }
+
+  function speakText(value: string, target: Exclude<SpeakTarget, null>) {
+    const text = value.trim();
+    if (!text) {
+      setTranslateError(t("当前没有可朗读的内容。", "There is nothing to read aloud."));
+      return;
+    }
+
+    if (typeof window === "undefined" || !("speechSynthesis" in window)) {
+      setTranslateError(t("当前环境不支持语音朗读。", "Speech playback is not supported in this environment."));
+      return;
+    }
+
+    if (speakingTarget === target) {
+      stopSpeaking(t("已停止朗读。", "Stopped reading aloud."));
+      return;
+    }
+
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = target === "source"
+      ? (sourceLanguage.trim() === "auto" ? "" : sourceLanguage.trim())
+      : targetLanguage.trim();
+    utterance.onend = () => {
+      setSpeakingTarget((current) => (current === target ? null : current));
+    };
+    utterance.onerror = () => {
+      setSpeakingTarget(null);
+      setTranslateError(t("朗读失败。", "Playback failed."));
+    };
+
+    setSpeakingTarget(target);
+    setTranslateError("");
+    setTranslateInfo(
+      target === "source"
+        ? t("正在朗读原文。", "Reading the source text aloud.")
+        : t("正在朗读译文。", "Reading the translation aloud.")
+    );
+    window.speechSynthesis.speak(utterance);
+  }
+
+  function onSpeakSource() {
+    speakText(translateInput, "source");
+  }
+
+  function onSpeakResult() {
+    speakText(translateResult, "result");
+  }
+
+  function onClearSource() {
+    setTranslateInput("");
+    setTranslateError("");
+    setTranslateInfo(t("已清空原文。", "Source text cleared."));
+    if (speakingTarget === "source") {
+      stopSpeaking();
+    }
+  }
+
+  function onClearResult() {
+    setTranslateResult("");
+    setTranslateError("");
+    setTranslateInfo(t("已清空译文。", "Translation cleared."));
+    if (speakingTarget === "result") {
+      stopSpeaking();
+    }
+  }
+
   function onClearAll() {
+    stopSpeaking();
     setTranslateInput("");
     setTranslateResult("");
     setTranslateError("");
@@ -142,6 +229,7 @@ export default function useTranslate({ formatErrorMessage, language = "zh-CN" }:
     translateBusy,
     translateError,
     translateInfo,
+    speakingTarget,
     onSubmit,
     onProviderChange: setTranslateProvider,
     onModelChange: setTranslateModel,
@@ -151,7 +239,11 @@ export default function useTranslate({ formatErrorMessage, language = "zh-CN" }:
     onSwapLanguages,
     onCopySource,
     onCopyResult,
+    onSpeakSource,
+    onSpeakResult,
     onPasteInput,
+    onClearSource,
+    onClearResult,
     onClearAll
   };
 }

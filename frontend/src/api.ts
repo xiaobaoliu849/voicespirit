@@ -15,7 +15,7 @@ export type TtsAudioResponse = {
   memorySaved: boolean;
 };
 
-export type TtsEngine = "edge" | "qwen_flash" | "minimax";
+export type TtsEngine = "edge" | "qwen_flash" | "minimax" | "xiaomi";
 
 export type ChatMessage = {
   role: "system" | "user" | "assistant";
@@ -105,6 +105,7 @@ export type SettingsModelValue =
   | {
     default?: string;
     available?: string[];
+    enabled?: string[];
   };
 
 export type AppSettings = {
@@ -118,6 +119,7 @@ export type AppSettings = {
   qwen_tts_settings: Record<string, unknown>;
   transcription_settings: Record<string, unknown>;
   minimax: Record<string, unknown>;
+  xiaomi: Record<string, unknown>;
   ui_settings: Record<string, unknown>;
   shortcuts: Record<string, unknown>;
 };
@@ -860,6 +862,7 @@ export async function fetchVoices(locale?: string, engine?: TtsEngine): Promise<
 export function buildSpeakUrl(params: {
   text: string;
   voice?: string;
+  voiceB?: string;
   rate?: string;
   engine?: TtsEngine;
 }): string {
@@ -867,6 +870,9 @@ export function buildSpeakUrl(params: {
   url.searchParams.set("text", params.text);
   if (params.voice) {
     url.searchParams.set("voice", params.voice);
+  }
+  if (params.voiceB) {
+    url.searchParams.set("voice_b", params.voiceB);
   }
   if (params.rate) {
     url.searchParams.set("rate", params.rate);
@@ -945,6 +951,7 @@ async function throwApiError(response: Response): Promise<never> {
 export async function fetchSpeakAudio(params: {
   text: string;
   voice?: string;
+  voiceB?: string;
   rate?: string;
   engine?: TtsEngine;
 }): Promise<TtsAudioResponse> {
@@ -1212,6 +1219,33 @@ export async function updateSettings(
       })
     },
     { useAdminToken: true }
+  );
+  if (!response.ok) {
+    await throwApiError(response);
+  }
+  return response.json();
+}
+
+export type FetchModelsResponse = {
+  provider: string;
+  models: string[];
+};
+
+export async function fetchProviderModels(
+  provider: string,
+  apiKey?: string,
+  apiUrl?: string
+): Promise<FetchModelsResponse> {
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/settings/providers/${encodeURIComponent(provider)}/fetch-models`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        api_key: apiKey || null,
+        base_url: apiUrl || null,
+      }),
+    }
   );
   if (!response.ok) {
     await throwApiError(response);

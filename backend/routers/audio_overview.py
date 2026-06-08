@@ -252,6 +252,24 @@ async def get_podcast_audio(podcast_id: int) -> Response:
         )
 
     file_path = Path(audio_path)
+    
+    if not file_path.exists():
+        # Fallback 1: Attempt WSL to Windows path translation
+        path_str = str(file_path).replace("\\", "/")
+        if path_str.startswith("/mnt/"):
+            drive = path_str[5:6].upper()
+            rest = path_str[6:]
+            fallback_path = Path(f"{drive}:{rest}")
+            if fallback_path.exists():
+                file_path = fallback_path
+                
+    if not file_path.exists():
+        # Fallback 2: Check standard backend output directory
+        base_dir = Path(__file__).resolve().parents[1] / "temp_audio" / "audio_overview"
+        fallback_path = base_dir / file_path.name
+        if fallback_path.exists():
+            file_path = fallback_path
+
     if not file_path.exists() or not file_path.is_file():
         _raise_structured(
             404,

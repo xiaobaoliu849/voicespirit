@@ -38,6 +38,7 @@ DEFAULT_SETTINGS_TEMPLATE: dict[str, Any] = {
         "siliconflow_api_key": "",
         "google_api_key": "",
         "dashscope_api_key": "",
+        "xiaomi_api_key": "",
     },
     "api_urls": {
         "Google": "",
@@ -48,15 +49,17 @@ DEFAULT_SETTINGS_TEMPLATE: dict[str, Any] = {
         "SiliconFlow": "",
         "DashScope": "",
         "MiniMax": "",
+        "Xiaomi": "",
     },
     "default_models": {
-        "DeepSeek": {"default": "", "available": []},
-        "OpenRouter": {"default": "", "available": []},
-        "SiliconFlow": {"default": "", "available": []},
-        "Groq": {"default": "", "available": []},
-        "DashScope": {"default": "", "available": []},
-        "Google": {"default": "", "available": []},
-        "MiniMax": {"default": "", "available": []},
+        "DeepSeek": {"default": "", "available": [], "enabled": []},
+        "OpenRouter": {"default": "", "available": [], "enabled": []},
+        "SiliconFlow": {"default": "", "available": [], "enabled": []},
+        "Groq": {"default": "", "available": [], "enabled": []},
+        "DashScope": {"default": "", "available": [], "enabled": []},
+        "Google": {"default": "", "available": [], "enabled": []},
+        "MiniMax": {"default": "", "available": [], "enabled": []},
+        "Xiaomi": {"default": "", "available": [], "enabled": []},
     },
     "general_settings": {
         "display_language": "English",
@@ -105,6 +108,10 @@ DEFAULT_SETTINGS_TEMPLATE: dict[str, Any] = {
         "api_key": "",
         "api_url": "",
     },
+    "xiaomi": {
+        "api_key": "",
+        "api_url": "",
+    },
     "auth_settings": {
         "api_token": "",
         "admin_token": "",
@@ -132,6 +139,7 @@ ALLOWED_UPDATE_SECTIONS = {
     "qwen_tts_settings",
     "transcription_settings",
     "minimax",
+    "xiaomi",
     "auth_settings",
     "ui_settings",
     "shortcuts",
@@ -168,9 +176,16 @@ class SettingsService:
             if not isinstance(available_raw, list):
                 raise ValueError(f"default_models.{provider_name}.available must be an array.")
             available = [str(item).strip() for item in available_raw if str(item).strip()]
+
+            enabled_raw = model_data.get("enabled", [])
+            if not isinstance(enabled_raw, list):
+                enabled_raw = []
+            enabled = [str(item).strip() for item in enabled_raw if str(item).strip()]
+
             normalized[provider_name] = {
                 "default": default_model,
                 "available": available,
+                "enabled": enabled,
             }
         return normalized
 

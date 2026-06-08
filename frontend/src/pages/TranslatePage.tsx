@@ -3,6 +3,7 @@ import { PROVIDERS } from "../appConfig";
 import type { UseTranslateResult } from "../hooks/useTranslate";
 import { useI18n } from "../i18n";
 import type { ErrorRuntimeContext } from "../types/ui";
+import { Clipboard, Copy, Trash2, Volume2 } from "lucide-react";
 
 type Props = {
   translate: UseTranslateResult;
@@ -92,24 +93,46 @@ export default function TranslatePage({
         <div className="vsTranslateEditorGrid">
           <section className="vsTranslatePane source">
             <div className="vsTranslatePaneHead">
-              <div>
-                <strong>{t("原文", "Source")}</strong>
-              </div>
+              <strong>{t("原文", "Source")}</strong>
               <div className="vsTranslatePaneActions">
                 <button
                   type="button"
-                  className="ghost"
+                  className="vsTranslateToolBtn"
                   onClick={() => void translate.onPasteInput()}
+                  aria-label={t("粘贴原文", "Paste source text")}
                 >
-                  {t("粘贴", "Paste")}
+                  <Clipboard size={15} />
+                  <span>{t("粘贴", "Paste")}</span>
                 </button>
                 <button
                   type="button"
-                  className="ghost"
+                  className={`vsTranslateToolBtn ${translate.speakingTarget === "source" ? "active" : ""}`}
+                  onClick={translate.onSpeakSource}
+                  disabled={!sourceCount}
+                  aria-label={t("朗读原文", "Play source text")}
+                >
+                  <Volume2 size={15} />
+                  <span>{translate.speakingTarget === "source" ? t("停止", "Stop") : t("朗读", "Play")}</span>
+                </button>
+                <button
+                  type="button"
+                  className="vsTranslateToolBtn"
                   onClick={() => void translate.onCopySource()}
                   disabled={!sourceCount}
+                  aria-label={t("复制原文", "Copy source text")}
                 >
-                  {t("复制", "Copy")}
+                  <Copy size={15} />
+                  <span>{t("复制", "Copy")}</span>
+                </button>
+                <button
+                  type="button"
+                  className="vsTranslateToolBtn danger"
+                  onClick={translate.onClearSource}
+                  disabled={!sourceCount}
+                  aria-label={t("清空原文", "Clear source text")}
+                >
+                  <Trash2 size={15} />
+                  <span>{t("清空", "Clear")}</span>
                 </button>
               </div>
             </div>
@@ -123,32 +146,42 @@ export default function TranslatePage({
 
             <div className="vsTranslatePaneFooter">
               <span className="muted">{t(`${sourceCount} 字`, `${sourceCount} chars`)}</span>
-              <div className="inlineActions">
-                <button
-                  type="button"
-                  className="ghost"
-                  onClick={translate.onClearAll}
-                  disabled={!sourceCount && !resultCount}
-                >
-                  {t("清空", "Clear")}
-                </button>
-              </div>
             </div>
           </section>
 
           <section className="vsTranslatePane result">
             <div className="vsTranslatePaneHead">
-              <div>
-                <strong>{t("译文", "Translation")}</strong>
-              </div>
+              <strong>{t("译文", "Translation")}</strong>
               <div className="vsTranslatePaneActions">
                 <button
                   type="button"
-                  className="ghost"
+                  className={`vsTranslateToolBtn ${translate.speakingTarget === "result" ? "active" : ""}`}
+                  onClick={translate.onSpeakResult}
+                  disabled={!resultCount}
+                  aria-label={t("朗读译文", "Play translated text")}
+                >
+                  <Volume2 size={15} />
+                  <span>{translate.speakingTarget === "result" ? t("停止", "Stop") : t("朗读", "Play")}</span>
+                </button>
+                <button
+                  type="button"
+                  className="vsTranslateToolBtn"
                   onClick={() => void translate.onCopyResult()}
                   disabled={!resultCount}
+                  aria-label={t("复制译文", "Copy translated text")}
                 >
-                  {t("复制", "Copy")}
+                  <Copy size={15} />
+                  <span>{t("复制", "Copy")}</span>
+                </button>
+                <button
+                  type="button"
+                  className="vsTranslateToolBtn danger"
+                  onClick={translate.onClearResult}
+                  disabled={!resultCount}
+                  aria-label={t("清空译文", "Clear translated text")}
+                >
+                  <Trash2 size={15} />
+                  <span>{t("清空", "Clear")}</span>
                 </button>
               </div>
             </div>

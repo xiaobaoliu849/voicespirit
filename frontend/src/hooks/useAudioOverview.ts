@@ -20,7 +20,9 @@ import {
   updateAudioOverviewPodcast,
   type AudioOverviewPodcast,
   type AudioOverviewScriptLine,
-  type VoiceInfo
+  type VoiceInfo,
+  fetchVoices,
+  listCustomVoices
 } from "../api";
 import { createInlineTranslator, type UiLanguage } from "../i18n";
 import type { FormatErrorMessage } from "../utils/errorFormatting";
@@ -34,11 +36,8 @@ type Options = {
   language?: UiLanguage;
 };
 
-export default function useAudioOverview({
-  voices,
-  formatErrorMessage,
-  language = "zh-CN",
-}: Options) {
+export default function useAudioOverview(options: Options) {
+  const { formatErrorMessage, language = "zh-CN" } = options;
   const t = createInlineTranslator(language);
   const [audioOverviewWorkspaceMode, setAudioOverviewWorkspaceMode] =
     useState<AudioOverviewWorkspaceMode>("podcast");
@@ -93,13 +92,81 @@ export default function useAudioOverview({
   const [audioAgentEvents, setAudioAgentEvents] = useState<AudioAgentEvent[]>([]);
   const [audioAgentErrorMessage, setAudioAgentErrorMessage] = useState("");
 
+  const [allVoices, setAllVoices] = useState<VoiceInfo[]>([]);
+
+  useEffect(() => {
+    let disposed = false;
+    async function loadAllVoices() {
+      try {
+        const engines = ["edge", "qwen_flash", "minimax", "xiaomi"] as const;
+        // Fetch engine voice lists in parallel
+        const engineResults = await Promise.all(
+          engines.map(engine => fetchVoices(undefined, engine).catch(() => ({ voices: [] })))
+        );
+        // Fetch custom designed and cloned voices
+        const [designRes, cloneRes] = await Promise.all([
+          listCustomVoices("voice_design").catch(() => ({ voices: [] })),
+          listCustomVoices("voice_clone").catch(() => ({ voices: [] }))
+        ]);
+
+        if (disposed) return;
+
+        const combined: VoiceInfo[] = [];
+
+        // Prepend custom designed voices
+        for (const item of designRes.voices) {
+          combined.push({
+            name: item.voice,
+            short_name: `${item.name || item.voice} [${t("设计", "Designed")}]`,
+            locale: item.language || "zh-CN",
+            gender: "custom"
+          });
+        }
+
+        // Prepend custom cloned voices
+        for (const item of cloneRes.voices) {
+          combined.push({
+            name: item.voice,
+            short_name: `${item.name || item.voice} [${t("克隆", "Cloned")}]`,
+            locale: item.language || "zh-CN",
+            gender: "custom"
+          });
+        }
+
+        // Add standard engine voices
+        for (const res of engineResults) {
+          combined.push(...res.voices);
+        }
+
+        // De-duplicate by name
+        const unique: VoiceInfo[] = [];
+        const seen = new Set<string>();
+        for (const v of combined) {
+          if (!seen.has(v.name)) {
+            seen.add(v.name);
+            unique.push(v);
+          }
+        }
+
+        setAllVoices(unique);
+      } catch (err) {
+        console.error("Failed to load all voices for podcast:", err);
+      }
+    }
+    void loadAllVoices();
+    return () => {
+      disposed = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const audioOverviewVoiceOptions = useMemo(() => {
     const localePrefix = audioOverviewLanguage === "en" ? "en-US" : "zh-CN";
-    const preferred = voices.filter((item) =>
+    const preferred = allVoices.filter((item) =>
       item.locale.toLowerCase().startsWith(localePrefix.toLowerCase())
     );
-    return preferred.length ? preferred : voices;
-  }, [voices, audioOverviewLanguage]);
+    return preferred.length ? preferred : allVoices;
+  }, [allVoices, audioOverviewLanguage]);
 
   useEffect(() => {
     return () => {
@@ -146,7 +213,8 @@ export default function useAudioOverview({
       setAudioOverviewSpeakerA(t("主播 A", "Host A"));
       setAudioOverviewSpeakerB(t("主播 B", "Host B"));
     }
-  }, [audioOverviewLanguage, audioOverviewWorkspaceMode, t]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [audioOverviewLanguage, audioOverviewWorkspaceMode]);
 
   useEffect(() => {
     void loadAudioOverviewPodcasts();

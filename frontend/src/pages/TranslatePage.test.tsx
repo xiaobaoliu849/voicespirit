@@ -11,8 +11,8 @@ describe('TranslatePage', () => {
                 errorRuntimeContext={{}}
             />
         );
-        expect(screen.getByText('原文输入区')).toBeInTheDocument();
-        expect(screen.getByText('翻译结果')).toBeInTheDocument();
+        expect(screen.getByText('原文')).toBeInTheDocument();
+        expect(screen.getByText('译文')).toBeInTheDocument();
         expect(screen.getByText('开始翻译')).toBeInTheDocument();
     });
 
@@ -33,7 +33,7 @@ describe('TranslatePage', () => {
                 errorRuntimeContext={{}}
             />
         );
-        expect(screen.getByText('译文会显示在这里')).toBeInTheDocument();
+        expect(screen.getByText('译文将显示在这里')).toBeInTheDocument();
     });
 
     it('wires toolbar and pane actions to translate handlers', async () => {
@@ -50,16 +50,22 @@ describe('TranslatePage', () => {
         );
 
         fireEvent.click(screen.getByRole('button', { name: '交换语言方向' }));
-        fireEvent.click(screen.getByRole('button', { name: '粘贴' }));
+        fireEvent.click(screen.getByRole('button', { name: '粘贴原文' }));
+        fireEvent.click(screen.getByRole('button', { name: '朗读原文' }));
         fireEvent.click(screen.getByRole('button', { name: '复制原文' }));
+        fireEvent.click(screen.getByRole('button', { name: '清空原文' }));
+        fireEvent.click(screen.getByRole('button', { name: '朗读译文' }));
         fireEvent.click(screen.getByRole('button', { name: '复制译文' }));
-        fireEvent.click(screen.getByRole('button', { name: '清空' }));
+        fireEvent.click(screen.getByRole('button', { name: '清空译文' }));
 
         expect(translate.onSwapLanguages).toHaveBeenCalledTimes(1);
         expect(translate.onPasteInput).toHaveBeenCalledTimes(1);
+        expect(translate.onSpeakSource).toHaveBeenCalledTimes(1);
         expect(translate.onCopySource).toHaveBeenCalledTimes(1);
+        expect(translate.onClearSource).toHaveBeenCalledTimes(1);
+        expect(translate.onSpeakResult).toHaveBeenCalledTimes(1);
         expect(translate.onCopyResult).toHaveBeenCalledTimes(1);
-        expect(translate.onClearAll).toHaveBeenCalledTimes(1);
+        expect(translate.onClearResult).toHaveBeenCalledTimes(1);
     });
 
     it('submits the translation form through the primary action', () => {

@@ -159,9 +159,13 @@ textarea {
   white-space: nowrap;
 }
 
-.vsSidebar.collapsed .vsBrandCopy {
-  opacity: 0;
-  width: 0;
+.vsSidebar.collapsed .vsBrand {
+  display: none;
+}
+
+.vsSidebar.collapsed .vsSidebarHeader {
+  justify-content: center;
+  padding: 0;
 }
 
 .vsCollapseBtn {

@@ -17,7 +17,7 @@ class ModernMainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("Voice Spirit 2.0")
         # Increased default size because we are now DPI Aware (no OS scaling)
-        self.resize(1050, 700)
+        self.resize(1200, 800)
         
         # Set window icon
         from PySide6.QtGui import QIcon

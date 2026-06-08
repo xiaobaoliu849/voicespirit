@@ -1,4 +1,5 @@
 import { useState } from "react";
+import EvermindBadge from "../components/EvermindBadge";
 import ErrorNotice from "../components/ErrorNotice";
 import type { UseSettingsResult } from "../hooks/useSettings";
 import { useI18n } from "../i18n";
@@ -7,13 +8,39 @@ import type { ErrorRuntimeContext } from "../types/ui";
 type Props = {
   settings: UseSettingsResult;
   errorRuntimeContext?: ErrorRuntimeContext;
+  onClose?: () => void;
 };
 
 type SettingCategory = "general" | "provider" | "transcription" | "memory" | "desktop";
 
-export default function SettingsPage({ settings, errorRuntimeContext }: Props) {
+const providerDisplayNames: Record<string, string> = {
+  DashScope: "阿里云 DashScope",
+  DeepSeek: "DeepSeek 深度求索",
+  Google: "Google Gemini",
+  Groq: "Groq 极速 API",
+  OpenRouter: "OpenRouter 聚合",
+  SiliconFlow: "硅基流动 SiliconFlow",
+  Xiaomi: "小米 mimo"
+};
+
+const providerIcons: Record<string, string> = {
+  DashScope: "☁️",
+  DeepSeek: "🔍",
+  Google: "✦",
+  Groq: "⚡",
+  OpenRouter: "🔀",
+  SiliconFlow: "🌊",
+  Xiaomi: "📱"
+};
+
+
+export default function SettingsPage({ settings, errorRuntimeContext, onClose }: Props) {
   const { t } = useI18n();
   const [activeCategory, setActiveCategory] = useState<SettingCategory>("provider");
+  const [modelSearch, setModelSearch] = useState("");
+  const [showRawModels, setShowRawModels] = useState(false);
+  const [providerSearch, setProviderSearch] = useState("");
+  const [showApiKey, setShowApiKey] = useState(false);
 
   // Keep the overall form wrapper but conditionally render the body based on nav.
   return (
@@ -29,10 +56,7 @@ export default function SettingsPage({ settings, errorRuntimeContext }: Props) {
               onClick={() => setActiveCategory("general")}
             >
               <div className="vsSettingsNavIcon">🌐</div>
-              <div>
-                <div className="vsSettingsNavItemTitle">{t("通用", "General")}</div>
-                <div className="vsSettingsNavItemDesc">{t("界面语言与工作区", "Language and workspace")}</div>
-              </div>
+              <div className="vsSettingsNavItemTitle">{t("通用", "General")}</div>
             </button>
           </li>
           <li>
@@ -42,10 +66,7 @@ export default function SettingsPage({ settings, errorRuntimeContext }: Props) {
               onClick={() => setActiveCategory("provider")}
             >
               <div className="vsSettingsNavIcon">⚡</div>
-              <div>
-                <div className="vsSettingsNavItemTitle">{t("AI 供应商", "AI Providers")}</div>
-                <div className="vsSettingsNavItemDesc">{t("模型服务与密钥", "Models and API keys")}</div>
-              </div>
+              <div className="vsSettingsNavItemTitle">{t("AI 供应商", "AI Providers")}</div>
             </button>
           </li>
           <li>
@@ -55,10 +76,7 @@ export default function SettingsPage({ settings, errorRuntimeContext }: Props) {
               onClick={() => setActiveCategory("memory")}
             >
               <div className="vsSettingsNavIcon">🧠</div>
-              <div>
-                <div className="vsSettingsNavItemTitle">{t("记忆中心", "Memory")}</div>
-                <div className="vsSettingsNavItemDesc">{t("EverMem 存储配置", "EverMem storage")}</div>
-              </div>
+              <div className="vsSettingsNavItemTitle">{t("记忆中心", "Memory")}</div>
             </button>
           </li>
           <li>
@@ -68,10 +86,7 @@ export default function SettingsPage({ settings, errorRuntimeContext }: Props) {
               onClick={() => setActiveCategory("transcription")}
             >
               <div className="vsSettingsNavIcon">🎙️</div>
-              <div>
-                <div className="vsSettingsNavItemTitle">{t("文件转写", "Transcription")}</div>
-                <div className="vsSettingsNavItemDesc">{t("对象存储上传配置", "Object storage upload")}</div>
-              </div>
+              <div className="vsSettingsNavItemTitle">{t("文件转写", "Transcription")}</div>
             </button>
           </li>
           <li>
@@ -81,17 +96,14 @@ export default function SettingsPage({ settings, errorRuntimeContext }: Props) {
               onClick={() => setActiveCategory("desktop")}
             >
               <div className="vsSettingsNavIcon">💻</div>
-              <div>
-                <div className="vsSettingsNavItemTitle">{t("系统与运行时", "System & Runtime")}</div>
-                <div className="vsSettingsNavItemDesc">{t("后端诊断与高级选项", "Backend diagnostics and advanced options")}</div>
-              </div>
+              <div className="vsSettingsNavItemTitle">{t("系统与运行时", "System & Runtime")}</div>
             </button>
           </li>
         </ul>
       </nav>
 
       {/* ── Right Content Area ── */}
-      <section className="vsSettingsContent custom-scrollbar">
+      <section className={`vsSettingsContent custom-scrollbar ${activeCategory === "provider" ? "provider-tab" : ""}`}>
         <form className="vsSettingsForm" onSubmit={settings.onSubmit}>
           <header className="vsSettingsHeader">
             <div className="vsSettingsHeadInfo">
@@ -102,31 +114,6 @@ export default function SettingsPage({ settings, errorRuntimeContext }: Props) {
                 {activeCategory === "transcription" && t("文件转写与上传配置", "Transcription & Upload Settings")}
                 {activeCategory === "desktop" && t("系统与运行时状态", "System & Runtime Status")}
               </h1>
-              <p className="vsSettingsDesc">
-                {activeCategory === "general" && t("管理界面语言、配置载入，以及当前工作区的基础偏好。", "Manage interface language, config reload, and workspace-level preferences.")}
-                {activeCategory === "provider" && t("配置语音生成、文本理解与翻译使用的基础大语言模型服务。", "Configure the base model services used for speech, chat, and translation.")}
-                {activeCategory === "memory" && t("连接 EverMemOS 为您的 AI 提供跨应用的记忆能力和上下文连续性。", "Connect EverMemOS to give your AI cross-app memory and continuous context.")}
-                {activeCategory === "transcription" && t("配置音频文件的上传策略及云端对象存储信息。", "Configure the upload strategy and cloud object storage details for audio files.")}
-                {activeCategory === "desktop" && t("环境诊断、应用底层路径与开发者选项。", "Environment diagnostics, runtime paths, and developer options.")}
-              </p>
-            </div>
-
-            <div className="vsSettingsGlobalActions">
-              <button
-                type="button"
-                className="vsBtnSecondary"
-                onClick={() => void settings.onReload()}
-                disabled={settings.settingsBusy || settings.settingsSaving}
-              >
-                {settings.settingsBusy ? t("加载中...", "Loading...") : t("重新加载配置", "Reload settings")}
-              </button>
-              <button
-                type="submit"
-                className="vsBtnPrimary"
-                disabled={settings.settingsSaving || settings.settingsBusy}
-              >
-                {settings.settingsSaving ? t("保存中...", "Saving...") : t("保存全部修改", "Save all changes")}
-              </button>
             </div>
           </header>
 
@@ -159,10 +146,6 @@ export default function SettingsPage({ settings, errorRuntimeContext }: Props) {
                     </select>
                     <span className="vsFieldHint">{t("切换后当前前端界面会立即刷新文案；保存后会写入全局配置。", "Switching updates the current frontend labels immediately; saving persists it to global config.")}</span>
                   </label>
-                  <div className="vsSettingsFeatureCallout">
-                    <strong>{t("工作区范围", "Workspace scope")}</strong>
-                    <p>{t("语言属于全局偏好，不应混在 AI 供应商配置里。这里负责界面层体验，AI 模型设置单独放在下一项。", "Language is a global preference and should not live inside AI provider configuration. This section owns UI behavior, while model settings live in the next section.")}</p>
-                  </div>
                 </div>
               </div>
 
@@ -174,83 +157,239 @@ export default function SettingsPage({ settings, errorRuntimeContext }: Props) {
                     <code className="vsCodeBlock">{settings.settingsConfigPath}</code>
                   </div>
                 ) : null}
-                <div className="vsSettingsFeatureCallout subtle">
-                  <strong>{t("操作建议", "Recommended flow")}</strong>
-                  <p>{t("先在这里确定显示语言和全局偏好，再进入 AI、转写或记忆模块做具体配置，层级会更清楚。", "Set display language and global preferences here first, then go into AI, transcription, or memory for module-specific configuration.")}</p>
-                </div>
               </div>
             </div>
           )}
 
           {/* ── Category: Provider ── */}
           {activeCategory === "provider" && (
-            <div className="vsSettingsCard">
-              <div className="vsFormRow">
-                <label className="vsField">
-                  <span className="vsFieldLabel">{t("默认服务商", "Default Provider")}</span>
-                  <select
-                    className="vsSelect"
-                    value={settings.settingsProvider}
-                    onChange={(e) => settings.onProviderChange(e.target.value)}
+            <div className="vsProviderSettingsGrid">
+              {/* Middle Column: Providers List */}
+              <div className="vsProviderListColumn">
+                <div className="vsProviderSearchBar">
+                  <span className="vsProviderSearchIcon">🔍</span>
+                  <input
+                    type="text"
+                    value={providerSearch}
+                    onChange={(e) => setProviderSearch(e.target.value)}
+                    placeholder={t("搜索供应商...", "Search providers...")}
+                  />
+                </div>
+                <div className="vsProviderSelectGroup">
+                  {settings.providerOptions
+                    .filter(name => {
+                      if (!providerSearch.trim()) return true;
+                      const q = providerSearch.toLowerCase();
+                      return name.toLowerCase().includes(q) || (providerDisplayNames[name] || "").toLowerCase().includes(q);
+                    })
+                    .map((providerName) => {
+                    const isActive = settings.settingsProvider === providerName;
+                    const hasKey = !!settings.providerModelCatalog[providerName]?.defaultModel || 
+                      (settings.providerModelCatalog[providerName]?.availableModels && settings.providerModelCatalog[providerName].availableModels.length > 0);
+                    
+                    return (
+                      <button
+                        key={providerName}
+                        type="button"
+                        className={`vsProviderSelectorItem ${isActive ? "active" : ""}`}
+                        onClick={() => settings.onProviderChange(providerName)}
+                      >
+                        <div className="vsProviderSelectorMeta">
+                          <span className="vsProviderItemIcon">{providerIcons[providerName] || "🔗"}</span>
+                          <span className="vsProviderNameText">{providerDisplayNames[providerName] || providerName}</span>
+                        </div>
+                        <span className={`vsActiveDot ${hasKey ? "" : "inactive"}`} title={hasKey ? t("已配置", "Configured") : t("未配置", "Not configured")} />
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Right Column: Config Details (fills ALL remaining space) */}
+              <div className="vsProviderConfigColumn">
+                <div className="vsProviderConfigHeader">
+                  <div className="vsProviderConfigTitleRow">
+                    <h2 className="vsProviderConfigTitle">{providerDisplayNames[settings.settingsProvider] || settings.settingsProvider}</h2>
+                    {settings.settingsApiKey
+                      ? <span className="vsProviderStatusBadge active">{t("活跃", "Active")}</span>
+                      : <span className="vsProviderStatusBadge">{t("未激活", "Inactive")}</span>}
+                  </div>
+                </div>
+
+                <div className="vsProviderConfigFields">
+                  <label className="vsField">
+                    <span className="vsFieldLabel">API Key</span>
+                    <div className="vsPasswordFieldWrap">
+                      <input
+                        className="vsInput"
+                        type={showApiKey ? "text" : "password"}
+                        value={settings.settingsApiKey}
+                        onChange={(e) => settings.onApiKeyChange(e.target.value)}
+                        placeholder={t("输入供应商 API Key", "Enter your API key")}
+                      />
+                      <button
+                        type="button"
+                        className="vsPasswordToggleBtn"
+                        onClick={() => setShowApiKey(v => !v)}
+                        title={showApiKey ? t("隐藏", "Hide") : t("显示", "Show")}
+                      >
+                        {showApiKey ? "🙈" : "👁"}
+                      </button>
+                    </div>
+                  </label>
+
+                  <label className="vsField">
+                    <span className="vsFieldLabel">Base URL ({t("可选", "Optional")})</span>
+                    <input
+                      className="vsInput"
+                      value={settings.settingsApiUrl}
+                      onChange={(e) => settings.onApiUrlChange(e.target.value)}
+                      placeholder={t("留空则使用默认地址", "Leave empty to use the default URL")}
+                    />
+                    <span className="vsFieldHint">{t("留空则使用该供应商的默认 API 端点", "Leave empty to use the default API endpoint for this provider")}</span>
+                  </label>
+
+                  <label className="vsField">
+                    <span className="vsFieldLabel">{t("默认主模型", "Default Model")}</span>
+                    <select
+                      className="vsSelect"
+                      value={settings.settingsDefaultModel}
+                      onChange={(e) => settings.onDefaultModelChange(e.target.value)}
+                      disabled={settings.settingsBusy || settings.settingsSaving}
+                    >
+                      <option value="">{t("-- 请选择 --", "-- Select --")}</option>
+                      {settings.settingsAvailableModels.map((modelId) => (
+                        <option key={modelId} value={modelId}>
+                          {modelId}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+
+                {/* Model Management Section */}
+                <div className="vsProviderModelSection">
+                  <div className="vsModelManagerHeader">
+                    <h3 className="vsCardSubTitle" style={{ margin: 0 }}>
+                      {t(`模型 (${settings.settingsAvailableModels.length})`, `Models (${settings.settingsAvailableModels.length})`)}
+                    </h3>
+                    <div className="vsModelManagerActions">
+                      <input
+                        className="vsInput vsSearchInput"
+                        value={modelSearch}
+                        onChange={(e) => setModelSearch(e.target.value)}
+                        placeholder={t("搜索模型...", "Search models...")}
+                        style={{ width: 180 }}
+                      />
+                      <button
+                        type="button"
+                        className="vsBtnSecondary vsBtnSmall"
+                        onClick={() => void settings.onFetchModels()}
+                        disabled={settings.settingsFetchingModels || settings.settingsBusy}
+                      >
+                        {settings.settingsFetchingModels ? t("获取中...", "Fetching...") : t("获取", "Fetch")}
+                      </button>
+                    </div>
+                  </div>
+
+                  {settings.settingsAvailableModels.length === 0 ? (
+                    <div className="vsEmptyModels">
+                      <p>
+                        {settings.settingsApiKey
+                          ? t("暂无模型，点击「获取」拉取列表。", "No models yet. Click Fetch to pull the list.")
+                          : t("请先填入 API Key，再点击「获取」。", "Fill API Key first, then click Fetch.")}
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="vsModelsList custom-scrollbar">
+                      {settings.settingsAvailableModels
+                        .filter(m => m.toLowerCase().includes(modelSearch.toLowerCase()))
+                        .map((modelId) => {
+                          const isEnabled = settings.settingsEnabledModels.includes(modelId);
+                          const isDefault = settings.settingsDefaultModel === modelId;
+                          return (
+                            <label key={modelId} className="vsModelRow">
+                              <span className="vsModelRowName" title={modelId}>{modelId}</span>
+                              {isDefault && <span className="vsDefaultBadge">{t("默认", "Default")}</span>}
+                              <input
+                                type="checkbox"
+                                className="vsSwitch vsSwitchSmall"
+                                checked={isEnabled}
+                                onChange={() => settings.onToggleModelEnabled(modelId)}
+                              />
+                            </label>
+                          );
+                        })}
+                    </div>
+                  )}
+
+                  <button
+                    type="button"
+                    className="vsRawModelsToggle"
+                    onClick={() => setShowRawModels(v => !v)}
                   >
-                    {settings.providerOptions.map((item) => (
-                      <option key={item} value={item}>
-                        {item}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="vsField">
-                  <span className="vsFieldLabel">API Base URL</span>
-                  <input
-                    className="vsInput"
-                    value={settings.settingsApiUrl}
-                    onChange={(e) => settings.onApiUrlChange(e.target.value)}
-                    placeholder={t("留空则使用默认地址", "Leave empty to use the default URL")}
-                  />
-                  <span className="vsFieldHint">{t("用于代理后端地址等自定义 Endpoint。", "Use this for a proxy backend or a custom endpoint.")}</span>
-                </label>
+                    {showRawModels
+                      ? t("▾ 收起手动编辑", "▾ Hide raw editor")
+                      : t("▸ 手动编辑可用模型（高级）", "▸ Edit raw models (advanced)")}
+                  </button>
+                  {showRawModels && (
+                    <div style={{ marginTop: 8 }}>
+                      <textarea
+                        className="vsTextarea"
+                        rows={4}
+                        value={settings.settingsAvailableModelsText}
+                        onChange={(e) => settings.onAvailableModelsChange(e.target.value)}
+                        placeholder={"model-a\nmodel-b"}
+                      />
+                    </div>
+                  )}
+                </div>
+
+                {settings.settingsProvider === "Xiaomi" && (
+                  <div className="vsProviderModelSection">
+                    <h3 className="vsCardSubTitle">{t("小米语音合成配置 (Xiaomi TTS Settings)", "Xiaomi TTS Settings")}</h3>
+                    <div className="vsProviderConfigFields">
+                      <label className="vsField">
+                        <span className="vsFieldLabel">Xiaomi API Key</span>
+                        <input
+                          className="vsInput"
+                          type="password"
+                          value={settings.xiaomiApiKey}
+                          onChange={(e) => settings.onXiaomiApiKeyChange(e.target.value)}
+                          placeholder={t("输入小米 API Key (tp-xxxxx 或 sk-xxxxx)", "Enter Xiaomi API Key (tp-xxxxx or sk-xxxxx)")}
+                        />
+                      </label>
+                      <label className="vsField">
+                        <span className="vsFieldLabel">Xiaomi API Base URL</span>
+                        <input
+                          className="vsInput"
+                          value={settings.xiaomiApiUrl}
+                          onChange={(e) => settings.onXiaomiApiUrlChange(e.target.value)}
+                          placeholder="https://api.xiaomimimo.com"
+                        />
+                      </label>
+                    </div>
+                  </div>
+                )}
               </div>
-
-              <div className="vsFormRow">
-                <label className="vsField">
-                  <span className="vsFieldLabel">API Key</span>
-                  <input
-                    className="vsInput"
-                    type="password"
-                    value={settings.settingsApiKey}
-                    onChange={(e) => settings.onApiKeyChange(e.target.value)}
-                    placeholder={t("输入供应商 API Key", "Enter the provider API key")}
-                  />
-                </label>
-
-                <label className="vsField">
-                  <span className="vsFieldLabel">{t("默认主模型", "Default Model")}</span>
-                  <input
-                    className="vsInput"
-                    value={settings.settingsDefaultModel}
-                    onChange={(e) => settings.onDefaultModelChange(e.target.value)}
-                    placeholder={t("例如：qwen-plus / deepseek-chat", "For example: qwen-plus / deepseek-chat")}
-                  />
-                </label>
-              </div>
-
-              <label className="vsField">
-                <span className="vsFieldLabel">{t("可用模型列表（每行一个）", "Available Models (one per line)")}</span>
-                <textarea
-                  className="vsTextarea"
-                  rows={5}
-                  value={settings.settingsAvailableModelsText}
-                  onChange={(e) => settings.onAvailableModelsChange(e.target.value)}
-                  placeholder={"model-a\nmodel-b\nmodel-c"}
-                />
-              </label>
             </div>
           )}
 
           {/* ── Category: Memory ── */}
           {activeCategory === "memory" && (
             <div className="vsSettingsCard">
+              <div className="vsMemoryHero">
+                <EvermindBadge variant="light" className="vsMemoryHeroBadge" />
+                <div className="vsMemoryHeroCopy">
+                  <strong>{t("VoiceSpirit × EverMind", "VoiceSpirit × EverMind")}</strong>
+                  <p>
+                    {t(
+                      "把品牌放在记忆中心最合适，因为这里是用户真正配置、理解并启用 EverMem 的地方；侧边栏则保留一个运行时状态入口。",
+                      "The memory center is the right home for the brand because this is where users actually configure, understand, and enable EverMem; the sidebar keeps a smaller runtime status touchpoint.",
+                    )}
+                  </p>
+                </div>
+              </div>
               <div className="vsCardSection">
                 <label className="vsToggleLabel">
                   <div className="vsToggleInfo">
@@ -382,6 +521,7 @@ export default function SettingsPage({ settings, errorRuntimeContext }: Props) {
                 <label className="vsField">
                   <span className="vsFieldLabel">{t("文件上传模式", "Upload Mode")}</span>
                   <select
+                    data-testid="transcription-upload-mode"
                     className="vsSelect"
                     value={settings.transcriptionUploadMode}
                     onChange={(e) => settings.onTranscriptionUploadModeChange(e.target.value)}
@@ -664,6 +804,90 @@ export default function SettingsPage({ settings, errorRuntimeContext }: Props) {
               </div>
             </div>
           )}
+
+          {activeCategory === "desktop" && (
+            <div className="vsSettingsCard">
+              <div className="vsCardSection">
+                <h3 className="vsCardSubTitle">{t("开源推荐：VibeVoice TTS", "Open Source Pick: VibeVoice TTS")}</h3>
+                <p className="vsFieldHint" style={{ marginTop: 4 }}>
+                  {t(
+                    "微软 2025 年开源的 VibeVoice（MIT 协议）支持几秒参考音频即可克隆声音，最长 90 分钟连续合成，可精确控制时间轴与情感。适合本地部署、无 API 成本的场景。",
+                    "Microsoft's open-source VibeVoice (MIT, 2025) clones voices from a few seconds of reference audio, synthesizes up to 90 minutes of continuous speech with precise timeline and emotion control. Great for on-prem, zero-API-cost deployments."
+                  )}
+                </p>
+                <ul style={{ margin: "12px 0 12px 20px", padding: 0, color: "var(--text)", fontSize: "13px", lineHeight: 1.7 }}>
+                  <li>{t("声音克隆：仅需 3–10 秒参考音频", "Voice cloning: 3–10s reference audio")}</li>
+                  <li>{t("长音频：支持 90 分钟连续合成", "Long-form: up to 90-minute continuous synthesis")}</li>
+                  <li>{t("多说话人：同一段文本可切换音色", "Multi-speaker: switch timbres within one text")}</li>
+                </ul>
+                <div className="vsSystemActions">
+                  <a
+                    className="vsBtnGhost vsBtnSmall"
+                    href="https://github.com/microsoft/VibeVoice"
+                    target="_blank"
+                    rel="noreferrer"
+                    style={{ textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 6 }}
+                  >
+                    {t("访问 GitHub 仓库 ↗", "Visit GitHub repo ↗")}
+                  </a>
+                  <a
+                    className="vsBtnGhost vsBtnSmall"
+                    href="https://microsoft.github.io/VibeVoice/"
+                    target="_blank"
+                    rel="noreferrer"
+                    style={{ textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 6 }}
+                  >
+                    {t("官方项目页 ↗", "Project page ↗")}
+                  </a>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Dynamic Action Footer matching Alma */}
+          <footer className="vsSettingsFormFooter">
+            <div className="vsSettingsFooterStatus">
+              {settings.settingsSaving ? (
+                <span className="status-saving">
+                  <span className="spinner-mini"></span> {t("正在保存更改...", "Saving changes...")}
+                </span>
+              ) : settings.settingsBusy ? (
+                <span className="status-loading">{t("正在加载配置...", "Loading settings...")}</span>
+              ) : settings.settingsInfo ? (
+                <span className="status-saved ok">✓ {settings.settingsInfo}</span>
+              ) : (
+                <span className="status-ready">{t("所有更改已保存", "All changes saved")}</span>
+              )}
+            </div>
+            <div className="vsSettingsFooterActions">
+              <button
+                type="button"
+                className="vsBtnGhost vsFooterReloadBtn"
+                onClick={() => void settings.onReload()}
+                disabled={settings.settingsBusy || settings.settingsSaving}
+                style={{ marginRight: 8, fontSize: "12px" }}
+              >
+                {t("重新加载", "Reload")}
+              </button>
+              {onClose && (
+                <button
+                  type="button"
+                  className="vsBtnSecondary vsFooterCloseBtn"
+                  onClick={onClose}
+                  disabled={settings.settingsSaving || settings.settingsBusy}
+                >
+                  {t("关闭", "Close")}
+                </button>
+              )}
+              <button
+                type="submit"
+                className="vsBtnPrimary vsFooterSaveBtn"
+                disabled={settings.settingsSaving || settings.settingsBusy}
+              >
+                {settings.settingsSaving ? t("保存中...", "Saving...") : t("保存", "Save")}
+              </button>
+            </div>
+          </footer>
 
         </form>
       </section>

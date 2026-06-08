@@ -11,9 +11,9 @@ describe('TtsPage', () => {
                 errorRuntimeContext={{}}
             />
         );
-        expect(screen.getByText('文本转语音工作台')).toBeInTheDocument();
-        expect(screen.getByText('声音引擎配置')).toBeInTheDocument();
-        expect(screen.getByText('合成结果及监视器')).toBeInTheDocument();
+        expect(screen.getByText('文本转语音')).toBeInTheDocument();
+        expect(screen.getByText('TTS 引擎:')).toBeInTheDocument();
+        expect(screen.getByText('完成输入后，点击右下角“生成音频”开始试听')).toBeInTheDocument();
         expect(screen.getByText('生成音频')).toBeInTheDocument();
         expect(screen.getByText('Qwen TTS Flash')).toBeInTheDocument();
     });
@@ -45,7 +45,7 @@ describe('TtsPage', () => {
                 errorRuntimeContext={{}}
             />
         );
-        expect(screen.getByText('暂无成果')).toBeInTheDocument();
+        expect(screen.getByText('完成输入后，点击右下角“生成音频”开始试听')).toBeInTheDocument();
     });
 
     it('wires submit and parameter controls to the tts controller', () => {
@@ -104,7 +104,7 @@ describe('TtsPage', () => {
             />
         );
 
-        fireEvent.click(screen.getByRole('button', { name: /导出 MP3 音频/ }));
+        fireEvent.click(screen.getByRole('button', { name: /导出 MP3/ }));
 
         expect(clickSpy).toHaveBeenCalledTimes(1);
         clickSpy.mockRestore();

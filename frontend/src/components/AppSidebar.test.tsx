@@ -8,12 +8,16 @@ describe('AppSidebar', () => {
         render(
             <AppSidebar
                 activeTab={"chat" as ActiveTab}
+                authLabel="登录账号"
+                authReady={false}
                 chatHistoryItems={[]}
+                onAuthClick={vi.fn()}
                 onTabChange={vi.fn()}
                 onNewChatSession={vi.fn()}
                 onHistorySelect={vi.fn()}
                 onClearHistory={vi.fn()}
                 onDeleteHistoryItem={vi.fn()}
+                onOpenSettings={vi.fn()}
             />
         );
         expect(screen.getByText('VoiceSpirit')).toBeInTheDocument();
@@ -26,12 +30,16 @@ describe('AppSidebar', () => {
         render(
             <AppSidebar
                 activeTab={"translate" as ActiveTab}
+                authLabel="demo@example.com"
+                authReady={true}
                 chatHistoryItems={[{ id: '1', content: '帮我总结今天会议纪要' }]}
+                onAuthClick={vi.fn()}
                 onTabChange={vi.fn()}
                 onNewChatSession={vi.fn()}
                 onHistorySelect={vi.fn()}
                 onClearHistory={vi.fn()}
                 onDeleteHistoryItem={vi.fn()}
+                onOpenSettings={vi.fn()}
             />
         );
 

@@ -30,7 +30,7 @@ class StructuredErrorResponse(BaseModel):
 )
 async def list_voices(
     locale: str | None = Query(default=None, description="Locale prefix, e.g. zh-CN"),
-    engine: str = Query(default="edge", description="TTS engine: edge, qwen_flash, minimax"),
+    engine: str = Query(default="edge", description="TTS engine: edge, qwen_flash, minimax, xiaomi"),
 ) -> dict:
     try:
         voices = await tts_service.list_voices(locale=locale, engine=engine)
@@ -59,16 +59,32 @@ async def speak(
     request: Request,
     text: str = Query(..., min_length=1, max_length=3000),
     voice: str | None = Query(default=None),
+    voice_b: str | None = Query(default=None),
     rate: str = Query(default="+0%"),
-    engine: str = Query(default="edge", description="TTS engine: edge, qwen_flash, minimax"),
+    engine: str = Query(default="edge", description="TTS engine: edge, qwen_flash, minimax, xiaomi"),
 ) -> FileResponse:
+    # Resolve engine parameter if passed as Query object in unit tests
+    if not isinstance(engine, str):
+        engine = "edge"
+
     try:
-        file_path, used_voice, cache_hit = await tts_service.generate_audio(
-            text=text,
-            voice=voice,
-            rate=rate,
-            engine=engine,
-        )
+        if voice_b:
+            file_path = await tts_service.generate_dialogue_audio(
+                text=text,
+                voice_a=voice,
+                voice_b=voice_b,
+                rate=rate,
+                engine=engine,
+            )
+            used_voice = f"{voice} + {voice_b}"
+            cache_hit = False
+        else:
+            file_path, used_voice, cache_hit = await tts_service.generate_audio(
+                text=text,
+                voice=voice,
+                rate=rate,
+                engine=engine,
+            )
     except ValueError as exc:
         raise HTTPException(
             status_code=400,

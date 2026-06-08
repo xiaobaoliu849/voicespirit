@@ -17,6 +17,7 @@ type ProviderModelCatalog = Record<
   {
     defaultModel: string;
     availableModels: string[];
+    enabledModels?: string[];
   }
 >;
 
@@ -117,12 +118,19 @@ function resolveRealtimeModelOptions(
   providerModelCatalog: ProviderModelCatalog
 ): string[] {
   const providerMeta = providerModelCatalog[provider];
-  const configuredModels = Array.isArray(providerMeta?.availableModels)
+  const enabledModels = Array.isArray(providerMeta?.enabledModels)
+    ? providerMeta.enabledModels.map((item) => item.trim()).filter(Boolean)
+    : [];
+  const rawAvailable = Array.isArray(providerMeta?.availableModels)
     ? providerMeta.availableModels.map((item) => item.trim()).filter(Boolean)
     : [];
+
+  const configuredModels = enabledModels.length > 0 ? enabledModels : rawAvailable;
   const realtimeModels = configuredModels.filter((item) => isRealtimeVoiceModel(provider, item));
   const preferredDefault = (providerMeta?.defaultModel || "").trim();
-  const fallbackModel = isRealtimeVoiceModel(provider, preferredDefault)
+  const isPreferredValid = enabledModels.length === 0 || enabledModels.includes(preferredDefault);
+
+  const fallbackModel = (isPreferredValid && isRealtimeVoiceModel(provider, preferredDefault))
     ? preferredDefault
     : resolveRealtimeFallbackModel(provider);
   const ordered = fallbackModel ? [fallbackModel, ...realtimeModels] : realtimeModels;

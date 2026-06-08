@@ -16,7 +16,7 @@ describe('VoiceDesignPage', () => {
                 errorRuntimeContext={{}}
             />
         );
-        expect(screen.getByText('音色设计工作室 (Voice Design)')).toBeInTheDocument();
+        expect(screen.getByText('通过自然语言描述创造专属音色')).toBeInTheDocument();
         expect(screen.getByDisplayValue('test-voice')).toBeInTheDocument();
         expect(screen.getByDisplayValue('en')).toBeInTheDocument();
         expect(screen.getByDisplayValue('A test prompt')).toBeInTheDocument();
