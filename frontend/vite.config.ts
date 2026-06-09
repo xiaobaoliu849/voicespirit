@@ -14,6 +14,13 @@ export default defineConfig({
   define: {
     __APP_VERSION__: JSON.stringify(appVersion)
   },
+  resolve: {
+    alias: {
+      "@lobehub/ui/icons": resolve(__dirname, "src/test/mockLobeUi.ts"),
+      "@lobehub/ui": resolve(__dirname, "src/test/mockLobeUi.ts"),
+      "antd": resolve(__dirname, "src/test/mockLobeUi.ts")
+    }
+  },
   server: {
     port: 5173,
     host: "127.0.0.1"

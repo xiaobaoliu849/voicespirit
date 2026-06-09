@@ -149,18 +149,24 @@ def _job_to_response(job: TranscriptionJob) -> TranscriptionJobResponse:
                 pass
     
     # Use dictionary unpacking to avoid "unexpected keyword" IDE errors if inheritance is broken
+    source_url = job.source_url
+    if not source_url and job.file_path:
+        path = Path(str(job.file_path))
+        if path.is_file():
+            source_url = f"/api/transcription/jobs/{job.job_id}/audio"
+
     data: dict[str, Any] = {
         "job_id": str(job.job_id or ""),
         "remote_job_id": job.remote_job_id,
         "mode": job.mode,
         "status": job.status,
-        "file_name": Path(str(job.file_path)).name,
+        "file_name": job.original_filename or Path(str(job.file_path)).name,
         "created_at": job.created_at,
         "updated_at": job.updated_at,
         "transcript": transcript,
         "has_transcript": has_transcript,
         "transcript_download_url": transcript_download_url,
-        "source_url": job.source_url,
+        "source_url": source_url,
         "error": job.error,
         "memory_saved": bool(job.memory_saved),
     }
@@ -188,26 +194,13 @@ async def _persist_upload(file: UploadFile, target_dir: Path, suffix: str) -> Pa
 async def transcribe_audio(request: Request, file: UploadFile = File(...)) -> TranscriptionSyncResponse:
     suffix = _validate_upload(file)
 
-    # Use delete=False and manual cleanup to be safe on Windows
-    # Explicitly use 'wb' mode for binary upload content
-    tmp_path = ""
     try:
-        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix, mode='wb') as tmp:
-            content = await file.read()
-            tmp.write(content)
-            tmp_path = tmp.name
-    except Exception as exc:
-        raise HTTPException(
-            status_code=500,
-            detail=_error("TRANSCRIPTION_TEMP_FILE_ERROR", f"Failed to save upload: {str(exc)}"),
-        )
-
-    try:
-        transcript = await transcription_service.transcribe_file(tmp_path)
+        upload_path = await _persist_upload(file, transcription_service.jobs_dir / "uploads", suffix)
+        transcript = await transcription_service.transcribe_file(upload_path)
         
-        # New: Persist this as a completed job so it shows up in history and can be reloaded
         job = await transcription_service.create_completed_sync_job(
-            file_name=file.filename or "sync_upload",
+            file_path=str(upload_path),
+            original_filename=file.filename or "sync_upload",
             transcript=transcript
         )
         
@@ -217,7 +210,6 @@ async def transcribe_audio(request: Request, file: UploadFile = File(...)) -> Tr
             source="transcription_sync",
         )
         
-        # If memory was saved, update the job record too
         if memory_saved:
             transcription_service.update_job(job.job_id or "", memory_saved=True)
             
@@ -238,14 +230,6 @@ async def transcribe_audio(request: Request, file: UploadFile = File(...)) -> Tr
             status_code=500,
             detail=_error("TRANSCRIPTION_ERROR", str(exc)),
         ) from exc
-    finally:
-        try:
-            Path(tmp_path).unlink(missing_ok=True)
-        except Exception:
-            pass
-    
-    # Explicit raise as a last resort to satisfy linters about return paths
-    raise HTTPException(status_code=500, detail=_error("TRANSCRIPTION_UNEXPECTED_FLOW", "Unexpected end of function."))
 
 
 @router.post( # type: ignore
@@ -261,7 +245,7 @@ async def create_transcription_job(file: UploadFile = File(...)) -> Transcriptio
 
     try:
         upload_path = await _persist_upload(file, transcription_service.jobs_dir / "uploads", suffix)
-        job = await transcription_service.prepare_long_transcription_job(upload_path)
+        job = await transcription_service.prepare_long_transcription_job(upload_path, file.filename)
         if transcription_service.can_publish_local_async():
             job = transcription_service.publish_local_job_for_async(job.job_id or "")
             job = await transcription_service.submit_long_transcription_job(job.job_id or "")
@@ -464,3 +448,39 @@ async def download_transcription_job_transcript(job_id: str) -> Response:
     )
     response.headers["Content-Disposition"] = f'attachment; filename="{job_id}.txt"'
     return response
+
+
+@router.get( # type: ignore
+    "/jobs/{job_id}/audio",
+    responses={
+        404: {"description": "Audio file not found.", "model": StructuredErrorResponse},
+    },
+)
+async def download_transcription_job_audio(job_id: str):
+    from fastapi.responses import FileResponse # type: ignore
+    job = transcription_service.get_job(job_id)
+    if job is None:
+        raise HTTPException(
+            status_code=404,
+            detail=_error("TRANSCRIPTION_JOB_NOT_FOUND", f"Transcription job not found: {job_id}"),
+        )
+
+    if not job.file_path:
+        raise HTTPException(
+            status_code=404,
+            detail=_error("TRANSCRIPTION_AUDIO_NOT_FOUND", f"Audio path not set for job: {job_id}"),
+        )
+        
+    audio_path = Path(str(job.file_path))
+    if not audio_path.is_file():
+        raise HTTPException(
+            status_code=404,
+            detail=_error("TRANSCRIPTION_AUDIO_NOT_FOUND", f"Audio file not found on disk for job: {job_id}"),
+        )
+
+    filename = job.original_filename or audio_path.name
+    return FileResponse(
+        path=str(audio_path),
+        filename=filename,
+        media_type="audio/mpeg" if str(audio_path).endswith(".mp3") else "audio/wav",
+    )

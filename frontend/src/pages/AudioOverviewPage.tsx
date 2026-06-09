@@ -1,10 +1,9 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import type { UseAudioOverviewResult } from "../hooks/useAudioOverview";
-import PodcastHeader from "../components/podcast/PodcastHeader";
 import PodcastScriptEditor from "../components/podcast/PodcastScriptEditor";
-import PodcastSidebar from "../components/podcast/PodcastSidebar";
 import PodcastSynthBar from "../components/podcast/PodcastSynthBar";
 import PodcastTopicStep from "../components/podcast/PodcastTopicStep";
+import { PodcastCard } from "../components/podcast/PodcastCard";
 import ErrorNotice from "../components/ErrorNotice";
 import { useI18n } from "../i18n";
 import type { ErrorRuntimeContext } from "../types/ui";
@@ -20,192 +19,280 @@ export default function AudioOverviewPage({
 }: Props) {
   const { t } = useI18n();
   
+  // ── View State ──
+  const [viewMode, setViewMode] = useState<"library" | "workspace">("library");
+  const [searchQuery, setSearchQuery] = useState("");
+
+  const hasScript = audioOverview.audioOverviewScriptLines.length > 0;
+  
+  // Auto-switch to workspace when agent run starts or when we have a podcast active
+  useEffect(() => {
+    if (audioOverview.audioOverviewPodcastId || audioOverview.audioAgentRunId) {
+      setViewMode("workspace");
+    }
+  }, [audioOverview.audioOverviewPodcastId, audioOverview.audioAgentRunId]);
+
   // Track manual stepper tab selections.
   const [stageOverride, setStageOverride] = useState<1 | 2 | null>(null);
-  
-  const hasScript = audioOverview.audioOverviewScriptLines.length > 0;
-
-  // Derive active stage synchronously to avoid microtask/rendering lag in tests
   const activeStage = stageOverride !== null ? stageOverride : (hasScript ? 2 : 1);
 
-  // Reset manual override whenever the script state changes (e.g. creating a new draft)
+  // Reset manual override whenever the script state changes
   useEffect(() => {
     setStageOverride(null);
   }, [hasScript]);
 
-  return (
-    <section className="vsMainScrollArea" style={{ background: "var(--bg-secondary)", padding: "24px" }}>
-      <form className="vsPodcastLayout" onSubmit={audioOverview.onGenerateScript} style={{ maxWidth: "1400px", margin: "0 auto", width: "100%" }}>
-        {/* ── Center Pane: Main Workspace ── */}
-        <div className="vsPodcastMain">
-          {/* Header & Stepper Card */}
-          <div className="vsPodcastStepCard" style={{ display: "flex", flexDirection: "column" }}>
-            <div style={{ padding: "20px 24px", borderBottom: "1px solid var(--line)", background: "color-mix(in oklab, var(--bg-card) 60%, transparent)" }}>
-              <header style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <h2 style={{ margin: 0, fontSize: "18px", fontWeight: "700", color: "var(--text)" }}>
-                  {t("播客创作台 (Audio Overview)", "Podcast Overview")}
-                </h2>
-                <div style={{ fontSize: "12px", color: "var(--muted)", background: "var(--surface)", padding: "4px 10px", borderRadius: "12px", border: "1px solid var(--line)" }}>
-                  {audioOverview.audioOverviewPodcastId
-                    ? t(`当前项目: #${audioOverview.audioOverviewPodcastId}`, `Current project: #${audioOverview.audioOverviewPodcastId}`)
-                    : t("新项目", "New project")}
-                </div>
-              </header>
-            </div>
+  // ── Handlers ──
+  const handleNewPodcast = () => {
+    audioOverview.onNewDraft();
+    setViewMode("workspace");
+  };
 
-            <div style={{ padding: "0 24px" }}>
-              <PodcastHeader audioOverview={audioOverview} />
-            </div>
+  const handleOpenPodcast = (id: number) => {
+    // Assuming onLoadPodcast exists, although type might not expose it. 
+    // We cast as any just in case it's not strongly typed in UseAudioOverviewResult.
+    const hook = audioOverview as any;
+    if (hook.onLoadPodcast) {
+      hook.onLoadPodcast(id);
+    }
+    setViewMode("workspace");
+  };
 
-            {/* Stepper Progress Bar */}
-            <div 
-              className="vsPodcastStepper" 
-              style={{ 
-                display: "flex", 
-                gap: "16px", 
-                padding: "20px 24px"
-              }}
-            >
-              <div 
-                className={`vsStepIndicator ${activeStage === 1 ? "active" : ""}`}
-                onClick={() => setStageOverride(1)}
-                style={{
-                  flex: 1,
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "12px",
-                  cursor: "pointer",
-                  padding: "12px 16px",
-                  borderRadius: "12px",
-                  background: activeStage === 1 ? "var(--brand-soft)" : "color-mix(in oklab, var(--surface) 50%, transparent)",
-                  border: activeStage === 1 ? "1px solid var(--brand)" : "1px solid var(--line)",
-                  transition: "all 0.25s ease"
-                }}
-              >
-                <span style={{ 
-                  width: "28px", 
-                  height: "28px", 
-                  borderRadius: "50%", 
-                  background: activeStage === 1 ? "var(--brand)" : "var(--line-strong)", 
-                  color: activeStage === 1 ? "#fff" : "var(--muted)",
-                  display: "flex", 
-                  alignItems: "center", 
-                  justifyContent: "center",
-                  fontSize: "13px",
-                  fontWeight: "bold",
-                  flexShrink: 0
-                }}>1</span>
-                <div>
-                  <div style={{ fontSize: "14px", fontWeight: "700", color: activeStage === 1 ? "var(--brand-dark)" : "var(--text)" }}>
-                    {t("主题与资料", "Topic & Sources")}
-                  </div>
-                  <div style={{ fontSize: "12px", color: "var(--muted)", marginTop: "2px" }}>
-                    {t("配置约束并创作脚本", "Configure and draft script")}
-                  </div>
-                </div>
-              </div>
+  const handleBackToLibrary = () => {
+    setViewMode("library");
+    // Optionally clear active podcast, but let's keep it so user can click back without losing draft.
+  };
 
-              <div 
-                className={`vsStepIndicator ${activeStage === 2 ? "active" : ""} ${!hasScript ? "disabled" : ""}`}
-                onClick={() => hasScript && setStageOverride(2)}
-                style={{
-                  flex: 1,
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "12px",
-                  cursor: hasScript ? "pointer" : "not-allowed",
-                  opacity: hasScript ? 1 : 0.5,
-                  padding: "12px 16px",
-                  borderRadius: "12px",
-                  background: activeStage === 2 ? "var(--brand-soft)" : "color-mix(in oklab, var(--surface) 50%, transparent)",
-                  border: activeStage === 2 ? "1px solid var(--brand)" : "1px solid var(--line)",
-                  transition: "all 0.25s ease"
-                }}
-              >
-                <span style={{ 
-                  width: "28px", 
-                  height: "28px", 
-                  borderRadius: "50%", 
-                  background: activeStage === 2 ? "var(--brand)" : "var(--line-strong)", 
-                  color: activeStage === 2 ? "#fff" : "var(--muted)",
-                  display: "flex", 
-                  alignItems: "center", 
-                  justifyContent: "center",
-                  fontSize: "13px",
-                  fontWeight: "bold",
-                  flexShrink: 0
-                }}>2</span>
-                <div>
-                  <div style={{ fontSize: "14px", fontWeight: "700", color: activeStage === 2 ? "var(--brand-dark)" : "var(--text)" }}>
-                    {t("剧本与配音", "Script & Voice")}
-                  </div>
-                  <div style={{ fontSize: "12px", color: "var(--muted)", marginTop: "2px" }}>
-                    {t("编辑台词并合成音频", "Tweak lines & synthesize")}
-                  </div>
-                </div>
-              </div>
-            </div>
+  // ── Filtered History ──
+  const filteredPodcasts = useMemo(() => {
+    if (!searchQuery.trim()) return audioOverview.audioOverviewPodcasts;
+    const q = searchQuery.toLowerCase();
+    return audioOverview.audioOverviewPodcasts.filter(
+      (p) => p.topic.toLowerCase().includes(q) || String(p.id).includes(q)
+    );
+  }, [audioOverview.audioOverviewPodcasts, searchQuery]);
+
+  // ═══════════════════════════════════════════════════
+  // RENDER: Workspace View (Detail Editor)
+  // ═══════════════════════════════════════════════════
+  if (viewMode === "workspace") {
+    return (
+      <section className="vsTranscribeDetail">
+        {/* Header */}
+        <div className="vsTranscribeDetailHeader">
+          <button
+            className="vsTranscribeBackBtn"
+            onClick={handleBackToLibrary}
+            title={t("返回列表", "Back to list")}
+          >
+            ←
+          </button>
+          <div className="vsTranscribeDetailInfo">
+            <h2 className="vsTranscribeDetailFileName">
+              {audioOverview.audioOverviewPodcastId
+                ? t(`播客 #${audioOverview.audioOverviewPodcastId}: ${audioOverview.audioOverviewTopic || "未命名"}`, `Podcast #${audioOverview.audioOverviewPodcastId}: ${audioOverview.audioOverviewTopic || "Unnamed"}`)
+                : t("新建播客草稿", "New Podcast Draft")}
+            </h2>
           </div>
+          <div className="vsTranscribeDetailActions">
+            <button
+              onClick={audioOverview.onSaveScript}
+              disabled={audioOverview.audioOverviewSaving || audioOverview.audioOverviewBusy}
+              className="vsBtnSecondary vsBtnSmall"
+            >
+              {audioOverview.audioOverviewSaving ? t("保存中...", "Saving...") : t("保存草稿", "Save Draft")}
+            </button>
+            <button
+              onClick={audioOverview.onExportScript}
+              disabled={!hasScript}
+              className="vsBtnSecondary vsBtnSmall"
+            >
+              {t("导出 TXT", "Export TXT")}
+            </button>
+          </div>
+        </div>
 
-          {/* Error notifications and Status panels */}
-            <div>
-              <ErrorNotice
-                message={audioOverview.audioOverviewError}
-                scope="audio_overview"
-                context={{
-                  ...errorRuntimeContext,
-                  provider: audioOverview.audioOverviewProvider,
-                  model: audioOverview.audioOverviewModel,
-                  language: audioOverview.audioOverviewLanguage,
-                  podcast_id: audioOverview.audioOverviewPodcastId,
-                  merge_strategy: audioOverview.audioOverviewMergeStrategy
-                }}
-              />
-              {audioOverview.audioOverviewInfo ? (
-                <p className="vsSettingsNotice ok" style={{ marginBottom: "20px" }}>{audioOverview.audioOverviewInfo}</p>
-              ) : null}
-              {audioOverview.audioAgentRunId !== null ? (
-                <div className="vsPodcastSideCard" style={{ marginBottom: "16px", background: "var(--bg-card)" }}>
-                  <div className="vsPodcastSideHeader">
-                    <h3 style={{ fontSize: "14px" }}>{t("Agent 运行状态", "Agent Run Status")}</h3>
-                    {audioOverview.audioAgentCanRetry ? (
-                      <button
-                        type="button"
-                        className="ghost vsPodcastMiniBtn"
-                        onClick={() => void audioOverview.onRetryAgentRun()}
-                        disabled={audioOverview.audioOverviewBusy || audioOverview.audioOverviewSynthBusy}
-                      >
-                        {t("重试", "Retry")}
-                      </button>
-                    ) : null}
-                  </div>
-                  <p className="muted" style={{ margin: 0, fontSize: "13px" }}>
-                    {t(
-                      `Run #${audioOverview.audioAgentRunId} · 状态 ${audioOverview.audioAgentStatus || "queued"} · 当前步骤 ${audioOverview.audioAgentCurrentStep || "prepare"} · 来源 ${audioOverview.audioAgentSources.length} 条`,
-                      `Run #${audioOverview.audioAgentRunId} · Status ${audioOverview.audioAgentStatus || "queued"} · Step ${audioOverview.audioAgentCurrentStep || "prepare"} · ${audioOverview.audioAgentSources.length} sources`
-                    )}
-                  </p>
-                </div>
-              ) : null}
+        {/* Status / Errors */}
+        <div className="vsPodcastStatusArea">
+          <ErrorNotice
+            message={audioOverview.audioOverviewError}
+            scope="audio_overview"
+            context={{
+              ...errorRuntimeContext,
+              provider: audioOverview.audioOverviewProvider,
+              model: audioOverview.audioOverviewModel,
+              language: audioOverview.audioOverviewLanguage,
+              podcast_id: audioOverview.audioOverviewPodcastId,
+              merge_strategy: audioOverview.audioOverviewMergeStrategy
+            }}
+          />
+          {audioOverview.audioOverviewInfo ? (
+            <p className="vsSettingsNotice ok">
+              {audioOverview.audioOverviewInfo}
+            </p>
+          ) : null}
+          
+          {audioOverview.audioAgentRunId !== null && audioOverview.audioAgentStatus !== "completed" ? (
+            <div className="vsAgentRunningBanner">
+               <div className="spinner vsAgentSpinner" />
+               <span className="vsAgentRunningLabel">
+                 {t(`Agent 执行中: 步骤 ${audioOverview.audioAgentCurrentStep || "prepare"}`, `Agent running: step ${audioOverview.audioAgentCurrentStep || "prepare"}`)}
+               </span>
             </div>
+          ) : null}
 
-            {/* Main Stage Panel Switcher */}
-            <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
-              <div style={{ display: activeStage === 1 ? "block" : "none" }}>
-                <PodcastTopicStep audioOverview={audioOverview} />
-              </div>
-              <div style={{ display: activeStage === 2 ? "block" : "none" }}>
+          {/* Stepper Tabs */}
+          <div className="vsPodcastStepperTabs">
+            <button
+              type="button"
+              className={activeStage === 1 ? "vsBtnPrimary vsStepperBtn" : "vsBtnSecondary vsStepperBtn"}
+              onClick={() => setStageOverride(1)}
+            >
+              1. {t("主题与资料", "Topic & Sources")}
+            </button>
+            <button
+              type="button"
+              className={activeStage === 2 ? "vsBtnPrimary vsStepperBtn" : "vsBtnSecondary vsStepperBtn"}
+              onClick={() => hasScript && setStageOverride(2)}
+              disabled={!hasScript}
+            >
+              2. {t("剧本与配音", "Script & Voice")}
+            </button>
+          </div>
+        </div>
+
+        {/* Content Area */}
+        <div className="vsPodcastContentArea custom-scrollbar">
+          <div className="vsPodcastContentInner">
+            
+            {activeStage === 1 && (
+              <PodcastTopicStep audioOverview={audioOverview} />
+            )}
+
+            {activeStage === 2 && (
+              <>
+                {/* Audio Player (if exists) */}
+                {audioOverview.audioOverviewAudioUrl && (
+                  <div className="vsAudioPlayerCard">
+                    <h3 className="vsAudioPlayerTitle">{t("合成结果", "Synthesis Result")}</h3>
+                    <audio controls src={audioOverview.audioOverviewAudioUrl} className="vsAudioPlayerElement" />
+                  </div>
+                )}
+                
                 <PodcastScriptEditor audioOverview={audioOverview} />
                 <PodcastSynthBar audioOverview={audioOverview} />
-              </div>
-            </div>
+              </>
+            )}
+
+          </div>
+        </div>
+      </section>
+    );
+  }
+
+  // ═══════════════════════════════════════════════════
+  // RENDER: Library / Grid View
+  // ═══════════════════════════════════════════════════
+  return (
+    <section className="vsTranscribeLibrary">
+      {/* Toolbar */}
+      <div className="vsTranscribeToolbar">
+        <div className="vsTranscribeSearchBox">
+          <span className="vsTranscribeSearchIcon">🔍</span>
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder={t("搜索播客记录…", "Search podcasts...")}
+          />
         </div>
 
-        {/* ── Right Pane: Sidebar & Project History ── */}
-        <div className="vsPodcastSide">
-          <PodcastSidebar audioOverview={audioOverview} />
+        <div className="vsTranscribeToolbarActions">
+          <button
+            onClick={() => void audioOverview.onRefreshList()}
+            className="vsBtnGhost vsBtnSmall"
+            title={t("刷新", "Refresh")}
+            disabled={audioOverview.audioOverviewListBusy}
+          >
+            ↻ {audioOverview.audioOverviewListBusy ? t("刷新中...", "Refreshing...") : t("刷新", "Refresh")}
+          </button>
+          <button
+            onClick={handleNewPodcast}
+            className="vsBtnPrimary vsBtnNewPodcast"
+          >
+            ✨ {t("新建播客", "New Podcast")}
+          </button>
         </div>
-      </form>
+      </div>
+
+      {/* Card Grid */}
+      <div className="vsTranscribeGridWrap custom-scrollbar">
+        {audioOverview.audioOverviewListBusy && audioOverview.audioOverviewPodcasts.length === 0 ? (
+          <div className="vsTranscribeEmpty">
+            <div className="vsTranscribeEmptyIcon">
+              <div className="spinner vsLoadingSpinner" />
+            </div>
+            <p className="vsTranscribeEmptyDesc">
+              {t("加载历史记录中…", "Loading podcast history...")}
+            </p>
+          </div>
+        ) : filteredPodcasts.length === 0 ? (
+          <div className="vsTranscribeEmpty">
+            <div className="vsTranscribeEmptyIcon">🎙️</div>
+            <h3 className="vsTranscribeEmptyTitle">
+              {searchQuery
+                ? t("没有匹配的记录", "No matching records")
+                : t("暂无播客记录", "No podcasts yet")}
+            </h3>
+            <p className="vsTranscribeEmptyDesc">
+              {searchQuery
+                ? t("尝试调整搜索条件。", "Try adjusting your search criteria.")
+                : t("点击「新建播客」开始创作你的第一个播客节目。", "Click 'New Podcast' to create your first podcast.")}
+            </p>
+            {!searchQuery && (
+              <button
+                onClick={handleNewPodcast}
+                className="vsBtnPrimary vsBtnNewPodcast"
+              >
+                ✨ {t("新建播客", "New Podcast")}
+              </button>
+            )}
+          </div>
+        ) : (
+          <div className="vsTranscribeGrid">
+            {filteredPodcasts.map((item) => (
+              <PodcastCard
+                key={item.id}
+                item={item}
+                isActive={audioOverview.audioOverviewPodcastId === item.id}
+                onClick={() => handleOpenPodcast(item.id)}
+                onDelete={(e) => {
+                  e.stopPropagation();
+                  if (confirm(t("确定要删除这条播客记录吗？", "Are you sure you want to delete this podcast?"))) {
+                    // Quick way to delete since onDeleteCurrent only deletes active podcast.
+                    // Oh wait, audioOverview.onDeleteCurrent deletes the currently active one.
+                    // Let's set it active first, then delete. Or just use a hook method if available.
+                    const hook = audioOverview as any;
+                    if (hook.onDeletePodcastById) {
+                       hook.onDeletePodcastById(item.id);
+                    } else {
+                       // Workaround: Load it then delete.
+                       handleOpenPodcast(item.id);
+                       setTimeout(() => audioOverview.onDeleteCurrent(), 500);
+                    }
+                  }
+                }}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Global Error */}
+      {audioOverview.audioOverviewError && (
+        <div className="vsPodcastGlobalError">
+          <ErrorNotice message={audioOverview.audioOverviewError} scope="audio_overview" />
+        </div>
+      )}
     </section>
   );
 }

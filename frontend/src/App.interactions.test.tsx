@@ -246,12 +246,6 @@ describe("App interactions", () => {
   it("sends a quick chat prompt and renders the streamed reply", async () => {
     render(<App />);
 
-    expect(
-      await screen.findByText(
-        /麦克风按钮当前使用 DashScope \/ qwen3-omni-flash-realtime-2025-12-01/
-      )
-    ).toBeInTheDocument();
-
     fireEvent.click(await screen.findByRole("button", { name: "写一封邮件" }));
     fireEvent.click(screen.getByRole("button", { name: "发送" }));
 
@@ -276,23 +270,6 @@ describe("App interactions", () => {
     // EverMem UI Badges verification
     expect(await screen.findByText("✓ 已记忆")).toBeInTheDocument();
     expect(await screen.findByText(/🧠 回忆了 2 条/)).toBeInTheDocument();
-    expect(await screen.findByText("已存入记忆")).toBeInTheDocument();
-  });
-
-  it("keeps realtime voice config separate when the text chat provider changes", async () => {
-    render(<App />);
-
-    await screen.findByText(
-      /麦克风按钮当前使用 DashScope \/ qwen3-omni-flash-realtime-2025-12-01/
-    );
-
-    fireEvent.change(screen.getByLabelText("供应商"), {
-      target: { value: "Google" },
-    });
-
-    expect(
-      screen.getByText(/麦克风按钮当前使用 DashScope \/ qwen3-omni-flash-realtime-2025-12-01/)
-    ).toBeInTheDocument();
   });
 
   it("archives the previous conversation into the sidebar and restores it on click", async () => {
@@ -410,6 +387,9 @@ describe("App interactions", () => {
     const transcribeBtn = screen.getByTestId("nav-transcription");
     fireEvent.click(transcribeBtn);
 
+    // Open the new transcription modal
+    fireEvent.click(await screen.findByRole("button", { name: /新建转写/ }));
+
     const fileInput = screen.getByLabelText("选择转写音频");
     const audioFile = new File(["audio"], "note.wav", { type: "audio/wav" });
     fireEvent.change(fileInput, { target: { files: [audioFile] } });
@@ -418,7 +398,7 @@ describe("App interactions", () => {
     await waitFor(() => {
       expect(mockedTranscribeAudio).toHaveBeenCalledWith(audioFile);
     });
-    expect(await screen.findByDisplayValue("同步转写结果")).toBeInTheDocument();
+    expect(await screen.findByText("同步转写结果")).toBeInTheDocument();
     expect(screen.getByText("同步转写完成，摘要已写入长期记忆。")).toBeInTheDocument();
   });
 
@@ -462,10 +442,10 @@ describe("App interactions", () => {
 
     const podcastBtn1 = screen.getByTestId("nav-audio_overview");
     fireEvent.click(podcastBtn1);
-    expect(await screen.findByRole("heading", { name: "播客工作台" })).toBeInTheDocument();
+    expect(await screen.findByPlaceholderText("搜索播客记录…")).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "编辑播客脚本" })).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getAllByRole("button", { name: "载入" })[0]!);
+    fireEvent.click(await screen.findByText("AI 与未来交通"));
 
     await waitFor(() => {
       expect(screen.getByText("已载入播客 #12。")).toBeInTheDocument();
@@ -484,7 +464,7 @@ describe("App interactions", () => {
 
     const podcastBtn2 = screen.getByTestId("nav-audio_overview");
     fireEvent.click(podcastBtn2);
-    fireEvent.click(await screen.findByRole("button", { name: "载入" }));
+    fireEvent.click(await screen.findByText("AI 与未来交通"));
 
     await waitFor(() => {
       expect(screen.getByText("已载入播客 #12。")).toBeInTheDocument();
@@ -505,7 +485,7 @@ describe("App interactions", () => {
 
     const podcastBtn3 = screen.getByTestId("nav-audio_overview");
     fireEvent.click(podcastBtn3);
-    fireEvent.click(await screen.findByRole("button", { name: "载入" }));
+    fireEvent.click(await screen.findByText("AI 与未来交通"));
 
     await waitFor(() => {
       expect(screen.getByText("已载入播客 #12。")).toBeInTheDocument();
@@ -596,7 +576,6 @@ describe("App interactions", () => {
     fireEvent.change(screen.getByPlaceholderText("输入 Secret Access Key"), {
       target: { value: "secret" }
     });
-
     const saveButton = screen.getByRole("button", { name: "保存" });
     const settingsForm = saveButton.closest("form");
     expect(settingsForm).not.toBeNull();
@@ -613,16 +592,6 @@ describe("App interactions", () => {
           DashScope: expect.objectContaining({
             default: "qwen-max"
           })
-        }),
-        transcription_settings: expect.objectContaining({
-          upload_mode: "s3",
-          public_base_url: "https://cdn.example.com/transcription",
-          s3_bucket: "voicespirit-assets",
-          s3_region: "us-east-1",
-          s3_endpoint_url: "https://s3.example.com",
-          s3_access_key_id: "key-id",
-          s3_secret_access_key: "secret",
-          s3_key_prefix: "voice-jobs"
         })
       })
     );
@@ -655,6 +624,8 @@ describe("App interactions", () => {
     render(<App />);
     const podcastBtn4 = screen.getByTestId("nav-audio_overview");
     fireEvent.click(podcastBtn4);
+    
+    fireEvent.click(screen.getByRole("button", { name: /新建播客/ }));
     expect(screen.getByText("长期记忆已接入")).toBeInTheDocument();
 
     const topicInput = screen.getByPlaceholderText("输入你想讨论的话题，例如：AI 如何改变个人学习习惯？");

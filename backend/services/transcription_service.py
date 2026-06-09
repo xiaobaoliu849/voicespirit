@@ -74,6 +74,7 @@ class TranscriptionJob:
     remote_job_id: str | None = None
     source_url: str | None = None
     memory_saved: bool = False
+    original_filename: str | None = None
 
 
 class TranscriptionService:
@@ -145,6 +146,7 @@ class TranscriptionService:
             "remote_job_id": job.remote_job_id,
             "source_url": job.source_url,
             "memory_saved": bool(job.memory_saved),
+            "original_filename": job.original_filename,
         }
         self._job_path(job_id_str).write_text(
             json.dumps(payload, ensure_ascii=False, indent=2),
@@ -170,6 +172,7 @@ class TranscriptionService:
                 remote_job_id=payload.get("remote_job_id"),
                 source_url=payload.get("source_url"),
                 memory_saved=bool(payload.get("memory_saved", False)),
+                original_filename=payload.get("original_filename"),
             )
         except Exception:
             return None
@@ -198,6 +201,7 @@ class TranscriptionService:
                     remote_job_id=payload.get("remote_job_id"),
                     source_url=payload.get("source_url"),
                     memory_saved=bool(payload.get("memory_saved", False)),
+                    original_filename=payload.get("original_filename"),
                 )
             except Exception:
                 continue
@@ -338,7 +342,7 @@ class TranscriptionService:
             raise RuntimeError(f"Qwen ASR returned empty transcript: {response_json}")
         return text
 
-    async def create_completed_sync_job(self, file_name: str, transcript: str) -> TranscriptionJob:
+    async def create_completed_sync_job(self, file_path: str, original_filename: str, transcript: str) -> TranscriptionJob:
         """
         Creates a completed job record for a synchronous transcription result.
         This allows sync jobs to appear in the recent records list and be reloadable.
@@ -355,7 +359,7 @@ class TranscriptionService:
         # Explicit initialization with type ignores
         job = TranscriptionJob(
             job_id=str(job_id), # type: ignore
-            file_path=str(file_name), # type: ignore
+            file_path=str(file_path), # type: ignore
             mode="sync", # type: ignore
             status="completed", # type: ignore
             created_at=str(timestamp), # type: ignore
@@ -368,7 +372,7 @@ class TranscriptionService:
         )
         return self._write_job(job)
 
-    async def prepare_long_transcription_job(self, file_path: str | Path) -> TranscriptionJob:
+    async def prepare_long_transcription_job(self, file_path: str | Path, original_filename: str | None = None) -> TranscriptionJob:
         path = Path(file_path).expanduser().resolve()
         self._validate_file(path)
         timestamp = self._now_iso()
@@ -384,6 +388,7 @@ class TranscriptionService:
             status="queued",
             created_at=timestamp,
             updated_at=timestamp,
+            original_filename=original_filename,
         )
         return self._write_job(job)
 
@@ -395,6 +400,7 @@ class TranscriptionService:
         for i in range(16):
             job_id_part += full_hex[i]
             
+        original_filename = normalized_url.split("/")[-1] if "/" in normalized_url else normalized_url
         job = TranscriptionJob(
             job_id=f"tx_{job_id_part}",
             file_path=normalized_url,
@@ -403,6 +409,7 @@ class TranscriptionService:
             created_at=timestamp,
             updated_at=timestamp,
             source_url=normalized_url,
+            original_filename=original_filename,
         )
         return self._write_job(job)
 

@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { describe, it, expect } from 'vitest';
 import VoiceClonePage from './VoiceClonePage';
 import { createVoiceCloneController } from '../test/factories';
@@ -16,24 +16,36 @@ describe('VoiceClonePage', () => {
                 errorRuntimeContext={{}}
             />
         );
-        expect(screen.getByText('通过上传音频样板复刻特定人声')).toBeInTheDocument();
+        
+        expect(screen.getByText('暂无克隆的音色')).toBeInTheDocument();
+        
+        fireEvent.click(screen.getByRole('button', { name: /克隆新音色/ }));
+
+        expect(screen.getByText(/通过上传音频样板复刻特定人声/)).toBeInTheDocument();
         expect(screen.getByDisplayValue('cloned-voice')).toBeInTheDocument();
         expect(screen.getByText('test-audio.mp3')).toBeInTheDocument();
-        expect(screen.getByText('开始克隆音色')).toBeInTheDocument();
-        expect(screen.getByText('暂无克隆成功的音色。')).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: /开始克隆/ })).toBeInTheDocument();
     });
 
     it('displays error and info messages', () => {
+        const mockFile = new File(['dummy content'], 'test-audio.mp3', { type: 'audio/mpeg' });
         render(
             <VoiceClonePage
                 clone={createVoiceCloneController({
+                    cloneName: 'cloned-voice',
                     cloneError: 'Test error message',
-                    cloneInfo: 'Test info message'
+                    cloneInfo: 'Test info message',
+                    cloneAudioFile: mockFile
                 })}
                 errorRuntimeContext={{}}
             />
         );
+        
+        fireEvent.click(screen.getByRole('button', { name: /克隆新音色/ }));
         expect(screen.getByText('Test info message')).toBeInTheDocument();
+        
+        const form = screen.getByRole('button', { name: /开始克隆/ }).closest('form')!;
+        fireEvent.submit(form);
         expect(screen.getByText('Test error message')).toBeInTheDocument();
     });
 });

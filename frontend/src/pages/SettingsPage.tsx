@@ -1,4 +1,6 @@
-import { useState } from "react";
+import { useState, ReactNode } from "react";
+import { Terminal } from "lucide-react";
+import { ProviderIcon } from "@lobehub/icons";
 import EvermindBadge from "../components/EvermindBadge";
 import ErrorNotice from "../components/ErrorNotice";
 import type { UseSettingsResult } from "../hooks/useSettings";
@@ -8,39 +10,54 @@ import type { ErrorRuntimeContext } from "../types/ui";
 type Props = {
   settings: UseSettingsResult;
   errorRuntimeContext?: ErrorRuntimeContext;
-  onClose?: () => void;
 };
 
 type SettingCategory = "general" | "provider" | "transcription" | "memory" | "desktop";
 
-const providerDisplayNames: Record<string, string> = {
-  DashScope: "阿里云 DashScope",
-  DeepSeek: "DeepSeek 深度求索",
-  Google: "Google Gemini",
-  Groq: "Groq 极速 API",
-  OpenRouter: "OpenRouter 聚合",
-  SiliconFlow: "硅基流动 SiliconFlow",
-  Xiaomi: "小米 mimo"
+const getProviderDisplayNames = (t: (zh: string, en: string) => string): Record<string, string> => ({
+  DashScope: t("阿里云 DashScope", "Alibaba DashScope"),
+  DeepSeek: t("DeepSeek 深度求索", "DeepSeek"),
+  Google: t("Google Gemini", "Google Gemini"),
+  Groq: t("Groq 极速 API", "Groq Fast API"),
+  OpenRouter: t("OpenRouter 聚合", "OpenRouter Aggregator"),
+  SiliconFlow: t("硅基流动 SiliconFlow", "SiliconFlow"),
+  Xiaomi: t("小米 mimo", "Xiaomi mimo")
+});
+
+const getLobeProviderKey = (name: string): string => {
+  const lower = name.toLowerCase();
+  if (lower.includes("dashscope")) return "qwen";
+  if (lower.includes("siliconflow")) return "siliconcloud";
+  if (lower === "xiaomi") return "xiaomimimo";
+  if (lower === "google") return "google";
+  if (lower === "openai") return "openai";
+  if (lower === "anthropic") return "anthropic";
+  if (lower === "deepseek") return "deepseek";
+  if (lower === "nvidia") return "nvidia";
+  if (lower === "groq") return "groq";
+  if (lower === "openrouter") return "openrouter";
+  if (lower === "zenmux") return "zenmux";
+  return lower;
 };
 
-const providerIcons: Record<string, string> = {
-  DashScope: "☁️",
-  DeepSeek: "🔍",
-  Google: "✦",
-  Groq: "⚡",
-  OpenRouter: "🔀",
-  SiliconFlow: "🌊",
-  Xiaomi: "📱"
+const renderProviderIcon = (providerName: string): ReactNode => {
+  if (providerName.includes("(ACP)")) {
+    return <Terminal size={18} />;
+  }
+  const key = getLobeProviderKey(providerName);
+  return <ProviderIcon provider={key} size={18} type="color" />;
 };
 
 
-export default function SettingsPage({ settings, errorRuntimeContext, onClose }: Props) {
+
+export default function SettingsPage({ settings, errorRuntimeContext }: Props) {
   const { t } = useI18n();
   const [activeCategory, setActiveCategory] = useState<SettingCategory>("provider");
   const [modelSearch, setModelSearch] = useState("");
   const [showRawModels, setShowRawModels] = useState(false);
   const [providerSearch, setProviderSearch] = useState("");
   const [showApiKey, setShowApiKey] = useState(false);
+  const providerDisplayNames = getProviderDisplayNames(t);
 
   // Keep the overall form wrapper but conditionally render the body based on nav.
   return (
@@ -195,7 +212,7 @@ export default function SettingsPage({ settings, errorRuntimeContext, onClose }:
                         onClick={() => settings.onProviderChange(providerName)}
                       >
                         <div className="vsProviderSelectorMeta">
-                          <span className="vsProviderItemIcon">{providerIcons[providerName] || "🔗"}</span>
+                          <span className="vsProviderItemIcon">{renderProviderIcon(providerName)}</span>
                           <span className="vsProviderNameText">{providerDisplayNames[providerName] || providerName}</span>
                         </div>
                         <span className={`vsActiveDot ${hasKey ? "" : "inactive"}`} title={hasKey ? t("已配置", "Configured") : t("未配置", "Not configured")} />

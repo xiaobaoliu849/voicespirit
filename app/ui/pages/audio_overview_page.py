@@ -14,7 +14,7 @@ from datetime import datetime
 
 from app.core.audio_overview import AudioOverviewController, AudioOverviewConfig, DialogLine
 from utils.tts_handler import TTS_ENGINE_EDGE, TTS_ENGINE_GEMINI
-from app.ui.styles.design_system import Colors
+from app.ui.styles.design_system import Colors, DarkColors, Typography, Spacing, Radius
 
 
 class AIExplanationPopup(QDialog):
@@ -629,8 +629,8 @@ class AudioPlayerDialog(QDialog):
         """创建脚本行组件"""
         frame = QFrame()
         role = line.get('role', 'A')
-        bg_color = "rgba(25, 118, 210, 0.3)" if role == "A" else "rgba(245, 124, 0, 0.3)"
-        border_color = "#1976d2" if role == "A" else "#f57c00"
+        bg_color = f"rgba({Colors.PRIMARY.replace('#','').replace('rgb(','').replace(')','')}, 0.2)" if role == "A" else f"rgba({Colors.WARNING.replace('#','').replace('rgb(','').replace(')','')}, 0.2)"
+        border_color = Colors.PRIMARY if role == "A" else Colors.WARNING
         
         if is_active:
             frame.setStyleSheet(f"""
@@ -1027,8 +1027,8 @@ class AudioPlayerDialog(QDialog):
             frame = self.line_labels[index]
             line = self.script_lines[index]
             role = line.get('role', 'A')
-            bg_color = "rgba(25, 118, 210, 0.3)" if role == "A" else "rgba(245, 124, 0, 0.3)"
-            border_color = "#1976d2" if role == "A" else "#f57c00"
+            bg_color = f"rgba({Colors.PRIMARY.replace('#','').replace('rgb(','').replace(')','')}, 0.2)" if role == "A" else f"rgba({Colors.WARNING.replace('#','').replace('rgb(','').replace(')','')}, 0.2)"
+            border_color = Colors.PRIMARY if role == "A" else Colors.WARNING
             
             if is_active:
                 frame.setStyleSheet(f"""
@@ -1102,34 +1102,36 @@ class ScriptLineWidget(QFrame):
     
     def _init_ui(self, role: str, text: str):
         self.setFrameShape(QFrame.StyledPanel)
-        # 根据角色设置不同背景色
-        bg_color = "#e3f2fd" if role == "A" else "#fff3e0"
+        # 统一使用 design system 颜色
+        bg_color = f"rgba({Colors.PRIMARY.replace('#','').replace('rgb(','').replace(')','')}, 0.1)" if role == "A" else f"rgba({Colors.WARNING.replace('#','').replace('rgb(','').replace(')','')}, 0.1)"
+        border_color = Colors.PRIMARY if role == "A" else Colors.WARNING
         self.setStyleSheet(f"""
             QFrame {{
                 background-color: {bg_color};
-                border: 1px solid #e0e0e0;
-                border-radius: 6px;
-                padding: 4px;
+                border: 1px solid {Colors.BORDER_LIGHT};
+                border-left: 3px solid {border_color};
+                border-radius: {Radius.MD}px;
+                padding: {Spacing.XS}px;
             }}
         """)
         
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(8, 6, 8, 6)
-        layout.setSpacing(8)
+        layout.setContentsMargins(Spacing.SM, Spacing.SM, Spacing.SM, Spacing.SM)
+        layout.setSpacing(Spacing.SM)
         layout.setAlignment(Qt.AlignTop)
         
-        # 角色标签（简化为标签而不是下拉框）
+        # 角色标签
         role_text = "A" if role == "A" else "B"
         self.role_label = QLabel(role_text)
-        self.role_label.setFixedSize(24, 24)
+        self.role_label.setFixedSize(28, 28)
         self.role_label.setAlignment(Qt.AlignCenter)
         self.role_label.setStyleSheet(f"""
             QLabel {{
-                background-color: {"#1976d2" if role == "A" else "#f57c00"};
+                background-color: {border_color};
                 color: white;
-                border-radius: 12px;
-                font-weight: bold;
-                font-size: 12px;
+                border-radius: 14px;
+                font-weight: {Typography.WEIGHT_BOLD};
+                font-size: {Typography.SIZE_SM}px;
             }}
         """)
         layout.addWidget(self.role_label, 0, Qt.AlignTop)
@@ -1137,23 +1139,24 @@ class ScriptLineWidget(QFrame):
         # 保存角色值
         self._role = role
         
-        # 文本标签 - 自适应高度，完整显示内容，支持选中和AI解释
+        # 文本标签
         self.text_label = QLabel(text)
         self.text_label.setWordWrap(True)
         self.text_label.setTextInteractionFlags(Qt.TextSelectableByMouse | Qt.TextSelectableByKeyboard)
         self.text_label.setCursor(Qt.IBeamCursor)
         self.text_label.setContextMenuPolicy(Qt.CustomContextMenu)
         self.text_label.customContextMenuRequested.connect(self._show_context_menu)
-        self.text_label.setStyleSheet("""
-            QLabel {
-                font-size: 13px;
-                line-height: 1.4;
-                padding: 2px;
-            }
-            QLabel::selection {
+        self.text_label.setStyleSheet(f"""
+            QLabel {{
+                color: {Colors.TEXT_PRIMARY};
+                font-size: {Typography.SIZE_MD}px;
+                line-height: 1.5;
+                padding: 4px;
+            }}
+            QLabel::selection {{
                 background: {Colors.PRIMARY};
                 color: white;
-            }
+            }}
         """)
         layout.addWidget(self.text_label, 1)
         
@@ -1374,212 +1377,283 @@ class AudioOverviewPage(QWidget):
         self._load_voices()
         self._load_latest_podcast()  # 加载最近的播客
     
+    def _primary_btn_style(self):
+        return f"""
+            QPushButton {{
+                background-color: {Colors.PRIMARY};
+                color: {Colors.TEXT_ON_PRIMARY};
+                border: none;
+                border-radius: {Radius.MD}px;
+                font-weight: {Typography.WEIGHT_SEMIBOLD};
+            }}
+            QPushButton:hover {{ background-color: {Colors.PRIMARY_HOVER}; }}
+            QPushButton:disabled {{ background-color: {Colors.GRAY_300}; color: {Colors.GRAY_500}; }}
+        """
+
+    def _secondary_btn_style(self):
+         return f"""
+            QPushButton {{
+                background-color: {Colors.BG_SIDEBAR};
+                color: {Colors.TEXT_PRIMARY};
+                border: 1px solid {Colors.BORDER_DEFAULT};
+                border-radius: {Radius.MD}px;
+                padding: {Spacing.SM}px {Spacing.MD}px;
+            }}
+            QPushButton:hover {{ background-color: {Colors.BG_SIDEBAR_HOVER}; }}
+        """
+
+    def _card_style(self):
+        return f"""
+            QFrame#Card {{
+                background-color: {Colors.BG_SECONDARY};
+                border: 1px solid {Colors.BORDER_LIGHT};
+                border-radius: {Radius.LG}px;
+            }}
+        """
+
     def _init_ui(self):
         main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(20, 20, 20, 20)
-        main_layout.setSpacing(15)
+        main_layout.setContentsMargins(Spacing.XL, Spacing.XL, Spacing.XL, Spacing.XL)
+        main_layout.setSpacing(Spacing.LG)
+        self.setStyleSheet(f"background-color: {Colors.BG_PRIMARY};")
         
         # 标题
-        title = QLabel("🎙️ Audio Overview - 播客式音频生成")
-        title.setFont(QFont("Segoe UI", 18, QFont.Bold))
-        title.setStyleSheet("color: #333;")
+        title = QLabel("🎙️ 播客中心 (Audio Overview)")
+        title.setStyleSheet(f"""
+            font-size: {Typography.SIZE_XL}px;
+            font-weight: {Typography.WEIGHT_BOLD};
+            color: {Colors.TEXT_PRIMARY};
+        """)
         main_layout.addWidget(title)
         
-        # 使用 Splitter 分割左右区域
-        splitter = QSplitter(Qt.Horizontal)
+        # 使用 1:2 的卡片式布局替换 QSplitter
+        content_layout = QHBoxLayout()
+        content_layout.setSpacing(Spacing.LG)
         
-        # ===== 左侧：输入和配置（紧凑布局） =====
-        left_widget = QWidget()
-        left_widget.setMaximumWidth(280)  # 限制最大宽度
-        left_layout = QVBoxLayout(left_widget)
-        left_layout.setContentsMargins(0, 0, 10, 0)
-        left_layout.setSpacing(10)
+        # ===== 左侧：输入和配置卡片 =====
+        left_card = QFrame()
+        left_card.setObjectName("Card")
+        left_card.setStyleSheet(self._card_style())
+        left_card.setMaximumWidth(320)
+        
+        left_layout = QVBoxLayout(left_card)
+        left_layout.setContentsMargins(Spacing.LG, Spacing.LG, Spacing.LG, Spacing.LG)
+        left_layout.setSpacing(Spacing.MD)
         
         # 话题输入
-        topic_group = QGroupBox("话题输入")
-        topic_layout = QVBoxLayout(topic_group)
-        topic_layout.setContentsMargins(8, 8, 8, 8)
+        topic_label = QLabel("话题输入")
+        topic_label.setStyleSheet(f"font-weight: {Typography.WEIGHT_SEMIBOLD}; color: {Colors.TEXT_PRIMARY}; font-size: {Typography.SIZE_MD}px;")
+        left_layout.addWidget(topic_label)
         
         self.topic_input = QTextEdit()
-        self.topic_input.setPlaceholderText("输入话题...")
-        self.topic_input.setMinimumHeight(120)  # 最小高度
-        self.topic_input.setMaximumHeight(200)  # 增加最大高度
-        topic_layout.addWidget(self.topic_input)
+        self.topic_input.setPlaceholderText("请输入您想制作播客的话题、文档或文本内容...")
+        self.topic_input.setMinimumHeight(150)
+        self.topic_input.setStyleSheet(f"""
+            QTextEdit {{
+                background-color: {Colors.BG_PRIMARY};
+                border: 1px solid {Colors.BORDER_DEFAULT};
+                border-radius: {Radius.MD}px;
+                padding: {Spacing.SM}px;
+                font-size: {Typography.SIZE_MD}px;
+                color: {Colors.TEXT_PRIMARY};
+                line-height: 1.5;
+            }}
+        """)
+        left_layout.addWidget(self.topic_input)
         
-        left_layout.addWidget(topic_group)
+        # 分割线
+        sep1 = QFrame()
+        sep1.setFrameShape(QFrame.HLine)
+        sep1.setStyleSheet(f"background-color: {Colors.BORDER_LIGHT};")
+        left_layout.addWidget(sep1)
         
-        # 配置区域 - 紧凑布局
-        config_group = QGroupBox("配置")
-        config_layout = QVBoxLayout(config_group)
-        config_layout.setContentsMargins(8, 8, 8, 8)
-        config_layout.setSpacing(6)
+        # AI配置
+        ai_label = QLabel("AI 创作模型")
+        ai_label.setStyleSheet(f"font-weight: {Typography.WEIGHT_SEMIBOLD}; color: {Colors.TEXT_PRIMARY}; font-size: {Typography.SIZE_MD}px;")
+        left_layout.addWidget(ai_label)
         
-        # AI Provider
-        pm_layout = QVBoxLayout()
-        pm_layout.setSpacing(4)
         self.provider_combo = QComboBox()
         if self.api_client:
             self.provider_combo.addItems(self.api_client.get_available_providers())
         self.provider_combo.currentIndexChanged.connect(self._on_provider_changed)
-        pm_layout.addWidget(self.provider_combo)
+        self.provider_combo.setStyleSheet(f"background: {Colors.BG_PRIMARY}; border: 1px solid {Colors.BORDER_DEFAULT}; border-radius: {Radius.SM}px; padding: 4px; color: {Colors.TEXT_PRIMARY};")
+        left_layout.addWidget(self.provider_combo)
         
         self.model_combo = QComboBox()
-        pm_layout.addWidget(self.model_combo)
-        config_layout.addLayout(pm_layout)
+        self.model_combo.setStyleSheet(f"background: {Colors.BG_PRIMARY}; border: 1px solid {Colors.BORDER_DEFAULT}; border-radius: {Radius.SM}px; padding: 4px; color: {Colors.TEXT_PRIMARY};")
+        left_layout.addWidget(self.model_combo)
         
         # 语言选择
+        lang_label = QLabel("输出语言")
+        lang_label.setStyleSheet(f"color: {Colors.TEXT_SECONDARY}; font-size: {Typography.SIZE_SM}px;")
+        left_layout.addWidget(lang_label)
         self.language_combo = QComboBox()
         self.language_combo.addItems(["中文", "English"])
         self.language_combo.currentIndexChanged.connect(self._on_language_changed)
-        config_layout.addWidget(self.language_combo)
+        self.language_combo.setStyleSheet(f"background: {Colors.BG_PRIMARY}; border: 1px solid {Colors.BORDER_DEFAULT}; border-radius: {Radius.SM}px; padding: 4px; color: {Colors.TEXT_PRIMARY};")
+        left_layout.addWidget(self.language_combo)
         
-        # TTS 引擎选择
-        tts_engine_label = QLabel("🔧 TTS 引擎")
-        tts_engine_label.setStyleSheet("font-weight: bold; color: #333; font-size: 12px;")
-        config_layout.addWidget(tts_engine_label)
-        
-        self.tts_engine_combo = QComboBox()
-        self.tts_engine_combo.setStyleSheet("font-size: 11px;")
-        self.tts_engine_combo.currentIndexChanged.connect(self._on_tts_engine_changed)
-        config_layout.addWidget(self.tts_engine_combo)
+        # 分割线
+        sep2 = QFrame()
+        sep2.setFrameShape(QFrame.HLine)
+        sep2.setStyleSheet(f"background-color: {Colors.BORDER_LIGHT};")
+        left_layout.addWidget(sep2)
         
         # 声音配置
-        voice_label = QLabel("🎤 声音")
-        voice_label.setStyleSheet("font-weight: bold; color: #333; font-size: 12px;")
-        config_layout.addWidget(voice_label)
+        voice_label = QLabel("主播音色配置")
+        voice_label.setStyleSheet(f"font-weight: {Typography.WEIGHT_SEMIBOLD}; color: {Colors.TEXT_PRIMARY}; font-size: {Typography.SIZE_MD}px;")
+        left_layout.addWidget(voice_label)
+        
+        self.tts_engine_combo = QComboBox()
+        self.tts_engine_combo.currentIndexChanged.connect(self._on_tts_engine_changed)
+        self.tts_engine_combo.setStyleSheet(f"background: {Colors.BG_PRIMARY}; border: 1px solid {Colors.BORDER_DEFAULT}; border-radius: {Radius.SM}px; padding: 4px; color: {Colors.TEXT_PRIMARY};")
+        left_layout.addWidget(self.tts_engine_combo)
         
         # 角色A声音
         va_row = QHBoxLayout()
-        va_row.setSpacing(4)
         va_label = QLabel("A")
-        va_label.setFixedSize(18, 18)
-        va_label.setStyleSheet("background: #1976d2; color: white; border-radius: 9px; font-weight: bold; font-size: 10px;")
+        va_label.setFixedSize(24, 24)
+        va_label.setStyleSheet(f"background: {Colors.PRIMARY}; color: white; border-radius: 12px; font-weight: bold;")
         va_label.setAlignment(Qt.AlignCenter)
         va_row.addWidget(va_label)
         self.voice_a_combo = QComboBox()
-        self.voice_a_combo.setStyleSheet("font-size: 11px;")
+        self.voice_a_combo.setStyleSheet(f"background: {Colors.BG_PRIMARY}; border: 1px solid {Colors.BORDER_DEFAULT}; border-radius: {Radius.SM}px; padding: 4px; color: {Colors.TEXT_PRIMARY};")
         va_row.addWidget(self.voice_a_combo, 1)
-        config_layout.addLayout(va_row)
+        left_layout.addLayout(va_row)
         
         # 角色B声音
         vb_row = QHBoxLayout()
-        vb_row.setSpacing(4)
         vb_label = QLabel("B")
-        vb_label.setFixedSize(18, 18)
-        vb_label.setStyleSheet("background: #f57c00; color: white; border-radius: 9px; font-weight: bold; font-size: 10px;")
+        vb_label.setFixedSize(24, 24)
+        vb_label.setStyleSheet(f"background: {Colors.WARNING}; color: white; border-radius: 12px; font-weight: bold;")
         vb_label.setAlignment(Qt.AlignCenter)
         vb_row.addWidget(vb_label)
         self.voice_b_combo = QComboBox()
-        self.voice_b_combo.setStyleSheet("font-size: 11px;")
+        self.voice_b_combo.setStyleSheet(f"background: {Colors.BG_PRIMARY}; border: 1px solid {Colors.BORDER_DEFAULT}; border-radius: {Radius.SM}px; padding: 4px; color: {Colors.TEXT_PRIMARY};")
         vb_row.addWidget(self.voice_b_combo, 1)
-        config_layout.addLayout(vb_row)
+        left_layout.addLayout(vb_row)
         
-        left_layout.addWidget(config_group)
-        
-        # 初始化 provider/model
         self._init_provider_model()
         
-        # 生成脚本按钮 - Claude 主题配色（橙色）
+        left_layout.addStretch()
+        
+        # 生成按钮
         self.generate_btn = QPushButton("🎬 生成对话脚本")
-        self.generate_btn.setFixedHeight(45)
-        self.generate_btn.setProperty("class", "PrimaryBtn")
+        self.generate_btn.setFixedHeight(40)
+        self.generate_btn.setStyleSheet(self._primary_btn_style())
+        self.generate_btn.setCursor(Qt.PointingHandCursor)
         self.generate_btn.clicked.connect(self._on_generate_script)
         left_layout.addWidget(self.generate_btn)
         
-        left_layout.addStretch()
-        splitter.addWidget(left_widget)
+        content_layout.addWidget(left_card, 1)
         
-        # ===== 右侧：脚本编辑和播放 =====
-        right_widget = QWidget()
-        right_layout = QVBoxLayout(right_widget)
-        right_layout.setContentsMargins(10, 0, 0, 0)
+        # ===== 右侧：脚本区卡片 =====
+        right_card = QFrame()
+        right_card.setObjectName("Card")
+        right_card.setStyleSheet(self._card_style())
         
-        # 脚本编辑区域
-        script_group = QGroupBox("对话脚本 (可编辑)")
-        script_layout = QVBoxLayout(script_group)
+        right_layout = QVBoxLayout(right_card)
+        right_layout.setContentsMargins(Spacing.LG, Spacing.LG, Spacing.LG, Spacing.LG)
+        right_layout.setSpacing(Spacing.MD)
         
-        # 脚本列表滚动区域
+        script_header_layout = QHBoxLayout()
+        script_title = QLabel("对话脚本")
+        script_title.setStyleSheet(f"font-weight: {Typography.WEIGHT_BOLD}; color: {Colors.TEXT_PRIMARY}; font-size: {Typography.SIZE_LG}px;")
+        script_header_layout.addWidget(script_title)
+        
+        script_header_layout.addStretch()
+        
+        add_line_btn = QPushButton("+ 添加对话")
+        add_line_btn.setStyleSheet(self._secondary_btn_style())
+        add_line_btn.setCursor(Qt.PointingHandCursor)
+        add_line_btn.clicked.connect(self._add_empty_line)
+        script_header_layout.addWidget(add_line_btn)
+        
+        self.download_script_btn = QPushButton("📄 下载脚本")
+        self.download_script_btn.setStyleSheet(self._secondary_btn_style())
+        self.download_script_btn.setCursor(Qt.PointingHandCursor)
+        self.download_script_btn.setEnabled(False)
+        self.download_script_btn.clicked.connect(self._on_download_script)
+        script_header_layout.addWidget(self.download_script_btn)
+        
+        right_layout.addLayout(script_header_layout)
+        
+        # 脚本滚动区
         self.script_scroll = QScrollArea()
         self.script_scroll.setWidgetResizable(True)
-        self.script_scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
+        self.script_scroll.setStyleSheet(f"""
+            QScrollArea {{ border: none; background: transparent; }}
+            QScrollBar:vertical {{ width: 8px; background: transparent; }}
+            QScrollBar::handle:vertical {{ background: {Colors.GRAY_400}; border-radius: 4px; }}
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0px; }}
+        """)
         
         self.script_container = QWidget()
+        self.script_container.setStyleSheet("background: transparent;")
         self.script_layout = QVBoxLayout(self.script_container)
-        self.script_layout.setSpacing(8)
+        self.script_layout.setSpacing(Spacing.SM)
         self.script_layout.addStretch()
         
         self.script_scroll.setWidget(self.script_container)
-        script_layout.addWidget(self.script_scroll)
+        right_layout.addWidget(self.script_scroll, 1)
         
-        # 脚本操作按钮行
-        script_btn_layout = QHBoxLayout()
-        
-        add_line_btn = QPushButton("+ 添加对话")
-        add_line_btn.clicked.connect(self._add_empty_line)
-        script_btn_layout.addWidget(add_line_btn)
-        
-        # 下载脚本按钮
-        self.download_script_btn = QPushButton("📄 下载脚本")
-        self.download_script_btn.setEnabled(False)
-        self.download_script_btn.clicked.connect(self._on_download_script)
-        script_btn_layout.addWidget(self.download_script_btn)
-        
-        script_layout.addLayout(script_btn_layout)
-        
-        right_layout.addWidget(script_group, 1)
-        
-        # 进度条 - Claude 主题配色
+        # 进度条
         self.progress_bar = QProgressBar()
         self.progress_bar.setVisible(False)
-        self.progress_bar.setStyleSheet("""
-            QProgressBar {
+        self.progress_bar.setStyleSheet(f"""
+            QProgressBar {{
                 border: none;
-                border-radius: 5px;
-                background-color: #e0e0e0;
-                height: 10px;
-            }
-            QProgressBar::chunk {
+                border-radius: {Radius.SM}px;
+                background-color: {Colors.GRAY_200};
+                height: 8px;
+            }}
+            QProgressBar::chunk {{
                 background-color: {Colors.PRIMARY};
-                border-radius: 5px;
-            }
+                border-radius: {Radius.SM}px;
+            }}
         """)
         right_layout.addWidget(self.progress_bar)
         
-        # 状态标签
         self.status_label = QLabel("")
-        self.status_label.setStyleSheet("color: #666;")
+        self.status_label.setStyleSheet(f"color: {Colors.TEXT_SECONDARY}; font-size: {Typography.SIZE_SM}px;")
         right_layout.addWidget(self.status_label)
         
-        # 操作按钮区域
+        # 底部操作栏
         action_layout = QHBoxLayout()
+        action_layout.setSpacing(Spacing.MD)
+        
+        action_layout.addStretch()
         
         self.synthesize_btn = QPushButton("🔊 合成音频")
         self.synthesize_btn.setEnabled(False)
+        self.synthesize_btn.setFixedWidth(140)
         self.synthesize_btn.setFixedHeight(40)
-        self.synthesize_btn.setProperty("class", "PrimaryBtn")
+        self.synthesize_btn.setStyleSheet(self._primary_btn_style())
+        self.synthesize_btn.setCursor(Qt.PointingHandCursor)
         self.synthesize_btn.clicked.connect(self._on_synthesize)
         action_layout.addWidget(self.synthesize_btn)
         
         self.play_btn = QPushButton("▶ 播放")
         self.play_btn.setEnabled(False)
+        self.play_btn.setFixedWidth(100)
         self.play_btn.setFixedHeight(40)
+        self.play_btn.setStyleSheet(self._secondary_btn_style())
+        self.play_btn.setCursor(Qt.PointingHandCursor)
         self.play_btn.clicked.connect(self._on_play)
         action_layout.addWidget(self.play_btn)
         
-        self.save_btn = QPushButton("💾 保存")
+        self.save_btn = QPushButton("💾 保存到播客库")
         self.save_btn.setEnabled(False)
         self.save_btn.setFixedHeight(40)
+        self.save_btn.setStyleSheet(self._secondary_btn_style())
+        self.save_btn.setCursor(Qt.PointingHandCursor)
         self.save_btn.clicked.connect(self._on_save)
         action_layout.addWidget(self.save_btn)
         
         right_layout.addLayout(action_layout)
         
-        splitter.addWidget(right_widget)
-        splitter.setSizes([240, 760])  # 左侧更窄，右侧更宽
-        splitter.setStretchFactor(0, 0)  # 左侧不拉伸
-        splitter.setStretchFactor(1, 1)  # 右侧拉伸
-        
-        main_layout.addWidget(splitter, 1)
+        content_layout.addWidget(right_card, 2)
+        main_layout.addLayout(content_layout, 1)
     
     def _load_voices(self):
         """加载可用声音列表"""

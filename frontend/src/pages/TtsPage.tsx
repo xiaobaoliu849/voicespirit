@@ -15,7 +15,9 @@ export default function TtsPage({ tts, errorRuntimeContext }: Props) {
     const a = document.createElement("a");
     a.href = tts.audioUrl;
     a.download = "voicespirit_tts.mp3";
+    document.body.appendChild(a);
     a.click();
+    document.body.removeChild(a);
   }
 
 
@@ -254,12 +256,12 @@ export default function TtsPage({ tts, errorRuntimeContext }: Props) {
             {tts.ttsMode === "pdf" ? (
               <div style={{ display: "flex", flexDirection: "column", height: "100%", padding: "16px", gap: 12 }}>
                 <div className="vsPdfUploadRow" style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", background: "var(--bg-secondary)", borderRadius: "8px", border: "1px solid var(--line)" }}>
-                  <span style={{ fontSize: "13px", fontWeight: "600", color: "var(--text)" }}>📁 {t("选择 PDF 文件", "Select PDF File")}:</span>
+                  <span style={{ fontSize: "13px", fontWeight: "600", color: "var(--text)", whiteSpace: "nowrap", flexShrink: 0 }}>📁 {t("选择 PDF 文件", "Select PDF File")}:</span>
                   <input
                     type="file"
                     accept="application/pdf"
                     onChange={(e) => tts.onPdfFileChange(e.target.files?.[0] || null)}
-                    style={{ fontSize: "13px", color: "var(--text)" }}
+                    style={{ fontSize: "13px", color: "var(--text)", flex: 1, minWidth: 0 }}
                   />
                 </div>
                 <textarea

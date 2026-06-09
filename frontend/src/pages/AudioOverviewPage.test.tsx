@@ -1,10 +1,10 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { describe, it, expect } from 'vitest';
 import AudioOverviewPage from './AudioOverviewPage';
 import { createAudioOverviewController } from '../test/factories';
 
 describe('AudioOverviewPage', () => {
-    it('renders the podcast architecture appropriately', () => {
+    it('renders the podcast architecture appropriately', async () => {
         render(
             <AudioOverviewPage
                 audioOverview={createAudioOverviewController()}
@@ -13,22 +13,25 @@ describe('AudioOverviewPage', () => {
         );
 
         // Assertions from header
-        expect(screen.getByText('播客工作台')).toBeInTheDocument();
+        expect(await screen.findByText(/播客 #12/)).toBeInTheDocument();
 
-        // Assertions from topic step
-        expect(screen.getByDisplayValue('AI 对个人学习习惯的影响')).toBeInTheDocument();
+        // Switch to Stage 1 to verify topic step
+        fireEvent.click(screen.getByRole('button', { name: /1. 主题与资料/ }));
+        expect(await screen.findByDisplayValue('AI 对个人学习习惯的影响')).toBeInTheDocument();
 
-        // Assertions from script editor
-        expect(screen.getByText('第一段内容')).toBeInTheDocument();
+        // Switch to Stage 2 to verify script editor and synth controls
+        fireEvent.click(screen.getByRole('button', { name: /2. 剧本与配音/ }));
+        expect(await screen.findByText('第一段内容')).toBeInTheDocument();
 
         // Assertions from synth bar
-        expect(screen.getByRole('button', { name: /合成/ })).toBeInTheDocument();
+        expect(await screen.findByRole('button', { name: /合成/ })).toBeInTheDocument();
 
-        // Assertions from sidebar
-        expect(screen.getByText(/播客脚本测试/)).toBeInTheDocument();
+        // Click back button to return to library and verify the podcast list
+        fireEvent.click(screen.getByTitle('返回列表'));
+        expect(await screen.findByText(/播客脚本测试/)).toBeInTheDocument();
     });
 
-    it('displays error and info messages globally', () => {
+    it('displays error and info messages globally', async () => {
         render(
             <AudioOverviewPage
                 audioOverview={createAudioOverviewController({
@@ -38,7 +41,7 @@ describe('AudioOverviewPage', () => {
                 errorRuntimeContext={{}}
             />
         );
-        expect(screen.getByText('Test info message')).toBeInTheDocument();
-        expect(screen.getByText('Test error message')).toBeInTheDocument();
+        expect(await screen.findByText('Test info message')).toBeInTheDocument();
+        expect(await screen.findByText('Test error message')).toBeInTheDocument();
     });
 });

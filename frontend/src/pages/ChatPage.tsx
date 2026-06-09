@@ -62,84 +62,94 @@ function Composer({
 }) {
   const { t } = useI18n();
   const textChatBlocked = Boolean(textChatBlockedReason);
+  const isVoiceActive = voiceChat.voiceChatRecording || voiceChat.voiceChatConnected;
+  const hasInput = chat.chatInput.trim().length > 0;
+  const isRealtime = isVoiceRealtimeModel(chat.chatProvider, chat.chatModel);
+
   return (
     <div className="vsComposer">
-      <textarea
-        rows={1}
-        value={chat.chatInput}
-        onChange={(e) => chat.onInputChange(e.target.value)}
-        placeholder={t("输入问题或指令，Shift+Enter 换行", "Type a question or instruction. Shift+Enter for a new line")}
-        onKeyDown={chat.onComposerKeyDown}
-        disabled={textChatBlocked}
-      />
-      {textChatBlocked ? <div className="vsComposerInlineHint">{textChatBlockedReason}</div> : null}
+      {!isVoiceActive ? (
+        <>
+          <textarea
+            rows={1}
+            value={chat.chatInput}
+            onChange={(e) => chat.onInputChange(e.target.value)}
+            placeholder={t("随便说点什么...一个想法、半句话...", "Say anything... a thought, half a sentence...")}
+            onKeyDown={chat.onComposerKeyDown}
+            disabled={textChatBlocked}
+          />
+          {textChatBlocked ? <div className="vsComposerInlineHint">{textChatBlockedReason}</div> : null}
+        </>
+      ) : (
+        <div className="vsLiveSessionBanner">
+          <div className="vsPulseDot vsPulseDotRed" />
+          <span className="vsLiveSessionLabel">
+            {voiceChat.voiceChatRecording ? t("正在聆听您的声音...", "Listening to your voice...") : t("实时通话连接中...", "Connecting live session...")}
+          </span>
+        </div>
+      )}
+
       <div className="vsComposerToolbar">
         <div className="vsComposerToolbarLeft">
           <button type="button" className="vsToolbarBtn" aria-label={t("附件", "Attachment")}>
             <PaperclipIcon />
           </button>
-          <button
-            type="button"
-            className={`vsToolbarBtn ${voiceChat.voiceChatRecording ? "recording" : ""}`}
-            aria-label={t("语音聊天", "Voice chat")}
-            onClick={() => void voiceChat.onToggleRecording()}
-            disabled={!voiceChat.voiceChatSupported || voiceChat.voiceChatBusy}
+          
+          {/* Alma-style inline dropdowns */}
+          <select
+            className="vsComposerPillSelect"
+            value={chat.chatModel}
+            onChange={(e) => chat.onModelChange(e.target.value)}
+            title={t("切换模型", "Switch model")}
           >
-            {voiceChat.voiceChatRecording ? <StopIcon /> : <MicIcon />}
-          </button>
+            {chat.chatModelOptions.map((item) => (
+              <option key={item} value={item}>{item}</option>
+            ))}
+            {!chat.chatModelOptions.includes(chat.chatModel) && chat.chatModel && (
+              <option value={chat.chatModel}>{chat.chatModel}</option>
+            )}
+          </select>
+
+          {isRealtime && (
+            <select
+              className="vsComposerPillSelect"
+              value={voiceChat.voiceChatVoice}
+              onChange={(e) => voiceChat.onVoiceChange(e.target.value)}
+              disabled={isVoiceActive}
+              title={t("切换音色", "Switch voice")}
+            >
+              {voiceChat.voiceChatVoiceOptions.map((item) => (
+                <option key={item.value} value={item.value}>{item.label}</option>
+              ))}
+            </select>
+          )}
         </div>
+
         <div className="vsComposerToolbarRight">
-          <button
-            type="submit"
-            className="vsSendBtn"
-            disabled={chat.chatBusy || textChatBlocked}
-            aria-label={t("发送", "Send")}
-            title={textChatBlocked ? textChatBlockedReason : t("发送", "Send")}
-          >
-            {chat.chatBusy ? <SpinnerIcon /> : <SendIcon />}
-          </button>
+          {hasInput && !isVoiceActive ? (
+            <button
+              type="submit"
+              className="vsSendBtn"
+              disabled={chat.chatBusy || textChatBlocked}
+              aria-label={t("发送", "Send")}
+              title={textChatBlocked ? textChatBlockedReason : t("发送", "Send")}
+            >
+              {chat.chatBusy ? <SpinnerIcon /> : <SendIcon />}
+            </button>
+          ) : (
+            <button
+              type="button"
+              className={`vsComposerVoiceBtn ${isVoiceActive ? "recording" : ""}`}
+              aria-label={t("语音聊天", "Voice chat")}
+              onClick={() => void voiceChat.onToggleRecording()}
+              disabled={!voiceChat.voiceChatSupported || voiceChat.voiceChatBusy}
+              title={isVoiceActive ? t("结束通话", "End session") : t("开始语音聊天", "Start voice chat")}
+            >
+              {isVoiceActive ? <StopIcon /> : <MicIcon />}
+            </button>
+          )}
         </div>
       </div>
-    </div>
-  );
-}
-
-function VoiceChatRuntimeNotice({
-  voiceChat,
-  errorRuntimeContext,
-}: {
-  voiceChat: UseVoiceChatResult;
-  errorRuntimeContext: ErrorRuntimeContext;
-}) {
-  const { t } = useI18n();
-  const runtimeState = voiceChat.voiceChatConnected || voiceChat.voiceChatRecording
-    ? t("会话中", "In session")
-    : voiceChat.voiceChatBusy
-      ? t("连接中", "Connecting")
-      : t("待机", "Idle");
-
-  return (
-    <div className="vsVoiceRuntimeNotice">
-      <div className="vsVoiceRuntimeRow">
-        <strong className="vsVoiceRuntimeTitle">{t("实时语音", "Realtime voice")}</strong>
-        <span className="vsFieldHint">{runtimeState}</span>
-      </div>
-      <p className="vsVoiceRuntimeMeta">
-        {t(
-          `麦克风按钮当前使用 ${voiceChat.voiceChatProvider} / ${voiceChat.voiceChatModel || "默认实时模型"}`,
-          `Microphone is using ${voiceChat.voiceChatProvider} / ${voiceChat.voiceChatModel || "default realtime model"}`
-        )}
-      </p>
-      <ErrorNotice
-        message={voiceChat.voiceChatError}
-        scope="voice-chat"
-        context={{
-          ...errorRuntimeContext,
-          provider: voiceChat.voiceChatProvider,
-          model: voiceChat.voiceChatModel,
-          voice: voiceChat.voiceChatVoice,
-        }}
-      />
     </div>
   );
 }
@@ -155,17 +165,7 @@ export default function ChatPage({ chat, voiceChat, errorRuntimeContext }: Props
       "The current model is a realtime voice model. Use the microphone to start, or switch to a standard text model before sending."
     )
     : "";
-  const hasSavedMemory = combinedMessages.some((msg) => msg.memorySaved);
-  const latestMemoryActivity = [...combinedMessages]
-    .reverse()
-    .find((msg) => msg.memorySaved || msg.memoriesUsed);
-  const showMemoryChip = Boolean(hasSavedMemory || latestMemoryActivity?.memoriesUsed);
-  const showVoiceRuntimeBar =
-    Boolean(voiceChat.voiceChatProvider) ||
-    voiceChat.voiceChatRecording ||
-    voiceChat.voiceChatConnected ||
-    voiceChat.voiceChatBusy ||
-    Boolean(voiceChat.voiceChatError);
+  
   // Use a variable to track if we should show the welcome/empty state
   // We hide it if there's an active voice session even if message list is empty
   const showWelcome = isEmpty && !voiceChat.voiceChatRecording && !voiceChat.voiceChatConnected;
@@ -173,93 +173,19 @@ export default function ChatPage({ chat, voiceChat, errorRuntimeContext }: Props
 
   return (
     <section className="vsChatWorkspace">
-      {/* ── Topbar ── */}
-      <header className="vsTopbar">
-        <div className="vsTopbarLeft">
-          <label className="vsTopbarField">
-            <span>{t("供应商", "Provider")}</span>
-            <select
-              value={chat.chatProvider}
-              onChange={(e) => chat.onProviderChange(e.target.value)}
-            >
-              {chat.chatProviderOptions.map((item) => (
-                <option key={item} value={item}>
-                  {item}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          {showMemoryChip ? <div className="vsTopbarDivider" /> : null}
-
-          {showMemoryChip ? (
-            <div className="vsChatMemoryChip">
-              {hasSavedMemory ? <span>{t("已存入记忆", "Saved to memory")}</span> : null}
-              {latestMemoryActivity?.memoriesUsed ? (
-                <span>
-                  {hasSavedMemory ? " · " : ""}
-                  {t(
-                    `已回忆 ${latestMemoryActivity.memoriesUsed} 条记忆`,
-                    `Recalled ${latestMemoryActivity.memoriesUsed} memories`
-                  )}
-                </span>
-              ) : null}
-            </div>
-          ) : null}
-
-          <div className="vsTopbarDivider" />
-
-          <label className="vsTopbarField vsTopbarModelField">
-            <span>{t("模型", "Model")}</span>
-            <select
-              value={chat.chatModel}
-              onChange={(e) => chat.onModelChange(e.target.value)}
-            >
-              {chat.chatModelOptions.map((item) => (
-                <option key={item} value={item}>
-                  {item}
-                </option>
-              ))}
-              {!chat.chatModelOptions.includes(chat.chatModel) && chat.chatModel && (
-                <option value={chat.chatModel}>{chat.chatModel}</option>
-              )}
-            </select>
-          </label>
-
-          <div className="vsTopbarDivider" />
-          <label className="vsTopbarVoiceField">
-            <span>{t("音色", "Voice")}</span>
-            <select
-              value={voiceChat.voiceChatVoice}
-              onChange={(e) => voiceChat.onVoiceChange(e.target.value)}
-              disabled={voiceChat.voiceChatRecording || voiceChat.voiceChatConnected}
-            >
-              {voiceChat.voiceChatVoiceOptions.map((item) => (
-                <option key={item.value} value={item.value}>
-                  {item.label}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
-      </header>
-
-      {showVoiceRuntimeBar ? (
-        <div className="vsChatRuntimeBar">
-          <VoiceChatRuntimeNotice
-            voiceChat={voiceChat}
-            errorRuntimeContext={errorRuntimeContext}
-          />
-        </div>
-      ) : null}
-
       {/* ── Body ── */}
       <div className={`vsChatBody ${showWelcome ? "empty" : ""}`}>
         {showWelcome ? (
           /* ═══ EMPTY STATE: centered like Claude/Gemini ═══ */
           <div className="vsChatCentered">
-            <div className="vsWelcome">
-              <h1>VoiceSpirit</h1>
+            <div className="vsWelcomeHero">
+              <div className="vsWelcomeHeroIcon">
+                ✨
+              </div>
+              <div>
+                <h1 className="vsWelcomeHeroTitle">{t("今天聊点什么？", "What shall we chat about today?")}</h1>
+                <p className="vsWelcomeHeroSubtitle">{t("随便说点什么...剩下交给 VoiceSpirit。", "Say anything... leave the rest to VoiceSpirit.")}</p>
+              </div>
             </div>
 
             <form onSubmit={chat.onSubmit} className="vsComposerWrapCentered">
@@ -296,6 +222,20 @@ export default function ChatPage({ chat, voiceChat, errorRuntimeContext }: Props
                 model: chat.chatModel
               }}
             />
+            {voiceChat.voiceChatError && (
+              <div className="vsVoiceChatErrorSection">
+                <h4 className="vsVoiceChatErrorTitle">{t("实时语音", "Realtime Voice")}</h4>
+                <ErrorNotice
+                  message={voiceChat.voiceChatError}
+                  scope="voice_chat"
+                  context={{
+                    ...errorRuntimeContext,
+                    provider: voiceChat.voiceChatProvider,
+                    model: voiceChat.voiceChatModel
+                  }}
+                />
+              </div>
+            )}
           </div>
         ) : (
           /* ═══ MESSAGE LIST ═══ */
@@ -331,7 +271,7 @@ export default function ChatPage({ chat, voiceChat, errorRuntimeContext }: Props
               </div>
             ))}
 
-            {/* ── NEW: Live Streaming Bubbles ── */}
+            {/* ── Live Streaming Bubbles ── */}
             {isVoiceActive && voiceChat.voiceChatTranscript && (
               <div className="bubble user live">
                 <div className="vsBubbleMeta">
@@ -354,12 +294,14 @@ export default function ChatPage({ chat, voiceChat, errorRuntimeContext }: Props
 
       {/* ── Bottom composer (visible when not in welcome mode or when voice active) ── */}
       {(!showWelcome || isVoiceActive) && (
-        <form onSubmit={chat.onSubmit} className="vsComposerWrap">
-          <Composer
-            chat={chat}
-            voiceChat={voiceChat}
-            textChatBlockedReason={textChatBlockedReason}
-          />
+        <div className="vsComposerWrap">
+          <form onSubmit={chat.onSubmit}>
+            <Composer
+              chat={chat}
+              voiceChat={voiceChat}
+              textChatBlockedReason={textChatBlockedReason}
+            />
+          </form>
 
           <p className="vsChatDisclaimer">{t("AI 生成内容可能存在误差，请按需核对关键信息。", "AI-generated content may contain mistakes. Verify important details when needed.")}</p>
           <ErrorNotice
@@ -371,7 +313,21 @@ export default function ChatPage({ chat, voiceChat, errorRuntimeContext }: Props
               model: chat.chatModel
             }}
           />
-        </form>
+          {voiceChat.voiceChatError && (
+            <div className="vsVoiceChatErrorSection">
+              <h4 className="vsVoiceChatErrorTitle">{t("实时语音", "Realtime Voice")}</h4>
+              <ErrorNotice
+                message={voiceChat.voiceChatError}
+                scope="voice_chat"
+                context={{
+                  ...errorRuntimeContext,
+                  provider: voiceChat.voiceChatProvider,
+                  model: voiceChat.voiceChatModel
+                }}
+              />
+            </div>
+          )}
+        </div>
       )}
     </section>
   );

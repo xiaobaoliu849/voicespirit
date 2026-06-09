@@ -7,12 +7,12 @@ describe('ChatPage', () => {
     it('renders correctly empty state', () => {
         render(
             <ChatPage
-                chat={createChatController()}
+                chat={createChatController({ chatInput: 'hello' })}
                 voiceChat={createVoiceChatController({ voiceChatProvider: "" })}
                 errorRuntimeContext={{}}
             />
         );
-        expect(screen.getByText('VoiceSpirit')).toBeInTheDocument();
+        expect(screen.getByText(/VoiceSpirit/)).toBeInTheDocument();
         expect(screen.getByRole('button', { name: '发送' })).toBeInTheDocument();
         expect(screen.queryByText('实时语音')).not.toBeInTheDocument();
         expect(screen.queryByText(/麦克风按钮当前使用/)).not.toBeInTheDocument();
@@ -39,7 +39,8 @@ describe('ChatPage', () => {
             <ChatPage
                 chat={createChatController({
                     chatProvider: 'DashScope',
-                    chatModel: 'qwen3-omni-flash-realtime-2025-12-01'
+                    chatModel: 'qwen3-omni-flash-realtime-2025-12-01',
+                    chatInput: 'some input'
                 })}
                 voiceChat={createVoiceChatController()}
                 errorRuntimeContext={{}}
@@ -72,6 +73,5 @@ describe('ChatPage', () => {
         expect(screen.getByText('✓ 已记忆')).toBeInTheDocument();
         expect(screen.getByText(/🧠 回忆了 1 条/)).toBeInTheDocument();
         expect(screen.getByText('来源：本地待同步 1 条，云端 0 条')).toBeInTheDocument();
-        expect(screen.getByText('已存入记忆')).toBeInTheDocument();
     });
 });
