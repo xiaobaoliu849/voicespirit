@@ -66,7 +66,6 @@ except ImportError:
 logger = logging.getLogger(__name__)
 router = APIRouter()
 transcription_service = TranscriptionService()
-transcription_service = TranscriptionService()
 
 
 class StructuredErrorDetail(BaseModel):
@@ -149,11 +148,15 @@ def _job_to_response(job: TranscriptionJob) -> TranscriptionJobResponse:
                 pass
     
     # Use dictionary unpacking to avoid "unexpected keyword" IDE errors if inheritance is broken
-    source_url = job.source_url
-    if not source_url and job.file_path:
+    # Always prefer the local proxy endpoint when the file exists locally,
+    # so the browser doesn't try to fetch a remote/public URL directly.
+    source_url: str | None = None
+    if job.file_path:
         path = Path(str(job.file_path))
         if path.is_file():
             source_url = f"/api/transcription/jobs/{job.job_id}/audio"
+    if not source_url:
+        source_url = job.source_url
 
     data: dict[str, Any] = {
         "job_id": str(job.job_id or ""),
@@ -482,5 +485,5 @@ async def download_transcription_job_audio(job_id: str):
     return FileResponse(
         path=str(audio_path),
         filename=filename,
-        media_type="audio/mpeg" if str(audio_path).endswith(".mp3") else "audio/wav",
+        media_type=TranscriptionService._guess_mime_type(audio_path),
     )

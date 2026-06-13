@@ -13,6 +13,9 @@ PROVIDER_KEY_MAP = {
     "DashScope": "dashscope_api_key",
     "Google": "google_api_key",
     "Xiaomi": "xiaomi_api_key",
+    "OpenAI": "openai_api_key",
+    "ElevenLabs": "elevenlabs_api_key",
+    "Ollama": "ollama_api_key",
 }
 
 DEFAULT_BASE_URLS = {
@@ -21,7 +24,10 @@ DEFAULT_BASE_URLS = {
     "SiliconFlow": "https://api.siliconflow.cn/v1",
     "Groq": "https://api.groq.com/openai/v1",
     "DashScope": "https://dashscope.aliyuncs.com/compatible-mode/v1",
-    "Xiaomi": "https://token-plan-cn.xiaomimimo.com/compatible-mode/v1",
+    "Xiaomi": "https://token-plan-sgp.xiaomimimo.com/v1",
+    "OpenAI": "https://api.openai.com/v1",
+    "ElevenLabs": "https://api.elevenlabs.io/v1",
+    "Ollama": "http://localhost:11434/v1",
 }
 
 

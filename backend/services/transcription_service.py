@@ -48,6 +48,10 @@ QWEN_ASR_ASYNC_MODEL = "qwen3-asr-flash-filetrans"
 QWEN_COMPATIBLE_CHAT_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
 # Alternate specialized endpoint for direct ASR tasks
 QWEN_ASR_DIRECT_URL = "https://dashscope.aliyuncs.com/api/v1/services/audio/asr/transcription"
+
+# Xiaomi MiMo ASR (OpenAI-compatible)
+MIMO_ASR_MODEL = "mimo-v2.5-asr"
+MIMO_DEFAULT_CHAT_URL = "https://token-plan-sgp.xiaomimimo.com/v1/chat/completions"
 SUPPORTED_AUDIO_SUFFIXES = {
     ".wav",
     ".mp3",
@@ -94,6 +98,17 @@ class TranscriptionService:
         self.config.reload()
         api_keys = self.config.get_all().get("api_keys", {})
         return str(api_keys.get("dashscope_api_key", "")).strip()
+
+    def _xiaomi_key(self) -> str:
+        self.config.reload()
+        api_keys = self.config.get_all().get("api_keys", {})
+        return str(api_keys.get("xiaomi_api_key", "")).strip()
+
+    def _mimo_chat_url(self) -> str:
+        base_url = self.config.get_provider_settings("Xiaomi").get("base_url", "").strip()
+        if not base_url:
+            return MIMO_DEFAULT_CHAT_URL
+        return base_url.rstrip("/") + "/chat/completions"
 
     def _dashscope_async_base_url(self) -> str:
         base_url = self.config.get_provider_settings("DashScope").get("base_url", "").strip()
@@ -264,35 +279,39 @@ class TranscriptionService:
         path = Path(file_path).expanduser().resolve()
         self._validate_file(path)
 
-        api_key = self._dashscope_key()
-        if not api_key:
-            raise ValueError("DashScope API Key missing.")
+        # Try Xiaomi MiMo ASR first, then fall back to DashScope
+        xiaomi_key = self._xiaomi_key()
+        if xiaomi_key:
+            return await self._transcribe_with_openai_asr(
+                path, xiaomi_key, self._mimo_chat_url(), MIMO_ASR_MODEL, "MiMo"
+            )
 
+        dashscope_key = self._dashscope_key()
+        if dashscope_key:
+            return await self._transcribe_with_openai_asr(
+                path, dashscope_key, QWEN_COMPATIBLE_CHAT_URL, QWEN_ASR_SYNC_MODEL, "Qwen"
+            )
+
+        raise ValueError("No ASR API key configured. Set xiaomi_api_key or dashscope_api_key.")
+
+    async def _transcribe_with_openai_asr(
+        self, path: Path, api_key: str, url: str, model: str, provider_name: str
+    ) -> str:
         audio_bytes = path.read_bytes()
-        
-        # Use native DashScope ASR API for better reliability
-        # Endpoint: https://dashscope.aliyuncs.com/api/v1/services/audio/asr/transcription
-        # Note: This is usually async, but we can wait for simple files or use the multimodal chat for sync
-        
-        # For sync transcription of smaller files, use OpenAI-compatible chat endpoint
-        url = QWEN_COMPATIBLE_CHAT_URL
-        
-        headers = {
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json"
-        }
-        
-        # Use base64 for audio content in OpenAI-compatible input_audio format
-        import base64
+
         audio_b64 = base64.b64encode(audio_bytes).decode("utf-8")
         extension = path.suffix.lower().lstrip(".")
         if extension == "mp3":
             mime_type = "audio/mpeg"
         else:
             mime_type = f"audio/{extension}"
-        
+
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        }
         payload = {
-            "model": QWEN_ASR_SYNC_MODEL,
+            "model": model,
             "messages": [
                 {
                     "role": "user",
@@ -301,45 +320,44 @@ class TranscriptionService:
                             "type": "input_audio",
                             "input_audio": {
                                 "data": f"data:{mime_type};base64,{audio_b64}"
-                            }
+                            },
                         }
-                    ]
+                    ],
                 }
             ],
             "modalities": ["text"],
-            "stream": False
+            "stream": False,
         }
 
         async with httpx.AsyncClient(timeout=180.0) as client:
-            response = await client.post(
-                url,
-                headers=headers,
-                json=payload
-            )
+            response = await client.post(url, headers=headers, json=payload)
 
         try:
             response.raise_for_status()
         except httpx.HTTPStatusError as exc:
             detail = exc.response.text.strip()
-            raise RuntimeError(f"Qwen ASR request failed: {detail}") from exc
+            raise RuntimeError(f"{provider_name} ASR request failed: {detail}") from exc
 
         response_json = response.json()
-        
-        # Correctly parse OpenAI-compatible response (choices is at root)
+
         choices = response_json.get("choices", [])
         if choices:
             message = choices[0].get("message", {})
             content = message.get("content", "")
             if isinstance(content, list):
-                text_parts = [item.get("text", "") for item in content if isinstance(item, dict) and "text" in item]
+                text_parts = [
+                    item.get("text", "")
+                    for item in content
+                    if isinstance(item, dict) and "text" in item
+                ]
                 text = "".join(text_parts).strip()
             else:
                 text = str(content).strip()
         else:
             text = ""
-            
+
         if not text:
-            raise RuntimeError(f"Qwen ASR returned empty transcript: {response_json}")
+            raise RuntimeError(f"{provider_name} ASR returned empty transcript: {response_json}")
         return text
 
     async def create_completed_sync_job(self, file_path: str, original_filename: str, transcript: str) -> TranscriptionJob:
