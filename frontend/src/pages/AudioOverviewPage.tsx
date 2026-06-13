@@ -3,6 +3,7 @@ import type { UseAudioOverviewResult } from "../hooks/useAudioOverview";
 import PodcastScriptEditor from "../components/podcast/PodcastScriptEditor";
 import PodcastSynthBar from "../components/podcast/PodcastSynthBar";
 import PodcastTopicStep from "../components/podcast/PodcastTopicStep";
+import PodcastHeader from "../components/podcast/PodcastHeader";
 import { PodcastCard } from "../components/podcast/PodcastCard";
 import ErrorNotice from "../components/ErrorNotice";
 import { useI18n } from "../i18n";
@@ -24,6 +25,10 @@ export default function AudioOverviewPage({
   const [searchQuery, setSearchQuery] = useState("");
 
   const hasScript = audioOverview.audioOverviewScriptLines.length > 0;
+  const headerAudioOverview = {
+    ...audioOverview,
+    currentAudioOverviewLabel: audioOverview.currentAudioOverviewLabel.replace(/^播客 #/, "当前节目 #")
+  };
   
   // Auto-switch to workspace when agent run starts or when we have a podcast active
   useEffect(() => {
@@ -77,6 +82,8 @@ export default function AudioOverviewPage({
   if (viewMode === "workspace") {
     return (
       <section className="vsTranscribeDetail">
+        <PodcastHeader audioOverview={headerAudioOverview} />
+
         {/* Header */}
         <div className="vsTranscribeDetailHeader">
           <button

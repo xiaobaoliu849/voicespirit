@@ -65,6 +65,14 @@ SUPPORTED_MERGE_STRATEGIES = {"auto", "pydub", "ffmpeg", "concat"}
 logger = logging.getLogger(__name__)
 
 
+class ClosingConnection(sqlite3.Connection):
+    def __exit__(self, exc_type: Any, exc: Any, traceback: Any) -> bool:
+        try:
+            return super().__exit__(exc_type, exc, traceback)
+        finally:
+            self.close()
+
+
 class AudioOverviewServiceError(Exception):
     def __init__(self, *, code: str, message: str, meta: dict[str, Any] | None = None):
         super().__init__(message)
@@ -104,7 +112,11 @@ class AudioOverviewService:
         return Path(__file__).resolve().parents[1] / "temp_audio" / "audio_overview"
 
     def _connect(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
+        conn = sqlite3.connect(
+            str(self.db_path),
+            check_same_thread=False,
+            factory=ClosingConnection,
+        )
         conn.row_factory = sqlite3.Row
         return conn
 

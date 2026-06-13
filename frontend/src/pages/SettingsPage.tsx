@@ -10,6 +10,7 @@ import type { ErrorRuntimeContext } from "../types/ui";
 type Props = {
   settings: UseSettingsResult;
   errorRuntimeContext?: ErrorRuntimeContext;
+  onClose?: () => void;
 };
 
 type SettingCategory = "general" | "provider" | "transcription" | "memory" | "desktop";
@@ -50,7 +51,7 @@ const renderProviderIcon = (providerName: string): ReactNode => {
 
 
 
-export default function SettingsPage({ settings, errorRuntimeContext }: Props) {
+export default function SettingsPage({ settings, errorRuntimeContext, onClose }: Props) {
   const { t } = useI18n();
   const [activeCategory, setActiveCategory] = useState<SettingCategory>("provider");
   const [modelSearch, setModelSearch] = useState("");

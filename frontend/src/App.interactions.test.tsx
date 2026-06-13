@@ -194,7 +194,7 @@ describe("App interactions", () => {
       podcasts: [
         {
           id: 12,
-          topic: "播客脚本测试",
+          topic: "AI 与未来交通",
           language: "zh",
           audio_path: "/tmp/podcast.mp3",
           created_at: "2026-03-07T10:00:00Z",
@@ -208,7 +208,7 @@ describe("App interactions", () => {
     });
     mockedGetAudioOverviewPodcast.mockResolvedValue({
       id: 12,
-      topic: "播客脚本测试",
+      topic: "AI 与未来交通",
       language: "zh",
       audio_path: "/tmp/podcast.mp3",
       created_at: "2026-03-07T10:00:00Z",

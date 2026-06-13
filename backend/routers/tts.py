@@ -11,6 +11,20 @@ router = APIRouter()
 tts_service = TTSService()
 
 
+def _normalize_query_optional(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    normalized = value.strip()
+    return normalized or None
+
+
+def _normalize_query_string(value: Any, default: str) -> str:
+    if not isinstance(value, str):
+        return default
+    normalized = value.strip()
+    return normalized or default
+
+
 class StructuredErrorDetail(BaseModel):
     code: str
     message: str
@@ -63,9 +77,12 @@ async def speak(
     rate: str = Query(default="+0%"),
     engine: str = Query(default="edge", description="TTS engine: edge, qwen_flash, minimax, xiaomi"),
 ) -> FileResponse:
-    # Resolve engine parameter if passed as Query object in unit tests
-    if not isinstance(engine, str):
-        engine = "edge"
+    # FastAPI injects concrete values for HTTP requests. Direct route tests pass
+    # Query objects for omitted defaults, so normalize all optional inputs here.
+    voice = _normalize_query_optional(voice)
+    voice_b = _normalize_query_optional(voice_b)
+    rate = _normalize_query_string(rate, "+0%")
+    engine = _normalize_query_string(engine, "edge")
 
     try:
         if voice_b:

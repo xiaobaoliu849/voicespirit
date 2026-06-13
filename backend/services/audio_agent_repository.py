@@ -6,6 +6,14 @@ from pathlib import Path
 from typing import Any
 
 
+class ClosingConnection(sqlite3.Connection):
+    def __exit__(self, exc_type: Any, exc: Any, traceback: Any) -> bool:
+        try:
+            return super().__exit__(exc_type, exc, traceback)
+        finally:
+            self.close()
+
+
 class AudioAgentRepository:
     def __init__(self, db_path: Path | None = None) -> None:
         self.db_path = db_path or self._default_db_path()
@@ -17,7 +25,11 @@ class AudioAgentRepository:
 
     def _connect(self) -> sqlite3.Connection:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
+        conn = sqlite3.connect(
+            str(self.db_path),
+            check_same_thread=False,
+            factory=ClosingConnection,
+        )
         conn.row_factory = sqlite3.Row
         return conn
 

@@ -38,6 +38,13 @@ def _create_s3_client(
     )
 
 
+def _guess_content_type(source_path: Path) -> str:
+    if source_path.suffix.lower() == ".wav":
+        return "audio/x-wav"
+    content_type, _ = mimetypes.guess_type(str(source_path))
+    return content_type or "application/octet-stream"
+
+
 class TranscriptionPublisher:
     def is_enabled(self) -> bool:
         raise NotImplementedError
@@ -126,8 +133,7 @@ class S3TranscriptionPublisher(TranscriptionPublisher):
             aws_access_key_id=self.access_key_id,
             aws_secret_access_key=self.secret_access_key,
         )
-        content_type, _ = mimetypes.guess_type(str(source_path))
-        extra_args = {"ContentType": content_type or "application/octet-stream"}
+        extra_args = {"ContentType": _guess_content_type(source_path)}
         client.upload_file(str(source_path), self.bucket, key, ExtraArgs=extra_args)
         source_url = f"{self.public_base_url}/{key}"
         return PublishedTranscriptionAsset(

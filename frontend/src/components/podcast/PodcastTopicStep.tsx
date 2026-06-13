@@ -1,6 +1,7 @@
 import { PROVIDERS } from "../../appConfig";
 import type { UseAudioOverviewResult } from "../../hooks/useAudioOverview";
 import { useI18n } from "../../i18n";
+import type { MouseEvent } from "react";
 
 type Props = {
   audioOverview: UseAudioOverviewResult;
@@ -8,8 +9,14 @@ type Props = {
 
 export default function PodcastTopicStep({ audioOverview }: Props) {
   const { t } = useI18n();
+  const handleGenerateClick = (event: MouseEvent<HTMLButtonElement>) => {
+    void audioOverview.onGenerateScript(
+      event as unknown as Parameters<typeof audioOverview.onGenerateScript>[0]
+    );
+  };
+
   return (
-    <div className="vsPodcastStepCard">
+    <form className="vsPodcastStepCard" onSubmit={audioOverview.onGenerateScript}>
       <div className="vsPodcastStepHeader">
         <div className="vsPodcastStepTitle">
           <span className="vsStepNum">1</span>
@@ -31,7 +38,8 @@ export default function PodcastTopicStep({ audioOverview }: Props) {
         <div className="vsPodcastStepActions">
           <button
             className="vsGenerateBtn"
-            type="submit"
+            type="button"
+            onClick={handleGenerateClick}
             disabled={audioOverview.audioOverviewBusy}
           >
             {audioOverview.audioOverviewBusy ? t("生成中...", "Generating...") : t("生成脚本", "Generate script")}
@@ -160,6 +168,6 @@ export default function PodcastTopicStep({ audioOverview }: Props) {
           </div>
         ) : null}
       </div>
-    </div>
+    </form>
   );
 }
