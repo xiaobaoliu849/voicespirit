@@ -41,6 +41,25 @@ describe("useVoiceManagement", () => {
     expect(result.current.design.designCanSubmit).toBe(true);
   });
 
+  it("does not auto-fetch custom voices before DashScope API key is configured", () => {
+    const formatErrorMessage = createFormatErrorMessageStub();
+    renderHook(() =>
+      useVoiceManagement({ formatErrorMessage, dashscopeApiKeyConfigured: false })
+    );
+
+    expect(listCustomVoices).not.toHaveBeenCalled();
+  });
+
+  it("auto-fetches custom voices when DashScope API key is configured", () => {
+    const formatErrorMessage = createFormatErrorMessageStub();
+    renderHook(() =>
+      useVoiceManagement({ formatErrorMessage, dashscopeApiKeyConfigured: true })
+    );
+
+    expect(listCustomVoices).toHaveBeenCalledWith("voice_design");
+    expect(listCustomVoices).toHaveBeenCalledWith("voice_clone");
+  });
+
   it("validates clone audio file metadata on selection", () => {
     const formatErrorMessage = createFormatErrorMessageStub();
     const { result } = renderHook(() =>

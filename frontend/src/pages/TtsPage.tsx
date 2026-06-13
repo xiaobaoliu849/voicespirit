@@ -8,16 +8,72 @@ type Props = {
   errorRuntimeContext: ErrorRuntimeContext;
 };
 
+type DesktopSaveAudioResult = {
+  ok?: boolean;
+  cancelled?: boolean;
+  message?: string;
+  path?: string;
+};
+
+type DesktopBridgeWindow = Window & {
+  pywebview?: {
+    api?: {
+      save_audio_file?: (payload: {
+        filename: string;
+        mime_type: string;
+        data_base64: string;
+      }) => Promise<DesktopSaveAudioResult>;
+    };
+  };
+};
+
+function blobToBase64(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const value = typeof reader.result === "string" ? reader.result : "";
+      const [, base64 = ""] = value.split(",", 2);
+      if (!base64) {
+        reject(new Error("Audio export payload is empty."));
+        return;
+      }
+      resolve(base64);
+    };
+    reader.onerror = () => reject(reader.error || new Error("Failed to read audio export payload."));
+    reader.readAsDataURL(blob);
+  });
+}
+
 export default function TtsPage({ tts, errorRuntimeContext }: Props) {
   const { t } = useI18n();
-  function handleDownload() {
+  async function handleDownload() {
     if (!tts.audioUrl) return;
-    const a = document.createElement("a");
-    a.href = tts.audioUrl;
-    a.download = "voicespirit_tts.mp3";
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
+    try {
+      const filename = "voicespirit_tts.mp3";
+      const audioBlob: Blob = tts.audioBlob ?? await fetch(tts.audioUrl).then((response) => response.blob());
+      const desktopSaveAudio = (window as DesktopBridgeWindow).pywebview?.api?.save_audio_file;
+      if (desktopSaveAudio) {
+        const result = await desktopSaveAudio({
+          filename,
+          mime_type: audioBlob.type || "audio/mpeg",
+          data_base64: await blobToBase64(audioBlob)
+        });
+        if (result?.ok || result?.cancelled) {
+          return;
+        }
+        throw new Error(result?.message || "Desktop audio export failed.");
+      }
+
+      const a = document.createElement("a");
+      a.href = tts.audioUrl;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    } catch (error) {
+      console.error("Failed to export TTS audio:", error);
+      window.alert(t("导出 MP3 失败，请重试或在系统菜单中打开音频输出目录。", "Failed to export MP3. Retry or open the audio output folder from the system menu."));
+    }
   }
 
 
@@ -27,6 +83,23 @@ export default function TtsPage({ tts, errorRuntimeContext }: Props) {
       : tts.ttsMode === "pdf"
         ? tts.pdfText.length
         : tts.text.length;
+  const errorNotice = tts.ttsError ? (
+    <div className="vsTtsErrorNotice" role="alert">
+      <ErrorNotice
+        message={tts.ttsError}
+        scope="tts"
+        context={{
+          ...errorRuntimeContext,
+          engine: tts.ttsEngine,
+          engineB: tts.ttsMode === "dialogue" ? tts.ttsEngineB : undefined,
+          mode: tts.ttsMode,
+          voice: tts.voice,
+          voiceB: tts.ttsMode === "dialogue" ? tts.voiceB : undefined,
+          rate: tts.rate
+        }}
+      />
+    </div>
+  ) : null;
 
   return (
     <section className="vsTtsWorkspace vsTtsSingleColumn">
@@ -132,7 +205,7 @@ export default function TtsPage({ tts, errorRuntimeContext }: Props) {
               </div>
             </div>
 
-            {/* Global Settings & Error Row */}
+            {/* Global Settings Row */}
             <div style={{ display: "flex", alignItems: "center", gap: "16px", flexWrap: "wrap", marginTop: "4px", borderTop: "1px dashed var(--line)", paddingTop: "12px" }}>
               <div className="vsTtsToolbarField" style={{ margin: 0 }}>
                 <span className="vsFieldLabel" style={{ fontSize: "13px", fontWeight: "600", color: "#334155" }}>{t("全局语速", "Rate")}:</span>
@@ -153,16 +226,6 @@ export default function TtsPage({ tts, errorRuntimeContext }: Props) {
                   Reset
                 </button>
               </div>
-
-              {tts.ttsError && (
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <ErrorNotice
-                    message={tts.ttsError}
-                    scope="tts"
-                    context={{ ...errorRuntimeContext, voice: tts.voice, voiceB: tts.voiceB, rate: tts.rate }}
-                  />
-                </div>
-              )}
             </div>
           </div>
         ) : (
@@ -221,18 +284,10 @@ export default function TtsPage({ tts, errorRuntimeContext }: Props) {
                 Reset
               </button>
             </div>
-
-            {tts.ttsError && (
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <ErrorNotice
-                  message={tts.ttsError}
-                  scope="tts"
-                  context={{ ...errorRuntimeContext, voice: tts.voice, rate: tts.rate }}
-                />
-              </div>
-            )}
           </div>
         )}
+
+        {errorNotice}
 
         {/* ── Middle Pane: Full-Width Editor Area ── */}
         <div className="vsTtsEditorWrap">

@@ -5,6 +5,8 @@ from __future__ import annotations
 
 import argparse
 import atexit
+import base64
+import binascii
 import hashlib
 import json
 import os
@@ -435,31 +437,23 @@ def write_launch_error_snapshot(err: Exception) -> Path:
 
 
 def attach_window_state_tracking(window: Any, state: dict[str, Any]) -> None:
-    def on_resized(width: int, height: int) -> None:
-        if state["maximized"]:
-            return
-        state["width"] = max(int(width), MIN_WINDOW_WIDTH)
-        state["height"] = max(int(height), MIN_WINDOW_HEIGHT)
-
-    def on_moved(x: int, y: int) -> None:
-        if state["maximized"]:
-            return
-        state["x"] = int(x)
-        state["y"] = int(y)
-
-    def on_maximized() -> None:
-        state["maximized"] = True
-
-    def on_restored() -> None:
-        state["maximized"] = False
-
     def on_closed() -> None:
+        # Avoid live move/resize callbacks; on Windows WebView they can make dragging
+        # feel frozen because every mouse move crosses into Python.
+        for attr, key in (("width", "width"), ("height", "height"), ("x", "x"), ("y", "y")):
+            value = getattr(window, attr, None)
+            if isinstance(value, int):
+                if key == "width":
+                    state[key] = max(value, MIN_WINDOW_WIDTH)
+                elif key == "height":
+                    state[key] = max(value, MIN_WINDOW_HEIGHT)
+                else:
+                    state[key] = value
+        maximized = getattr(window, "maximized", None)
+        if isinstance(maximized, bool):
+            state["maximized"] = maximized
         save_window_state(state)
 
-    window.events.resized += on_resized
-    window.events.moved += on_moved
-    window.events.maximized += on_maximized
-    window.events.restored += on_restored
     window.events.closed += on_closed
 
 
@@ -742,6 +736,67 @@ class DesktopController:
         self.window.destroy()
 
 
+class DesktopJsApi:
+    __slots__ = ("_controller",)
+
+    def __init__(self, controller: DesktopController) -> None:
+        self._controller = controller
+
+    def save_audio_file(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Save an audio blob sent from the web UI through the native file dialog."""
+        if self._controller.window is None or self._controller.webview_module is None:
+            return {"ok": False, "cancelled": False, "message": "Desktop window is not ready."}
+
+        if not isinstance(payload, dict):
+            return {"ok": False, "cancelled": False, "message": "Invalid save payload."}
+
+        raw_name = str(payload.get("filename") or "voicespirit_tts.mp3").strip()
+        suggested_name = Path(raw_name).name or "voicespirit_tts.mp3"
+        if not suggested_name.lower().endswith(".mp3"):
+            suggested_name = f"{suggested_name}.mp3"
+
+        data_base64 = str(payload.get("data_base64") or "").strip()
+        if not data_base64:
+            return {"ok": False, "cancelled": False, "message": "Audio data is empty."}
+
+        try:
+            audio_bytes = base64.b64decode(data_base64, validate=True)
+        except (binascii.Error, ValueError) as exc:
+            return {"ok": False, "cancelled": False, "message": f"Invalid audio data: {exc}"}
+
+        if not audio_bytes:
+            return {"ok": False, "cancelled": False, "message": "Audio data is empty."}
+
+        try:
+            selected = self._controller.window.create_file_dialog(
+                self._controller.webview_module.SAVE_DIALOG,
+                save_filename=suggested_name,
+                file_types=("MP3 Audio (*.mp3)", "All files (*.*)"),
+            )
+        except Exception as exc:
+            return {"ok": False, "cancelled": False, "message": f"Save dialog failed: {exc}"}
+
+        if not selected:
+            return {"ok": False, "cancelled": True, "message": "Save cancelled."}
+
+        if isinstance(selected, (list, tuple)):
+            selected_path = selected[0] if selected else ""
+        else:
+            selected_path = selected
+
+        output_path = Path(str(selected_path))
+        if not output_path.suffix:
+            output_path = output_path.with_suffix(".mp3")
+
+        try:
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            output_path.write_bytes(audio_bytes)
+        except OSError as exc:
+            return {"ok": False, "cancelled": False, "message": f"Failed to write file: {exc}"}
+
+        return {"ok": True, "cancelled": False, "path": str(output_path)}
+
+
 def build_application_menu(
     controller: DesktopController,
     menu_cls: Any,
@@ -853,6 +908,7 @@ def main() -> int:
         maximized=window_state["maximized"],
         min_size=(MIN_WINDOW_WIDTH, MIN_WINDOW_HEIGHT),
         menu=build_application_menu(controller, Menu, MenuAction, MenuSeparator),
+        js_api=DesktopJsApi(controller),
     )
     controller.attach_window(window, webview)
     attach_window_state_tracking(window, window_state)

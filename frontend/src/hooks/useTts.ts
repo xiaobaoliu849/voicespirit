@@ -26,6 +26,7 @@ export default function useTts({ defaultText, formatErrorMessage, language = "zh
   const [voiceB, setVoiceB] = useState("");
   const [rate, setRate] = useState("+0%");
   const [audioUrl, setAudioUrl] = useState("");
+  const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
   const [loadingVoices, setLoadingVoices] = useState(true);
   const [loadingVoicesB, setLoadingVoicesB] = useState(true);
   const [generating, setGenerating] = useState(false);
@@ -167,6 +168,7 @@ export default function useTts({ defaultText, formatErrorMessage, language = "zh
       if (audioUrl.startsWith("blob:")) {
         URL.revokeObjectURL(audioUrl);
       }
+      setAudioBlob(result.blob);
       setAudioUrl(URL.createObjectURL(result.blob));
       if (result.memorySaved) {
         setTtsInfo(t("已将本次语音生成偏好写入长期记忆。", "Saved this voice generation preference into long-term memory."));
@@ -191,6 +193,7 @@ export default function useTts({ defaultText, formatErrorMessage, language = "zh
     if (audioUrl.startsWith("blob:")) {
       URL.revokeObjectURL(audioUrl);
     }
+    setAudioBlob(null);
     setAudioUrl("");
   }
 
@@ -239,6 +242,7 @@ export default function useTts({ defaultText, formatErrorMessage, language = "zh
     voiceB,
     rate,
     audioUrl,
+    audioBlob,
     loadingVoices,
     loadingVoicesB,
     generating,

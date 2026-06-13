@@ -1,9 +1,14 @@
-import { fireEvent, render, screen } from '@testing-library/react';
-import { describe, it, expect, vi } from 'vitest';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { afterEach, describe, it, expect, vi } from 'vitest';
 import TtsPage from './TtsPage';
 import { createTtsController } from '../test/factories';
 
 describe('TtsPage', () => {
+    afterEach(() => {
+        vi.restoreAllMocks();
+        delete (window as any).pywebview;
+    });
+
     it('renders workstation layout', () => {
         render(
             <TtsPage
@@ -46,6 +51,26 @@ describe('TtsPage', () => {
             />
         );
         expect(screen.getByText('完成输入后，点击右下角“生成音频”开始试听')).toBeInTheDocument();
+    });
+
+    it('renders synthesis errors in a full-width notice outside the toolbar', () => {
+        const longError = 'TTS_SPEAK_DEPENDENCY_ERROR: Xiaomi API Key is not configured. (request_id: e9f73aeb9bb04e75b6f5d8efcafefeed)';
+
+        render(
+            <TtsPage
+                tts={createTtsController({
+                    ttsEngine: 'xiaomi',
+                    ttsError: longError
+                })}
+                errorRuntimeContext={{}}
+            />
+        );
+
+        const alert = screen.getByRole('alert');
+        expect(alert).toHaveClass('vsTtsErrorNotice');
+        expect(alert).toHaveTextContent('Xiaomi API Key is not configured.');
+        expect(screen.getByRole('button', { name: '复制请求 ID' })).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: '查看详情' })).toBeInTheDocument();
     });
 
     it('wires submit and parameter controls to the tts controller', () => {
@@ -94,19 +119,57 @@ describe('TtsPage', () => {
         expect(tts.onTtsModeChange).toHaveBeenCalledWith('dialogue');
     });
 
-    it('downloads generated audio through an anchor element', () => {
+    it('downloads generated audio through an anchor element', async () => {
         const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => { });
 
         render(
             <TtsPage
-                tts={createTtsController({ audioUrl: 'blob:test-url' })}
+                tts={createTtsController({
+                    audioUrl: 'blob:test-url',
+                    audioBlob: new Blob(['audio'], { type: 'audio/mpeg' })
+                })}
                 errorRuntimeContext={{}}
             />
         );
 
-        fireEvent.click(screen.getByRole('button', { name: /导出 MP3/ }));
+        await act(async () => {
+            fireEvent.click(screen.getByRole('button', { name: /导出 MP3/ }));
+        });
 
-        expect(clickSpy).toHaveBeenCalledTimes(1);
-        clickSpy.mockRestore();
+        await waitFor(() => expect(clickSpy).toHaveBeenCalledTimes(1));
+    });
+
+    it('uses pywebview bridge for desktop MP3 export', async () => {
+        const saveAudio = vi.fn().mockResolvedValue({ ok: true, path: 'D:\\\\voice.mp3' });
+        (window as any).pywebview = {
+            api: {
+                save_audio_file: saveAudio
+            }
+        };
+        const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => { });
+
+        render(
+            <TtsPage
+                tts={createTtsController({
+                    audioUrl: 'blob:test-url',
+                    audioBlob: new Blob(['audio'], { type: 'audio/mpeg' })
+                })}
+                errorRuntimeContext={{}}
+            />
+        );
+
+        await act(async () => {
+            fireEvent.click(screen.getByRole('button', { name: /导出 MP3/ }));
+        });
+
+        await waitFor(() => expect(saveAudio).toHaveBeenCalledTimes(1));
+        expect(saveAudio).toHaveBeenCalledWith(
+            expect.objectContaining({
+                filename: 'voicespirit_tts.mp3',
+                mime_type: 'audio/mpeg',
+                data_base64: expect.any(String)
+            })
+        );
+        expect(clickSpy).not.toHaveBeenCalled();
     });
 });

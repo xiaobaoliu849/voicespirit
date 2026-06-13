@@ -29,6 +29,18 @@ describe("ErrorNotice", () => {
     expect(screen.getByText("request_id: req_test_001")).toBeInTheDocument();
   });
 
+  it("shows provider configuration hints for missing TTS API keys", () => {
+    render(
+      <ErrorNotice
+        message="TTS_SPEAK_DEPENDENCY_ERROR: Xiaomi API Key is not configured. (request_id: req_tts_001)"
+        scope="tts"
+      />
+    );
+
+    expect(screen.getByText("Open Settings and fill the API Key for the selected TTS provider.")).toBeInTheDocument();
+    expect(screen.getByText("Save settings, then retry synthesis with the same voice.")).toBeInTheDocument();
+  });
+
   it("renders request_id as log link when log url is configured", () => {
     vi.stubEnv("VITE_LOG_SEARCH_BASE_URL", "https://logs.example/search");
     render(<ErrorNotice message={BASE_ERROR} scope="chat" />);

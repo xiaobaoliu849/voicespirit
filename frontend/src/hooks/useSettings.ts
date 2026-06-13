@@ -231,6 +231,10 @@ export default function useSettings({ formatErrorMessage }: Options) {
     settingsDefaultModel,
     settingsProvider
   ]);
+  const dashscopeApiKeyConfigured = useMemo(() => {
+    const apiKeys = settingsData?.api_keys || {};
+    return Boolean(trimOrEmpty(String(apiKeys.dashscope_api_key || "")));
+  }, [settingsData]);
 
   const providerModelCatalog = useMemo<ProviderModelCatalog>(() => {
     if (!settingsData) {
@@ -693,6 +697,7 @@ export default function useSettings({ formatErrorMessage }: Options) {
     displayLanguage,
     errorRuntimeContext,
     providerSection,
+    dashscopeApiKeyConfigured,
     providerModelCatalog,
     memorySection,
     transcriptionSection,

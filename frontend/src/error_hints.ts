@@ -128,6 +128,13 @@ export function parseRequestId(message: string): string {
 }
 
 export function buildErrorHints(message: string): string[] {
+  const text = String(message || "");
+  if (/api\s*key.*(not configured|未配置)/i.test(text)) {
+    return [
+      "Open Settings and fill the API Key for the selected TTS provider.",
+      "Save settings, then retry synthesis with the same voice."
+    ];
+  }
   const code = parseErrorCode(message);
   if (!code) {
     return [];

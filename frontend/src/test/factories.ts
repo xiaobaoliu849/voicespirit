@@ -61,6 +61,7 @@ export function createTtsController(
     voiceB: "zh-CN-YunxiNeural",
     rate: "+0%",
     audioUrl: "",
+    audioBlob: null,
     loadingVoices: false,
     loadingVoicesB: false,
     generating: false,
@@ -222,6 +223,7 @@ export function createSettingsController(
       availableModels: ["qwen-plus", "qwen-max"],
       enabledModels: ["qwen-plus", "qwen-max"]
     },
+    dashscopeApiKeyConfigured: false,
     providerModelCatalog: {
       DashScope: { defaultModel: "qwen-plus", availableModels: ["qwen-plus", "qwen-max"], enabledModels: ["qwen-plus", "qwen-max"] },
       Google: { defaultModel: "gemini-2.5-flash", availableModels: ["gemini-2.5-flash"], enabledModels: ["gemini-2.5-flash"] },

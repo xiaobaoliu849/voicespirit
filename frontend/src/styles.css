@@ -2808,6 +2808,9 @@ button.danger:focus-visible {
 .error {
   color: #cc2b2b;
   font-weight: 600;
+  margin: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .errorMeta {
@@ -2816,6 +2819,7 @@ button.danger:focus-visible {
   align-items: center;
   gap: 8px;
   margin: 8px 0 10px;
+  min-width: 0;
 }
 
 .errorMetaTag {
@@ -2825,6 +2829,9 @@ button.danger:focus-visible {
   padding: 2px 8px;
   color: #842525;
   background: #fff1f1;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .errorMetaTagLink {
@@ -2839,6 +2846,7 @@ button.danger:focus-visible {
 .errorCopyBtn {
   padding: 6px 10px;
   font-size: 12px;
+  white-space: nowrap;
 }
 
 .errorToast {
@@ -4681,6 +4689,7 @@ button.danger:focus-visible {
 .vsTtsToolbar {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 20px;
   padding: 12px 24px;
   background: rgba(255, 251, 245, 0.45);
@@ -4691,12 +4700,33 @@ button.danger:focus-visible {
   display: flex;
   align-items: center;
   gap: 8px;
+  min-width: 0;
 }
 
 .vsTtsToolbarField label {
   font-size: 13px;
   font-weight: 600;
   color: var(--text-secondary);
+}
+
+.vsTtsErrorNotice {
+  margin: 12px 24px 0;
+  padding: 12px 14px;
+  border: 1px solid #f0caca;
+  border-radius: 10px;
+  background: #fff6f3;
+  color: #842525;
+  flex: 0 0 auto;
+  min-width: 0;
+}
+
+.vsTtsErrorNotice .errorMeta {
+  margin-bottom: 0;
+}
+
+.vsTtsErrorNotice .errorHints,
+.vsTtsErrorNotice .errorDetails {
+  margin-top: 10px;
 }
 
 /* Card-style Editor Workspace and Flex-grow properties */

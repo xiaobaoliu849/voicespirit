@@ -180,7 +180,11 @@ export default function App() {
     language: uiLanguage,
   });
   const audioOverview = useAudioOverview({ voices: tts.voices, formatErrorMessage, language: uiLanguage });
-  const voiceManagement = useVoiceManagement({ formatErrorMessage, language: uiLanguage });
+  const voiceManagement = useVoiceManagement({
+    formatErrorMessage,
+    language: uiLanguage,
+    dashscopeApiKeyConfigured: settings.dashscopeApiKeyConfigured,
+  });
   const { errorRuntimeContext } = settings;
 
   const translate = useTranslate({ formatErrorMessage, language: uiLanguage });

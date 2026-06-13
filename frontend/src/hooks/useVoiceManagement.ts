@@ -13,6 +13,7 @@ import type { FormatErrorMessage } from "../utils/errorFormatting";
 type Options = {
   formatErrorMessage: FormatErrorMessage;
   language?: UiLanguage;
+  dashscopeApiKeyConfigured?: boolean;
 };
 
 const CLONE_ACCEPTED_TYPES = [
@@ -40,6 +41,7 @@ function formatBytes(bytes: number) {
 export default function useVoiceManagement({
   formatErrorMessage,
   language = "zh-CN",
+  dashscopeApiKeyConfigured = false,
 }: Options) {
   const t = createInlineTranslator(language);
   const designPromptPresets = [
@@ -94,7 +96,25 @@ export default function useVoiceManagement({
   const [cloneInfo, setCloneInfo] = useState("");
   const [cloneVoices, setCloneVoices] = useState<CustomVoice[]>([]);
 
-  async function refreshCustomVoices(voiceType: VoiceType) {
+  function setMissingDashScopeKeyError(voiceType: VoiceType) {
+    const message = t(
+      "请先在设置中配置 DashScope API Key，再使用音色设计/克隆。",
+      "Configure the DashScope API Key in Settings before using voice design/clone."
+    );
+    if (voiceType === "voice_design") {
+      setDesignError(message);
+    } else {
+      setCloneError(message);
+    }
+  }
+
+  async function refreshCustomVoices(voiceType: VoiceType, options: { silentIfMissingKey?: boolean } = {}) {
+    if (!dashscopeApiKeyConfigured) {
+      if (!options.silentIfMissingKey) {
+        setMissingDashScopeKeyError(voiceType);
+      }
+      return;
+    }
     try {
       if (voiceType === "voice_design") {
         setDesignListBusy(true);
@@ -124,9 +144,9 @@ export default function useVoiceManagement({
   }
 
   useEffect(() => {
-    void refreshCustomVoices("voice_design");
-    void refreshCustomVoices("voice_clone");
-  }, []);
+    void refreshCustomVoices("voice_design", { silentIfMissingKey: true });
+    void refreshCustomVoices("voice_clone", { silentIfMissingKey: true });
+  }, [dashscopeApiKeyConfigured]);
 
   async function onDesignSubmit(event: FormEvent) {
     event.preventDefault();
@@ -142,6 +162,10 @@ export default function useVoiceManagement({
     }
     if (designPreviewText.trim().length < 6) {
       setDesignError(t("请填写足够长的试听文本，方便判断音色效果。", "Enter a longer preview text so the voice quality can be judged."));
+      return;
+    }
+    if (!dashscopeApiKeyConfigured) {
+      setMissingDashScopeKeyError("voice_design");
       return;
     }
     setDesignBusy(true);
@@ -175,6 +199,10 @@ export default function useVoiceManagement({
     }
     if (!cloneAudioFile) {
       setCloneError(t("请先 choose an audio file first.", "Choose an audio file first."));
+      return;
+    }
+    if (!dashscopeApiKeyConfigured) {
+      setMissingDashScopeKeyError("voice_clone");
       return;
     }
     setCloneBusy(true);
