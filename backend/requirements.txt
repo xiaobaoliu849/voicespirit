@@ -5,3 +5,4 @@ httpx>=0.28.1
 python-multipart>=0.0.9
 google-genai>=1.0.0
 dashscope>=1.25.3
+pypdf>=5.0.0

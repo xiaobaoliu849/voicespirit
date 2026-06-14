@@ -25,7 +25,7 @@ except ImportError:
             from config_loader import BackendConfig # type: ignore
             from evermem_config import EverMemConfig # type: ignore
 
-SUPPORTED_PROVIDERS = {"DeepSeek", "OpenRouter", "SiliconFlow", "Groq", "DashScope"}
+SUPPORTED_PROVIDERS = {"DeepSeek", "OpenRouter", "SiliconFlow", "Groq", "DashScope", "Ollama"}
 
 
 class LLMService:
@@ -113,12 +113,20 @@ class LLMService:
 
     def _resolve_settings(self, provider: str, model: str | None) -> dict[str, str]:
         self.config.reload()
-        if provider not in SUPPORTED_PROVIDERS:
+        
+        # Check if custom provider
+        custom_providers = self.config.get_all().get("custom_providers", [])
+        is_custom = any(p.get("id") == provider for p in custom_providers if isinstance(p, dict))
+        
+        if provider not in SUPPORTED_PROVIDERS and not is_custom:
             raise ValueError(f"Unsupported provider: {provider}")
 
         settings = self.config.get_provider_settings(provider, model=model)
         if not settings["api_key"]:
-            raise ValueError(f"Missing API key for provider: {provider}")
+            if provider == "Ollama":
+                settings["api_key"] = "ollama"
+            else:
+                raise ValueError(f"Missing API key for provider: {provider}")
         if not settings["base_url"]:
             raise ValueError(f"Missing base URL for provider: {provider}")
         if not settings["model"]:
@@ -189,11 +197,22 @@ class LLMService:
             "model": settings["model"],
             "messages": normalized_messages,
             "temperature": float(temperature),
-            "max_tokens": int(max_tokens),
             "stream": False,
         }
+        if settings.get("use_max_completion_tokens") == "True":
+            payload["max_completion_tokens"] = int(max_tokens)
+        else:
+            payload["max_tokens"] = int(max_tokens)
 
         headers = self._build_headers(provider, settings["api_key"])
+        custom_headers_str = settings.get("custom_headers")
+        if custom_headers_str:
+            try:
+                custom_headers = json.loads(custom_headers_str)
+                if isinstance(custom_headers, dict):
+                    headers.update({str(k): str(v) for k, v in custom_headers.items()})
+            except Exception:
+                pass
 
         try:
             async with httpx.AsyncClient(timeout=90.0) as client:
@@ -319,10 +338,22 @@ class LLMService:
             "model": settings["model"],
             "messages": normalized_messages,
             "temperature": float(temperature),
-            "max_tokens": int(max_tokens),
             "stream": True,
         }
+        if settings.get("use_max_completion_tokens") == "True":
+            payload["max_completion_tokens"] = int(max_tokens)
+        else:
+            payload["max_tokens"] = int(max_tokens)
+
         headers = self._build_headers(provider, settings["api_key"])
+        custom_headers_str = settings.get("custom_headers")
+        if custom_headers_str:
+            try:
+                custom_headers = json.loads(custom_headers_str)
+                if isinstance(custom_headers, dict):
+                    headers.update({str(k): str(v) for k, v in custom_headers.items()})
+            except Exception:
+                pass
 
         yield {"type": "meta", "provider": provider, "model": settings["model"]}
         chunks: list[str] = []

@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as api from "../api";
+import { API_BASE_URL } from "../api";
 import { TranscriptionPage } from "./TranscriptionPage";
 
 vi.mock("../api", async () => {
@@ -60,11 +61,48 @@ describe("TranscriptionPage", () => {
     fireEvent.change(fileInput, { target: { files: [audioFile] } });
     fireEvent.click(screen.getByRole("button", { name: "开始同步转写" }));
 
-    expect(mockedTranscribeAudio).toHaveBeenCalledWith(audioFile);
+    expect(mockedTranscribeAudio.mock.calls[0][0]).toBe(audioFile);
 
     // After transcription, we enter detail view — transcript is shown as text content
     expect(await screen.findByText("同步转写结果")).toBeInTheDocument();
     expect(screen.getByText("已入记忆")).toBeInTheDocument();
+  });
+
+  it("resolves relative transcription audio URLs against the backend API origin", async () => {
+    mockedTranscribeAudio.mockResolvedValueOnce({
+      transcript: "同步转写结果",
+      job_id: "tx_sync_audio_001",
+      memory_saved: true
+    });
+    mockedFetchTranscriptionJob.mockResolvedValueOnce({
+      job_id: "tx_sync_audio_001",
+      mode: "sync",
+      status: "completed",
+      file_name: "note.wav",
+      transcript: "同步转写结果",
+      has_transcript: true,
+      source_url: "/api/transcription/jobs/tx_sync_audio_001/audio",
+      memory_saved: true
+    });
+
+    render(<TranscriptionPage />);
+
+    fireEvent.click(screen.getByRole("button", { name: /新建转写/ }));
+
+    const fileInput = screen.getByLabelText("选择转写音频");
+    const audioFile = new File(["audio"], "note.wav", { type: "audio/wav" });
+    fireEvent.change(fileInput, { target: { files: [audioFile] } });
+    fireEvent.click(screen.getByRole("button", { name: "开始同步转写" }));
+
+    const audio = await screen.findByLabelText("转写音频播放器");
+
+    expect(mockedFetchTranscriptionJob).toHaveBeenCalledWith("tx_sync_audio_001", {
+      refresh: false
+    });
+    expect(audio).toHaveAttribute(
+      "src",
+      `${API_BASE_URL}/api/transcription/jobs/tx_sync_audio_001/audio`
+    );
   });
 
   it("polls a remote async transcription job until completion", async () => {

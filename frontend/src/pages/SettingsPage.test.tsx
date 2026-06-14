@@ -15,19 +15,19 @@ describe("SettingsPage", () => {
   it("switches between provider, memory, transcription, and desktop categories", () => {
     render(<SettingsPage settings={createSettingsController()} errorRuntimeContext={{}} />);
 
-    fireEvent.click(screen.getByRole("button", { name: /AI 供应商/i }));
+    fireEvent.click(screen.getByRole("button", { name: /提供商/i }));
     expect(screen.getByPlaceholderText("搜索供应商...")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: /记忆中心/i }));
+    fireEvent.click(screen.getByRole("button", { name: /记忆/i }));
     expect(screen.getByText("EverMem 长期记忆中心")).toBeInTheDocument();
     expect(screen.getByText("启用长期记忆支持")).toBeInTheDocument();
     expect(screen.getByText("VoiceSpirit × EverMind")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: /文件转写/i }));
+    fireEvent.click(screen.getByRole("button", { name: /转写/i }));
     expect(screen.getByText("文件转写与上传配置")).toBeInTheDocument();
     expect(screen.getByText("文件上传模式")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: /系统与运行时/i }));
+    fireEvent.click(screen.getByRole("button", { name: /系统/i }));
     expect(screen.getByText("系统与运行时状态")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "显示系统运行时日志" })).toBeInTheDocument();
     expect(screen.getByText("桌面偏好")).toBeInTheDocument();
@@ -39,7 +39,7 @@ describe("SettingsPage", () => {
     const settings = createSettingsController();
     render(<SettingsPage settings={settings} errorRuntimeContext={{}} />);
 
-    fireEvent.click(screen.getByRole("button", { name: /系统与运行时/i }));
+    fireEvent.click(screen.getByRole("button", { name: /系统/i }));
     fireEvent.click(screen.getByRole("button", { name: "显示系统运行时日志" }));
     fireEvent.click(screen.getByRole("button", { name: "复制运行时信息" }));
 
@@ -70,7 +70,7 @@ describe("SettingsPage", () => {
       />
     );
 
-    fireEvent.click(screen.getByRole("button", { name: /系统与运行时/i }));
+    fireEvent.click(screen.getByRole("button", { name: /系统/i }));
 
     expect(screen.getByText("恢复建议")).toBeInTheDocument();
     expect(screen.getByText("确认 backend/main.py 仍挂载了 /app 和 /assets")).toBeInTheDocument();
@@ -81,7 +81,7 @@ describe("SettingsPage", () => {
     const settings = createSettingsController();
     render(<SettingsPage settings={settings} errorRuntimeContext={{}} />);
 
-    fireEvent.click(screen.getByRole("button", { name: /系统与运行时/i }));
+    fireEvent.click(screen.getByRole("button", { name: /系统/i }));
     fireEvent.click(screen.getByText("记住窗口位置"));
     fireEvent.click(screen.getByText("显示托盘图标"));
     fireEvent.change(screen.getByDisplayValue("Alt+Shift+S"), {

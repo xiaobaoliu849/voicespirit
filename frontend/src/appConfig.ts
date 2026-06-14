@@ -35,7 +35,8 @@ export const PROVIDERS = [
   "DeepSeek",
   "OpenRouter",
   "SiliconFlow",
-  "Groq"
+  "Groq",
+  "Ollama"
 ];
 
 export function getDefaultText(t: TranslatePair): string {

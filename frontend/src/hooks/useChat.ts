@@ -6,6 +6,7 @@ import {
   persistEverMemConversationGroupId,
   streamChatCompletion,
   type ChatMessage,
+  type ChatAttachment,
 } from "../api";
 import { createInlineTranslator, type UiLanguage } from "../i18n";
 import type { FormatErrorMessage } from "../utils/errorFormatting";
@@ -129,7 +130,20 @@ export default function useChat({
   const [chatMemoryGroupId, setChatMemoryGroupId] = useState(() => getPersistedEverMemConversationGroupId("chat"));
   const [useMemory, setUseMemory] = useState(true);
   const [deepThinking, setDeepThinking] = useState(false);
+  const [chatAttachments, setChatAttachments] = useState<ChatAttachment[]>([]);
   const lastPreferredProviderRef = useRef(preferredProvider);
+
+  function addChatAttachment(name: string, content: string) {
+    setChatAttachments((prev) => [...prev, { name, content }]);
+  }
+
+  function removeChatAttachment(index: number) {
+    setChatAttachments((prev) => prev.filter((_, i) => i !== index));
+  }
+
+  function clearChatAttachments() {
+    setChatAttachments([]);
+  }
 
   const chatProviderOptions = providerOptions.length > 0 ? providerOptions : ["Google"];
   const chatModelOptions = resolveTextModelOptions(chatProvider, providerModelCatalog);
@@ -210,12 +224,27 @@ export default function useChat({
     setChatError("");
     setChatBusy(true);
 
+    let finalContent = userText;
+    if (chatAttachments.length > 0) {
+      const formattedAttachments = chatAttachments.map(
+        (att) => `[Attachment File: ${att.name}]\n---\n${att.content}\n---\n`
+      ).join("\n\n");
+      finalContent = `${formattedAttachments}\n${userText}`;
+    }
+
     const nextHistory: ChatMessage[] = [
       ...chatMessages,
-      { role: "user", content: userText }
+      { role: "user", content: userText, attachments: [...chatAttachments] }
     ];
+
+    const apiHistory: ChatMessage[] = [
+      ...chatMessages,
+      { role: "user", content: finalContent }
+    ];
+
     setChatMessages([...nextHistory, { role: "assistant", content: "" }]);
     setChatInput("");
+    setChatAttachments([]);
 
     try {
       let memoryGroupId = "";
@@ -234,7 +263,7 @@ export default function useChat({
         {
           provider: chatProvider,
           model: chatModel.trim() || undefined,
-          messages: nextHistory,
+          messages: apiHistory,
           temperature: 0.7,
           max_tokens: 1024,
           use_memory: useMemory,
@@ -300,6 +329,7 @@ export default function useChat({
     setChatMessages([]);
     setChatInput("");
     setChatError("");
+    setChatAttachments([]);
     clearPersistedEverMemConversationGroupId("chat");
     setChatMemoryGroupId("");
   }
@@ -310,6 +340,7 @@ export default function useChat({
     setChatInput("");
     setChatError("");
     setChatBusy(false);
+    setChatAttachments([]);
     if (normalizedGroupId) {
       setChatMemoryGroupId(persistEverMemConversationGroupId("chat", normalizedGroupId));
     } else {
@@ -357,6 +388,10 @@ export default function useChat({
     setUseMemory,
     deepThinking,
     setDeepThinking,
+    chatAttachments,
+    addChatAttachment,
+    removeChatAttachment,
+    clearChatAttachments,
   };
 }
 

@@ -39,6 +39,10 @@ DEFAULT_SETTINGS_TEMPLATE: dict[str, Any] = {
         "google_api_key": "",
         "dashscope_api_key": "",
         "xiaomi_api_key": "",
+        "openai_api_key": "",
+        "elevenlabs_api_key": "",
+        "ollama_api_key": "",
+        "deepgram_api_key": "",
     },
     "api_urls": {
         "Google": "",
@@ -50,6 +54,9 @@ DEFAULT_SETTINGS_TEMPLATE: dict[str, Any] = {
         "DashScope": "",
         "MiniMax": "",
         "Xiaomi": "",
+        "ElevenLabs": "",
+        "Ollama": "",
+        "Deepgram": "",
     },
     "default_models": {
         "DeepSeek": {"default": "", "available": [], "enabled": []},
@@ -60,6 +67,10 @@ DEFAULT_SETTINGS_TEMPLATE: dict[str, Any] = {
         "Google": {"default": "", "available": [], "enabled": []},
         "MiniMax": {"default": "", "available": [], "enabled": []},
         "Xiaomi": {"default": "", "available": [], "enabled": []},
+        "OpenAI": {"default": "tts-1", "available": ["tts-1", "tts-1-hd"], "enabled": ["tts-1", "tts-1-hd"]},
+        "ElevenLabs": {"default": "eleven_multilingual_v2", "available": ["eleven_multilingual_v2", "eleven_turbo_v2_5", "eleven_monolingual_v1"], "enabled": ["eleven_multilingual_v2", "eleven_turbo_v2_5"]},
+        "Ollama": {"default": "", "available": [], "enabled": []},
+        "Deepgram": {"default": "", "available": [], "enabled": []},
     },
     "general_settings": {
         "display_language": "English",
@@ -126,6 +137,7 @@ DEFAULT_SETTINGS_TEMPLATE: dict[str, Any] = {
     "shortcuts": {
         "wake_app": "Alt+Shift+S",
     },
+    "custom_providers": [],
 }
 
 ALLOWED_UPDATE_SECTIONS = {
@@ -143,6 +155,7 @@ ALLOWED_UPDATE_SECTIONS = {
     "auth_settings",
     "ui_settings",
     "shortcuts",
+    "custom_providers",
 }
 
 
@@ -251,6 +264,12 @@ class SettingsService:
                 normalized[key] = self._normalize_memory_settings(value)
                 continue
 
+            if key == "custom_providers":
+                if not isinstance(value, list):
+                    raise ValueError("custom_providers must be an array.")
+                normalized[key] = [copy.deepcopy(item) for item in value if isinstance(item, dict)]
+                continue
+
             if not isinstance(value, dict):
                 raise ValueError(f"{key} must be an object.")
             normalized[key] = copy.deepcopy(value)
@@ -270,9 +289,13 @@ class SettingsService:
             for provider, default_url in DEFAULT_BASE_URLS.items():
                 if provider not in api_urls:
                     api_urls[provider] = default_url
+        
+        custom_providers = merged.get("custom_providers", [])
+        custom_ids = [str(p.get("id")) for p in custom_providers if isinstance(p, dict) and p.get("id")]
+
         return {
             "config_path": str(self.config.config_path),
-            "providers": list(SETTINGS_PROVIDERS),
+            "providers": list(SETTINGS_PROVIDERS) + custom_ids,
             "settings": merged,
         }
 

@@ -310,21 +310,48 @@ export default function TtsPage({ tts, errorRuntimeContext }: Props) {
             ) : null}
             {tts.ttsMode === "pdf" ? (
               <div style={{ display: "flex", flexDirection: "column", height: "100%", padding: "16px", gap: 12 }}>
-                <div className="vsPdfUploadRow" style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", background: "var(--bg-secondary)", borderRadius: "8px", border: "1px solid var(--line)" }}>
+                <div className="vsPdfUploadRow" style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", background: "var(--bg-secondary)", borderRadius: "8px", border: "1px solid var(--line)", opacity: (tts.extractingPdf || tts.polishingPdf) ? 0.6 : 1 }}>
                   <span style={{ fontSize: "13px", fontWeight: "600", color: "var(--text)", whiteSpace: "nowrap", flexShrink: 0 }}>📁 {t("选择 PDF 文件", "Select PDF File")}:</span>
                   <input
                     type="file"
+                    key={tts.pdfFile ? tts.pdfFile.name : "empty"}
                     accept="application/pdf"
                     onChange={(e) => tts.onPdfFileChange(e.target.files?.[0] || null)}
-                    style={{ fontSize: "13px", color: "var(--text)", flex: 1, minWidth: 0 }}
+                    disabled={tts.extractingPdf || tts.polishingPdf}
+                    style={{ fontSize: "13px", color: "var(--text)", flex: 1, minWidth: 0, cursor: (tts.extractingPdf || tts.polishingPdf) ? "not-allowed" : "pointer" }}
                   />
+                  {tts.pdfText.trim() && (
+                    <button
+                      type="button"
+                      className="vsBtnSecondary"
+                      onClick={tts.onPolishPdfText}
+                      disabled={tts.extractingPdf || tts.polishingPdf}
+                      style={{ height: "28px", fontSize: "12px", padding: "0 10px", borderRadius: "6px", display: "flex", alignItems: "center", gap: "4px", whiteSpace: "nowrap" }}
+                    >
+                      {tts.polishingPdf ? (
+                        <>
+                          <span className="spinner-mini"></span>
+                          {t("优化中...", "Optimizing...")}
+                        </>
+                      ) : (
+                        <>✨ {t("AI 朗读优化", "AI Oralize")}</>
+                      )}
+                    </button>
+                  )}
                 </div>
                 <textarea
                   className="vsTtsEditor custom-scrollbar"
                   value={tts.pdfText}
                   onChange={(e) => tts.onPdfTextChange(e.target.value)}
-                  placeholder={t("这里放 PDF 提取后的可朗读正文。当前版本先手动整理文本，后续再接自动提取。", "Paste the readable body text extracted from the PDF here. Manual cleanup for now; auto extraction can follow later.")}
-                  style={{ flex: 1, resize: "none", border: "none", outline: "none", padding: "8px 0 0 0" }}
+                  disabled={tts.extractingPdf || tts.polishingPdf}
+                  placeholder={
+                    tts.extractingPdf
+                      ? t("正在从 PDF 提取文本中，请稍候...", "Extracting text from PDF, please wait...")
+                      : tts.polishingPdf
+                      ? t("正在使用 AI 优化文本（移除噪声、转换数学公式），请稍候...", "AI is optimizing text (removing noise, translating math formulas), please wait...")
+                      : t("这里放 PDF 提取后的可朗读正文。", "Paste the readable body text extracted from the PDF here.")
+                  }
+                  style={{ flex: 1, resize: "none", border: "none", outline: "none", padding: "8px 0 0 0", opacity: (tts.extractingPdf || tts.polishingPdf) ? 0.6 : 1 }}
                 />
               </div>
             ) : null}
@@ -348,7 +375,7 @@ export default function TtsPage({ tts, errorRuntimeContext }: Props) {
               }
               tts.onTextChange("");
             }}
-            disabled={!tts.activeSourceText}
+            disabled={!tts.activeSourceText || tts.extractingPdf || tts.polishingPdf}
             style={{ height: "40px" }}
           >
             {t("清空舞台", "Clear workspace")}
@@ -385,7 +412,7 @@ export default function TtsPage({ tts, errorRuntimeContext }: Props) {
           <button
             type="submit"
             className="vsBtnPrimary"
-            disabled={tts.generating || !tts.activeSourceText.trim()}
+            disabled={tts.generating || tts.extractingPdf || tts.polishingPdf || !tts.activeSourceText.trim()}
             style={{ height: "40px", minWidth: "120px" }}
           >
             {tts.generating ? (

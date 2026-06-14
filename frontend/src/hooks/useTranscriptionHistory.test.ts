@@ -1,11 +1,12 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { listTranscriptionJobs, retryTranscriptionJob } from "../api";
+import { listTranscriptionJobs, retryTranscriptionJob, deleteTranscriptionJob } from "../api";
 import { useTranscriptionHistory } from "./useTranscriptionHistory";
 
 vi.mock("../api", () => ({
   listTranscriptionJobs: vi.fn(),
   retryTranscriptionJob: vi.fn(),
+  deleteTranscriptionJob: vi.fn(),
 }));
 
 describe("useTranscriptionHistory", () => {
@@ -13,6 +14,7 @@ describe("useTranscriptionHistory", () => {
     localStorage.clear();
     vi.mocked(listTranscriptionJobs).mockReset();
     vi.mocked(retryTranscriptionJob).mockReset();
+    vi.mocked(deleteTranscriptionJob).mockReset();
     vi.mocked(listTranscriptionJobs).mockResolvedValue({
       count: 1,
       jobs: [
@@ -70,6 +72,45 @@ describe("useTranscriptionHistory", () => {
     expect(vi.mocked(retryTranscriptionJob)).toHaveBeenCalledWith("tx_001");
     expect(result.current.history[0]?.status).toBe("submitted");
     expect(result.current.history[0]?.remote_job_id).toBe("remote_retry_001");
+  });
+
+  it("deletes a job from server and removes it locally", async () => {
+    vi.mocked(deleteTranscriptionJob).mockResolvedValue(undefined);
+
+    const { result } = renderHook(() => useTranscriptionHistory());
+
+    await waitFor(() => {
+      expect(result.current.historyBusy).toBe(false);
+    });
+
+    expect(result.current.history).toHaveLength(1);
+
+    await act(async () => {
+      await result.current.removeJob("tx_001");
+    });
+
+    expect(vi.mocked(deleteTranscriptionJob)).toHaveBeenCalledWith("tx_001");
+    expect(result.current.history).toHaveLength(0);
+    expect(JSON.parse(localStorage.getItem("vs_transcription_history") || "[]")).toHaveLength(0);
+  });
+
+  it("removes job locally even if server delete fails", async () => {
+    vi.mocked(deleteTranscriptionJob).mockRejectedValue(new Error("Network error"));
+
+    const { result } = renderHook(() => useTranscriptionHistory());
+
+    await waitFor(() => {
+      expect(result.current.historyBusy).toBe(false);
+    });
+
+    expect(result.current.history).toHaveLength(1);
+
+    await act(async () => {
+      await result.current.removeJob("tx_001");
+    });
+
+    expect(vi.mocked(deleteTranscriptionJob)).toHaveBeenCalledWith("tx_001");
+    expect(result.current.history).toHaveLength(0);
   });
 
   it("switches filters and requests matching backend statuses", async () => {

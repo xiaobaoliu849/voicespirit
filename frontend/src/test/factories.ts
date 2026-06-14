@@ -42,6 +42,10 @@ export function createChatController(
     setUseMemory: vi.fn(),
     deepThinking: false,
     setDeepThinking: vi.fn(),
+    chatAttachments: [],
+    addChatAttachment: vi.fn(),
+    removeChatAttachment: vi.fn(),
+    clearChatAttachments: vi.fn(),
     ...overrides
   };
 }
@@ -65,6 +69,8 @@ export function createTtsController(
     loadingVoices: false,
     loadingVoicesB: false,
     generating: false,
+    extractingPdf: false,
+    polishingPdf: false,
     ttsError: "",
     ttsInfo: "",
     engineOptions: [
@@ -85,9 +91,11 @@ export function createTtsController(
     onDialogueTextChange: vi.fn(),
     onPdfFileChange: vi.fn(),
     onPdfTextChange: vi.fn(),
+    onPolishPdfText: vi.fn(),
     onVoiceChange: vi.fn(),
     onVoiceBChange: vi.fn(),
     onRateChange: vi.fn(),
+
     ...overrides
   };
 }
@@ -281,6 +289,10 @@ export function createSettingsController(
       runtimeCopyStatus: "idle"
     },
     providerOptions: ["DashScope", "Google", "Xiaomi"],
+    customProviders: overrides.customProviders ?? [],
+    settingsProviderUseMaxCompletionTokens: overrides.settingsProviderUseMaxCompletionTokens ?? false,
+    settingsProviderHeadersJson: overrides.settingsProviderHeadersJson ?? "{}",
+    isCustomProvider: overrides.isCustomProvider ?? false,
     onSubmit: vi.fn(),
     onReload: vi.fn(),
     onProviderChange: vi.fn(),
@@ -294,6 +306,10 @@ export function createSettingsController(
     onEnableAllModels: vi.fn(),
     onDisableAllModels: vi.fn(),
     onFetchModels: vi.fn(),
+    onAddCustomProvider: overrides.onAddCustomProvider ?? vi.fn(),
+    onDeleteCustomProvider: overrides.onDeleteCustomProvider ?? vi.fn(),
+    onUseMaxCompletionTokensChange: overrides.onUseMaxCompletionTokensChange ?? vi.fn(),
+    onHeadersJsonChange: overrides.onHeadersJsonChange ?? vi.fn(),
     onTranscriptionUploadModeChange: vi.fn(),
     onTranscriptionPublicBaseUrlChange: vi.fn(),
     onTranscriptionS3BucketChange: vi.fn(),

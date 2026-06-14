@@ -683,9 +683,9 @@ class ApiSmokeTests(unittest.TestCase):
             )
 
     def test_transcription_sync_endpoint(self) -> None:
-        async def fake_transcribe_file(file_path: str | Path) -> str:
+        async def fake_transcribe_file(file_path: str | Path, **kwargs: Any) -> dict:
             self.assertTrue(Path(file_path).is_file())
-            return "同步转写成功"
+            return {"text": "同步转写成功", "duration_seconds": 12.5}
 
         async def fake_save_memory(**kwargs: Any) -> bool:
             self.assertIn("同步转写成功", kwargs["transcript_text"])
@@ -959,6 +959,35 @@ class ApiSmokeTests(unittest.TestCase):
                 self.assertEqual(download.status_code, 200)
                 self.assertIn("text/plain", download.headers.get("content-type", ""))
                 self.assertIn("已完成 transcript", download.text)
+            finally:
+                transcription_router.transcription_service.jobs_dir = original_jobs_dir
+
+    def test_transcription_job_audio_download_uses_original_mime_type(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            jobs_dir = Path(tmp_dir) / "jobs"
+            jobs_dir.mkdir(parents=True, exist_ok=True)
+            audio_path = Path(tmp_dir) / "meeting.m4a"
+            audio_path.write_bytes(b"m4a-demo")
+            original_jobs_dir = transcription_router.transcription_service.jobs_dir
+            transcription_router.transcription_service.jobs_dir = jobs_dir
+            try:
+                job = asyncio.run(
+                    transcription_router.transcription_service.prepare_long_transcription_job(
+                        audio_path,
+                        "meeting.m4a",
+                    )
+                )
+
+                loaded = self._request("GET", f"/api/transcription/jobs/{job.job_id}")
+                self.assertEqual(loaded.status_code, 200)
+                self.assertEqual(
+                    loaded.json()["source_url"],
+                    f"/api/transcription/jobs/{job.job_id}/audio",
+                )
+
+                audio = self._request("GET", f"/api/transcription/jobs/{job.job_id}/audio")
+                self.assertEqual(audio.status_code, 200)
+                self.assertIn("audio/mp4", audio.headers.get("content-type", ""))
             finally:
                 transcription_router.transcription_service.jobs_dir = original_jobs_dir
 
@@ -1276,6 +1305,67 @@ class ApiSmokeTests(unittest.TestCase):
                 self.assertTrue(payload["remember_tts"])
             finally:
                 settings_router.settings_service = original_service
+
+    def test_settings_ollama_provider_can_be_updated(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            config_path = Path(tmp_dir) / "config.json"
+            config_path.write_text("{}", encoding="utf-8")
+            test_service = SettingsService(config=BackendConfig(config_path))
+
+            original_service = settings_router.settings_service
+            settings_router.settings_service = test_service
+            try:
+                r_put = self._request(
+                    "PUT",
+                    "/api/settings/",
+                    json={
+                        "merge": True,
+                        "settings": {
+                            "api_keys": {"ollama_api_key": ""},
+                            "api_urls": {"Ollama": "http://127.0.0.1:11434/v1"},
+                            "default_models": {
+                                "Ollama": {
+                                    "default": "qwen2.5:latest",
+                                    "available": ["qwen2.5:latest", "deepseek-r1:7b"],
+                                    "enabled": ["qwen2.5:latest"]
+                                }
+                            },
+                        },
+                    },
+                )
+                self.assertEqual(r_put.status_code, 200)
+                payload = r_put.json()
+                self.assertEqual(payload["settings"]["api_urls"]["Ollama"], "http://127.0.0.1:11434/v1")
+                self.assertEqual(payload["settings"]["default_models"]["Ollama"]["default"], "qwen2.5:latest")
+            finally:
+                settings_router.settings_service = original_service
+
+    def test_fetch_models_ollama_native_api(self) -> None:
+        from unittest.mock import AsyncMock, MagicMock
+        mock_response = AsyncMock()
+        mock_response.status_code = 200
+        mock_response.json = MagicMock(return_value={
+            "models": [
+                {"name": "qwen2.5:latest"},
+                {"name": "deepseek-r1:7b"}
+            ]
+        })
+        mock_response.raise_for_status = lambda: None
+
+        with patch("httpx.AsyncClient.get", return_value=mock_response) as mock_get:
+            response = self._request(
+                "POST",
+                "/api/settings/providers/Ollama/fetch-models",
+                json={"api_key": "", "base_url": "http://localhost:11434/v1"}
+            )
+            self.assertEqual(response.status_code, 200)
+            data = response.json()
+            self.assertEqual(data["provider"], "Ollama")
+            self.assertEqual(data["models"], ["deepseek-r1:7b", "qwen2.5:latest"])
+            mock_get.assert_called_once_with(
+                "http://localhost:11434/api/tags",
+                headers={"Accept": "application/json"}
+            )
 
     def test_desktop_status_endpoint_returns_preflight_summary(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:

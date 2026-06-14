@@ -52,6 +52,14 @@ QWEN_ASR_DIRECT_URL = "https://dashscope.aliyuncs.com/api/v1/services/audio/asr/
 # Xiaomi MiMo ASR (OpenAI-compatible)
 MIMO_ASR_MODEL = "mimo-v2.5-asr"
 MIMO_DEFAULT_CHAT_URL = "https://token-plan-sgp.xiaomimimo.com/v1/chat/completions"
+
+# Deepgram ASR
+DEEPGRAM_API_URL = "https://api.deepgram.com/v1/listen"
+DEEPGRAM_DEFAULT_MODEL = "nova-3"
+
+# OpenAI Whisper ASR
+OPENAI_WHISPER_URL = "https://api.openai.com/v1/audio/transcriptions"
+OPENAI_WHISPER_MODEL = "whisper-1"
 SUPPORTED_AUDIO_SUFFIXES = {
     ".wav",
     ".mp3",
@@ -103,6 +111,16 @@ class TranscriptionService:
         self.config.reload()
         api_keys = self.config.get_all().get("api_keys", {})
         return str(api_keys.get("xiaomi_api_key", "")).strip()
+
+    def _deepgram_key(self) -> str:
+        self.config.reload()
+        api_keys = self.config.get_all().get("api_keys", {})
+        return str(api_keys.get("deepgram_api_key", "")).strip()
+
+    def _openai_key(self) -> str:
+        self.config.reload()
+        api_keys = self.config.get_all().get("api_keys", {})
+        return str(api_keys.get("openai_api_key", "")).strip()
 
     def _mimo_chat_url(self) -> str:
         base_url = self.config.get_provider_settings("Xiaomi").get("base_url", "").strip()
@@ -246,6 +264,43 @@ class TranscriptionService:
             published_dir=self.published_dir,
         ).is_enabled()
 
+    def delete_job(self, job_id: str) -> bool:
+        """Delete a transcription job and its associated files. Returns True if deleted."""
+        job = self.get_job(job_id)
+        if job is None:
+            return False
+
+        # Remove associated files
+        for path in [
+            self._job_path(job_id),
+            self.jobs_dir / f"{job_id}_words.json",
+        ]:
+            try:
+                if path.is_file():
+                    path.unlink()
+            except Exception:
+                pass
+
+        # Remove uploaded audio if it lives in our jobs dir
+        if job.file_path:
+            audio_path = Path(job.file_path)
+            try:
+                if audio_path.is_file() and self.jobs_dir in audio_path.parents:
+                    audio_path.unlink()
+            except Exception:
+                pass
+
+        # Remove transcript file if it lives in our jobs dir
+        if job.transcript_path:
+            transcript_path = Path(job.transcript_path)
+            try:
+                if transcript_path.is_file() and self.jobs_dir in transcript_path.parents:
+                    transcript_path.unlink()
+            except Exception:
+                pass
+
+        return True
+
     def update_job(
         self,
         job_id: str,
@@ -275,11 +330,52 @@ class TranscriptionService:
         job.updated_at = self._now_iso()
         return self._write_job(job)
 
-    async def transcribe_file(self, file_path: str | Path) -> str:
+    async def transcribe_file(self, file_path: str | Path, provider: str | None = None) -> dict:
+        """Returns {"text": str, "duration_seconds": float | None, "words": list[dict] | None}."""
         path = Path(file_path).expanduser().resolve()
         self._validate_file(path)
 
-        # Try Xiaomi MiMo ASR first, then fall back to DashScope
+        # If provider is specified, use it directly
+        if provider:
+            provider = provider.lower().strip()
+            if provider == "deepgram":
+                api_key = self._deepgram_key()
+                if not api_key:
+                    raise ValueError("Deepgram API key not configured.")
+                return await self._transcribe_with_deepgram(path, api_key)
+            elif provider == "openai" or provider == "whisper":
+                api_key = self._openai_key()
+                if not api_key:
+                    raise ValueError("OpenAI API key not configured.")
+                return await self._transcribe_with_openai_whisper(path, api_key)
+            elif provider == "dashscope" or provider == "qwen":
+                api_key = self._dashscope_key()
+                if not api_key:
+                    raise ValueError("DashScope API key not configured.")
+                return await self._transcribe_with_openai_asr(
+                    path, api_key, QWEN_COMPATIBLE_CHAT_URL, QWEN_ASR_SYNC_MODEL, "Qwen"
+                )
+            elif provider == "xiaomi" or provider == "mimo":
+                api_key = self._xiaomi_key()
+                if not api_key:
+                    raise ValueError("Xiaomi API key not configured.")
+                return await self._transcribe_with_openai_asr(
+                    path, api_key, self._mimo_chat_url(), MIMO_ASR_MODEL, "MiMo"
+                )
+            else:
+                raise ValueError(f"Unsupported ASR provider: {provider}")
+
+        # Auto-select: try providers in priority order
+        # Deepgram and OpenAI Whisper support word-level timestamps
+        deepgram_key = self._deepgram_key()
+        if deepgram_key:
+            return await self._transcribe_with_deepgram(path, deepgram_key)
+
+        openai_key = self._openai_key()
+        if openai_key:
+            return await self._transcribe_with_openai_whisper(path, openai_key)
+
+        # MiMo and DashScope don't support word-level timestamps
         xiaomi_key = self._xiaomi_key()
         if xiaomi_key:
             return await self._transcribe_with_openai_asr(
@@ -292,11 +388,12 @@ class TranscriptionService:
                 path, dashscope_key, QWEN_COMPATIBLE_CHAT_URL, QWEN_ASR_SYNC_MODEL, "Qwen"
             )
 
-        raise ValueError("No ASR API key configured. Set xiaomi_api_key or dashscope_api_key.")
+        raise ValueError("No ASR API key configured. Set deepgram_api_key, openai_api_key, xiaomi_api_key, or dashscope_api_key.")
 
     async def _transcribe_with_openai_asr(
         self, path: Path, api_key: str, url: str, model: str, provider_name: str
-    ) -> str:
+    ) -> dict:
+        """Returns {"text": str, "duration_seconds": float | None}."""
         audio_bytes = path.read_bytes()
 
         audio_b64 = base64.b64encode(audio_bytes).decode("utf-8")
@@ -327,6 +424,7 @@ class TranscriptionService:
             ],
             "modalities": ["text"],
             "stream": False,
+            "asr_options": {"language": "auto"},
         }
 
         async with httpx.AsyncClient(timeout=180.0) as client:
@@ -358,7 +456,170 @@ class TranscriptionService:
 
         if not text:
             raise RuntimeError(f"{provider_name} ASR returned empty transcript: {response_json}")
-        return text
+
+        # Extract audio duration from usage.seconds (MiMo API returns this)
+        duration_seconds = None
+        usage = response_json.get("usage", {})
+        if isinstance(usage, dict):
+            secs = usage.get("seconds")
+            if isinstance(secs, (int, float)) and secs > 0:
+                duration_seconds = float(secs)
+
+        return {"text": text, "duration_seconds": duration_seconds, "words": None}
+
+    async def _transcribe_with_deepgram(self, path: Path, api_key: str) -> dict:
+        """Transcribe with Deepgram API. Returns {"text": str, "duration_seconds": float | None, "words": list[dict] | None}."""
+        audio_bytes = path.read_bytes()
+        extension = path.suffix.lower().lstrip(".")
+        if extension == "mp3":
+            content_type = "audio/mpeg"
+        else:
+            content_type = f"audio/{extension}"
+
+        headers = {
+            "Authorization": f"Token {api_key}",
+            "Content-Type": content_type,
+        }
+        params = {
+            "model": DEEPGRAM_DEFAULT_MODEL,
+            "smart_format": "true",
+            "punctuate": "true",
+            "language": "auto",
+        }
+
+        async with httpx.AsyncClient(timeout=180.0) as client:
+            response = await client.post(
+                DEEPGRAM_API_URL,
+                headers=headers,
+                content=audio_bytes,
+                params=params,
+            )
+
+        try:
+            response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            detail = exc.response.text.strip()
+            raise RuntimeError(f"Deepgram ASR request failed: {detail}") from exc
+
+        response_json = response.json()
+
+        # Extract transcript text
+        results = response_json.get("results", {})
+        channels = results.get("channels", [])
+        if not channels:
+            raise RuntimeError(f"Deepgram ASR returned no channels: {response_json}")
+
+        alternatives = channels[0].get("alternatives", [])
+        if not alternatives:
+            raise RuntimeError(f"Deepgram ASR returned no alternatives: {response_json}")
+
+        transcript = alternatives[0].get("transcript", "")
+        if not transcript:
+            raise RuntimeError(f"Deepgram ASR returned empty transcript: {response_json}")
+
+        # Extract word-level timestamps
+        words_raw = alternatives[0].get("words", [])
+        words = []
+        for w in words_raw:
+            word_text = w.get("word", "")
+            start = w.get("start")
+            end = w.get("end")
+            if word_text and start is not None and end is not None:
+                words.append({
+                    "text": word_text,
+                    "start": float(start),
+                    "end": float(end),
+                })
+
+        # Extract duration from metadata
+        duration_seconds = None
+        metadata = response_json.get("metadata", {})
+        if isinstance(metadata, dict):
+            duration = metadata.get("duration")
+            if isinstance(duration, (int, float)) and duration > 0:
+                duration_seconds = float(duration)
+
+        return {
+            "text": transcript,
+            "duration_seconds": duration_seconds,
+            "words": words if words else None,
+        }
+
+    async def _transcribe_with_openai_whisper(self, path: Path, api_key: str) -> dict:
+        """Transcribe with OpenAI Whisper API. Returns {"text": str, "duration_seconds": float | None, "words": list[dict] | None}."""
+        audio_bytes = path.read_bytes()
+        filename = path.name
+
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+        }
+
+        # Determine MIME type for the file upload
+        extension = path.suffix.lower().lstrip(".")
+        if extension == "mp3":
+            mime_type = "audio/mpeg"
+        elif extension == "m4a":
+            mime_type = "audio/mp4"
+        else:
+            mime_type = f"audio/{extension}"
+
+        # Use multipart form upload
+        files = {
+            "file": (filename, audio_bytes, mime_type),
+        }
+        data = {
+            "model": OPENAI_WHISPER_MODEL,
+            "response_format": "verbose_json",
+            "timestamp_granularities[]": "word",
+            "language": "auto",
+        }
+
+        async with httpx.AsyncClient(timeout=180.0) as client:
+            response = await client.post(
+                OPENAI_WHISPER_URL,
+                headers=headers,
+                files=files,
+                data=data,
+            )
+
+        try:
+            response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            detail = exc.response.text.strip()
+            raise RuntimeError(f"OpenAI Whisper ASR request failed: {detail}") from exc
+
+        response_json = response.json()
+
+        # Extract transcript text
+        transcript = response_json.get("text", "")
+        if not transcript:
+            raise RuntimeError(f"OpenAI Whisper ASR returned empty transcript: {response_json}")
+
+        # Extract word-level timestamps
+        words_raw = response_json.get("words", [])
+        words = []
+        for w in words_raw:
+            word_text = w.get("word", "")
+            start = w.get("start")
+            end = w.get("end")
+            if word_text and start is not None and end is not None:
+                words.append({
+                    "text": word_text,
+                    "start": float(start),
+                    "end": float(end),
+                })
+
+        # Extract duration
+        duration_seconds = None
+        duration = response_json.get("duration")
+        if isinstance(duration, (int, float)) and duration > 0:
+            duration_seconds = float(duration)
+
+        return {
+            "text": transcript,
+            "duration_seconds": duration_seconds,
+            "words": words if words else None,
+        }
 
     async def create_completed_sync_job(self, file_path: str, original_filename: str, transcript: str) -> TranscriptionJob:
         """
@@ -517,8 +778,19 @@ class TranscriptionService:
         error = job.error or ""
 
         if mapped_status == "completed":
-            transcript_text = await self._resolve_remote_transcript(remote_status)
-            transcript_path = self._persist_transcript(job.job_id or "", transcript_text)
+            # Try to extract with words first
+            try:
+                result = await self._resolve_remote_transcript_with_words(remote_status)
+                transcript_text = result["text"]
+                words = result.get("words")
+                transcript_path = self._persist_transcript(job.job_id or "", transcript_text)
+                # Save words separately if available
+                if words:
+                    self._persist_words(job.job_id or "", words)
+            except Exception:
+                # Fallback to text-only extraction
+                transcript_text = await self._resolve_remote_transcript(remote_status)
+                transcript_path = self._persist_transcript(job.job_id or "", transcript_text)
             error = ""
         elif mapped_status == "failed":
             error = self._extract_remote_error(remote_status) or "Remote transcription failed."
@@ -645,6 +917,25 @@ class TranscriptionService:
 
         raise RuntimeError("Remote transcription completed without transcript text.")
 
+    async def _resolve_remote_transcript_with_words(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Resolve remote transcript and extract word-level timestamps.
+        Returns {"text": str, "words": list[dict] | None}."""
+        # Try to extract from direct payload
+        extracted = self._extract_remote_transcript_with_words(payload)
+        if extracted.get("text"):
+            return extracted
+
+        # Try to download from transcription_url
+        result = payload.get("result")
+        if isinstance(result, dict):
+            transcription_url = result.get("transcription_url")
+            if isinstance(transcription_url, str) and transcription_url.strip():
+                downloaded = await self._download_remote_transcript_with_words(transcription_url.strip())
+                if downloaded.get("text"):
+                    return downloaded
+
+        raise RuntimeError("Remote transcription completed without transcript text.")
+
     async def _download_remote_transcript(self, url: str) -> str:
         async with httpx.AsyncClient(timeout=180.0) as client:
             response = await client.get(url)
@@ -672,10 +963,51 @@ class TranscriptionService:
                     return "\n".join(pieces)
         raise RuntimeError("Downloaded transcription result did not contain transcript text.")
 
+    async def _download_remote_transcript_with_words(self, url: str) -> dict[str, Any]:
+        """Download transcription result and extract word-level timestamps.
+        Returns {"text": str, "words": list[dict] | None}."""
+        async with httpx.AsyncClient(timeout=180.0) as client:
+            response = await client.get(url)
+        try:
+            response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            detail = exc.response.text.strip()
+            raise RuntimeError(f"Failed to download transcription result: {detail}") from exc
+
+        data = response.json()
+        if isinstance(data, dict):
+            extracted = self._extract_remote_transcript_with_words(data)
+            if extracted.get("text"):
+                return extracted
+            # Try results array
+            results = data.get("results")
+            if isinstance(results, list):
+                pieces: list[str] = []
+                for item in results:
+                    if not isinstance(item, dict):
+                        continue
+                    sentence = item.get("text")
+                    if isinstance(sentence, str) and sentence.strip():
+                        pieces.append(sentence.strip())
+                if pieces:
+                    return {"text": "\n".join(pieces), "words": None}
+        raise RuntimeError("Downloaded transcription result did not contain transcript text.")
+
     def _persist_transcript(self, job_id: str, transcript_text: str) -> str:
         transcript_path = self.jobs_dir / f"{job_id}.txt"
         transcript_path.write_text(transcript_text.strip(), encoding="utf-8")
         return str(transcript_path)
+
+    def _persist_words(self, job_id: str, words: list[dict[str, Any]] | None) -> str | None:
+        """Save word-level timestamps to JSON file. Returns path or None."""
+        if not words:
+            return None
+        words_path = self.jobs_dir / f"{job_id}_words.json"
+        words_path.write_text(
+            json.dumps(words, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        return str(words_path)
 
     @staticmethod
     def _build_transcript_memory_entry(transcript_text: str) -> str:
@@ -735,6 +1067,65 @@ class TranscriptionService:
                     return "\n".join(pieces)
 
         return ""
+
+    @staticmethod
+    def _extract_remote_transcript_with_words(payload: dict[str, Any]) -> dict[str, Any]:
+        """Extract transcript text and word-level timestamps from DashScope async response.
+        Returns {"text": str, "words": list[dict] | None}."""
+        # First extract text using existing method
+        text = TranscriptionService._extract_remote_transcript(payload)
+        if not text:
+            return {"text": "", "words": None}
+
+        # Try to extract word-level timestamps
+        words: list[dict[str, Any]] = []
+
+        # Check result.words (top-level words array)
+        result = payload.get("result")
+        if isinstance(result, dict):
+            # Direct words array
+            words_raw = result.get("words")
+            if isinstance(words_raw, list):
+                for w in words_raw:
+                    if not isinstance(w, dict):
+                        continue
+                    word_text = str(w.get("word", "") or w.get("text", "")).strip()
+                    begin_time = w.get("begin_time") or w.get("start")
+                    end_time = w.get("end_time") or w.get("end")
+                    if word_text and begin_time is not None and end_time is not None:
+                        # DashScope uses milliseconds, convert to seconds
+                        words.append({
+                            "text": word_text,
+                            "start": float(begin_time) / 1000.0,
+                            "end": float(end_time) / 1000.0,
+                        })
+
+            # Also check sentences[].words[]
+            sentences = result.get("sentences")
+            if isinstance(sentences, list) and not words:
+                for sentence in sentences:
+                    if not isinstance(sentence, dict):
+                        continue
+                    sentence_words = sentence.get("words")
+                    if not isinstance(sentence_words, list):
+                        continue
+                    for w in sentence_words:
+                        if not isinstance(w, dict):
+                            continue
+                        word_text = str(w.get("word", "") or w.get("text", "")).strip()
+                        begin_time = w.get("begin_time") or w.get("start")
+                        end_time = w.get("end_time") or w.get("end")
+                        if word_text and begin_time is not None and end_time is not None:
+                            words.append({
+                                "text": word_text,
+                                "start": float(begin_time) / 1000.0,
+                                "end": float(end_time) / 1000.0,
+                            })
+
+        return {
+            "text": text,
+            "words": words if words else None,
+        }
 
     @staticmethod
     def _extract_remote_error(payload: dict[str, Any]) -> str:

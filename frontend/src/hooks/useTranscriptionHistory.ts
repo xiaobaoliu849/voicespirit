@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import {
   listTranscriptionJobs,
   retryTranscriptionJob,
+  deleteTranscriptionJob,
   type TranscriptionJobResponse
 } from "../api";
 
@@ -133,7 +134,13 @@ export function useTranscriptionHistory() {
     safeSaveHistory([]);
   };
   
-  const removeJob = (jobId: string) => {
+  const removeJob = async (jobId: string) => {
+    // Remove from server first
+    try {
+      await deleteTranscriptionJob(jobId);
+    } catch {
+      // If server delete fails (e.g. already gone), still remove locally
+    }
     setHistory((prev) => {
       const next = prev.filter(item => item.job_id !== jobId);
       safeSaveHistory(next);

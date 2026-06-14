@@ -1,5 +1,6 @@
 import type { UseAudioOverviewResult } from "../../hooks/useAudioOverview";
 import { useI18n } from "../../i18n";
+import { formatVoiceLabel } from "../../utils/voiceFormatter";
 
 type Props = {
   audioOverview: UseAudioOverviewResult;
@@ -24,7 +25,7 @@ export default function PodcastSynthBar({ audioOverview }: Props) {
             >
               {audioOverview.audioOverviewVoiceOptions.map((item) => (
                 <option key={`a-${item.name}`} value={item.name}>
-                  {item.short_name || item.name}
+                  {formatVoiceLabel(item, t)}
                 </option>
               ))}
             </select>
@@ -38,7 +39,7 @@ export default function PodcastSynthBar({ audioOverview }: Props) {
             >
               {audioOverview.audioOverviewVoiceOptions.map((item) => (
                 <option key={`b-${item.name}`} value={item.name}>
-                  {item.short_name || item.name}
+                  {formatVoiceLabel(item, t)}
                 </option>
               ))}
             </select>

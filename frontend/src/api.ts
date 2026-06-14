@@ -15,11 +15,17 @@ export type TtsAudioResponse = {
   memorySaved: boolean;
 };
 
-export type TtsEngine = "edge" | "qwen_flash" | "minimax" | "xiaomi";
+export type TtsEngine = "edge" | "qwen_flash" | "minimax" | "xiaomi" | "openai" | "elevenlabs";
+
+export type ChatAttachment = {
+  name: string;
+  content: string;
+};
 
 export type ChatMessage = {
   role: "system" | "user" | "assistant";
   content: string;
+  attachments?: ChatAttachment[];
   memoriesUsed?: number;
   memorySaved?: boolean;
   memorySourceSummary?: string;
@@ -122,6 +128,7 @@ export type AppSettings = {
   xiaomi: Record<string, unknown>;
   ui_settings: Record<string, unknown>;
   shortcuts: Record<string, unknown>;
+  custom_providers?: any[];
 };
 
 export type SettingsResponse = {
@@ -331,10 +338,18 @@ export type ApiErrorDetail = {
   meta?: Record<string, unknown>;
 };
 
+export type WordTimestamp = {
+  text: string;
+  start: number;
+  end: number;
+};
+
 export type TranscriptionResponse = {
   transcript: string;
   job_id?: string;
   memory_saved?: boolean;
+  duration_seconds?: number | null;
+  words?: WordTimestamp[] | null;
 };
 
 export type TranscriptionJobResponse = {
@@ -859,6 +874,49 @@ export async function fetchVoices(locale?: string, engine?: TtsEngine): Promise<
   return response.json();
 }
 
+export type ExtractPdfResponse = {
+  filename: string;
+  page_count: number;
+  text: string;
+};
+
+export async function extractPdfText(file: File): Promise<ExtractPdfResponse> {
+  const formData = new FormData();
+  formData.append("file", file);
+
+  const response = await apiFetch(`${API_BASE_URL}/api/tts/extract-pdf`, {
+    method: "POST",
+    body: formData,
+  });
+
+  if (!response.ok) {
+    await throwApiError(response);
+  }
+  return response.json();
+}
+
+export type PolishPdfTextResponse = {
+  provider: string;
+  model: string | null;
+  polished_text: string;
+};
+
+export async function polishPdfText(text: string, provider?: string, model?: string): Promise<PolishPdfTextResponse> {
+  const response = await apiFetch(`${API_BASE_URL}/api/tts/polish-pdf-text`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ text, provider, model }),
+  });
+
+  if (!response.ok) {
+    await throwApiError(response);
+  }
+  return response.json();
+}
+
+
 export function buildSpeakUrl(params: {
   text: string;
   voice?: string;
@@ -1325,11 +1383,16 @@ export async function updateAudioOverviewPodcast(
   return response.json();
 }
 
-export async function transcribeAudio(file: File): Promise<TranscriptionResponse> {
+export async function transcribeAudio(file: File, provider?: string): Promise<TranscriptionResponse> {
   const formData = new FormData();
   formData.append("file", file);
 
-  const response = await apiFetch(`${API_BASE_URL}/api/transcription/`, {
+  let url = `${API_BASE_URL}/api/transcription/`;
+  if (provider) {
+    url += `?provider=${encodeURIComponent(provider)}`;
+  }
+
+  const response = await apiFetch(url, {
     method: "POST",
     headers: buildEverMemHeaders(true, "transcription"),
     body: formData,
@@ -1425,6 +1488,20 @@ export async function retryTranscriptionJob(jobId: string): Promise<Transcriptio
     await throwApiError(response);
   }
   return response.json();
+}
+
+export async function deleteTranscriptionJob(jobId: string): Promise<void> {
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/transcription/jobs/${encodeURIComponent(jobId)}`,
+    {
+      method: "DELETE",
+      headers: buildEverMemHeaders(true, "transcription")
+    }
+  );
+
+  if (!response.ok) {
+    await throwApiError(response);
+  }
 }
 
 export async function saveAudioOverviewScript(
