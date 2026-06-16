@@ -21,6 +21,8 @@ logger = logging.getLogger(__name__)
 from .config_loader import BackendConfig
 from .evermem_config import EverMemConfig
 from .evermem_service import EverMemService
+from .voice_agent_session_repository import VoiceAgentSessionRepository
+from .voice_agent_tools import VoiceAgentToolService, VoiceAgentToolSession
 
 try:
     from google import genai
@@ -54,7 +56,9 @@ DEFAULT_DASHSCOPE_REALTIME_MODEL = "qwen3-omni-flash-realtime-2025-12-01"
 DEFAULT_DASHSCOPE_REALTIME_VOICE = "Cherry"
 BASE_REALTIME_INSTRUCTIONS = (
     "You are a helpful, friendly, and intelligent AI assistant. "
-    "Respond naturally and conversationally in the same language the user speaks."
+    "Respond naturally and conversationally in the same language the user speaks. "
+    "When the user asks you to search, look up, retrieve, or verify current information, briefly acknowledge "
+    "that you are checking sources and wait for external tool context before giving a factual answer."
 )
 
 
@@ -914,9 +918,113 @@ class DashScopeRealtimeCallback:
         )
 
 
+class VoiceAgentSessionRecorder:
+    def __init__(self, repository: VoiceAgentSessionRepository, session_id: str) -> None:
+        self.repository = repository
+        self.session_id = session_id
+        self._turn_index = 0
+        self._current_turn_id = ""
+        self._pending_user_text = ""
+
+    def _next_turn_id(self) -> str:
+        self._turn_index += 1
+        return f"voice-turn-{self._turn_index}"
+
+    async def _call_repository(self, method_name: str, *args: Any, **kwargs: Any) -> Any:
+        try:
+            method = getattr(self.repository, method_name)
+            return await asyncio.to_thread(method, *args, **kwargs)
+        except Exception:
+            logger.exception("voice_agent_session_record_failed method=%s session_id=%s", method_name, self.session_id)
+            return None
+
+    async def _ensure_turn(self, preferred_turn_id: str = "") -> str:
+        clean_preferred = str(preferred_turn_id or "").strip()
+        if clean_preferred:
+            self._current_turn_id = clean_preferred
+        if not self._current_turn_id:
+            self._current_turn_id = self._next_turn_id()
+        if self._pending_user_text:
+            await self._call_repository(
+                "upsert_turn",
+                self.session_id,
+                self._current_turn_id,
+                user_text=self._pending_user_text,
+            )
+        return self._current_turn_id
+
+    async def note_user_transcript(self, text: str) -> None:
+        clean_text = str(text or "").strip()
+        if not clean_text:
+            return
+        self._pending_user_text = clean_text
+        self._current_turn_id = ""
+
+    async def note_assistant_text(self, text: str) -> None:
+        clean_text = str(text or "")
+        if not clean_text.strip():
+            return
+        turn_id = await self._ensure_turn()
+        await self._call_repository(
+            "upsert_turn",
+            self.session_id,
+            turn_id,
+            assistant_text=clean_text,
+        )
+
+    async def record_tool_event(self, event_type: str, payload: dict[str, Any]) -> None:
+        await self._call_repository("add_tool_event", self.session_id, event_type, dict(payload))
+        turn_id = str(payload.get("turn_id", "") or "")
+        if turn_id:
+            await self._ensure_turn(turn_id)
+
+    async def complete_turn(self, memory_payload: dict[str, Any] | None = None) -> None:
+        if not self._pending_user_text and not self._current_turn_id:
+            return
+        turn_id = await self._ensure_turn()
+        await self._call_repository(
+            "upsert_turn",
+            self.session_id,
+            turn_id,
+            memory_payload=memory_payload or {},
+            completed=True,
+        )
+        self._pending_user_text = ""
+        self._current_turn_id = ""
+
+    async def finish(self, *, status: str = "closed") -> None:
+        await self._call_repository("finish_session", self.session_id, status=status)
+
+
 class RealtimeVoiceService:
-    def __init__(self, config: BackendConfig | None = None):
+    def __init__(
+        self,
+        config: BackendConfig | None = None,
+        voice_session_repository: VoiceAgentSessionRepository | None = None,
+    ):
         self.config = config or BackendConfig()
+        self.voice_session_repository = voice_session_repository
+
+    async def _create_voice_session_recorder(
+        self,
+        *,
+        provider: str,
+        model: str,
+        voice: str,
+    ) -> "VoiceAgentSessionRecorder | None":
+        try:
+            repository = self.voice_session_repository or VoiceAgentSessionRepository()
+            session = await asyncio.to_thread(
+                repository.create_session,
+                provider=provider,
+                model=model,
+                voice=voice,
+                meta={"transport": "websocket"},
+            )
+            return VoiceAgentSessionRecorder(repository, str(session["id"]))
+        except Exception:
+            logger.exception("voice_agent_session_create_failed provider=%s model=%s", provider, model)
+            return None
 
     @staticmethod
     def _build_realtime_instructions(memory_context: str = "") -> str:
@@ -970,6 +1078,88 @@ class RealtimeVoiceService:
             await session.send_client_content(turns=turns, turn_complete=False)
         except Exception:
             return
+
+    async def _apply_google_tool_result(
+        self,
+        websocket: WebSocket,
+        session: Any,
+        result: dict[str, Any],
+        recorder: VoiceAgentSessionRecorder | None = None,
+    ) -> None:
+        prompt = VoiceAgentToolService.build_model_context_prompt(result)
+        if not prompt.strip():
+            return
+        payload = {
+            "provider": "Google",
+            "tool_name": str(result.get("tool_name", "search_web") or "search_web"),
+            "query": str(result.get("query", "")),
+            "turn_id": str(result.get("turn_id", "")),
+            "source_count": int(result.get("source_count", 0) or 0),
+            "elapsed_ms": int(result.get("elapsed_ms", 0) or 0),
+        }
+        if recorder is not None:
+            await recorder.record_tool_event("tool_context_injected", payload)
+        await self._send_event(
+            websocket,
+            "tool_context_injected",
+            **payload,
+        )
+        await session.send(input=prompt, end_of_turn=True)
+
+    async def _send_response_gated(
+        self,
+        websocket: WebSocket,
+        *,
+        provider: str,
+        tool_name: str,
+        query: str,
+        turn_id: str,
+        recorder: VoiceAgentSessionRecorder | None = None,
+    ) -> None:
+        payload = {
+            "provider": provider,
+            "tool_name": tool_name,
+            "query": query,
+            "turn_id": turn_id,
+            "message": "检测到工具请求，已暂停直接回答，等待工具结果。",
+        }
+        if recorder is not None:
+            await recorder.record_tool_event("response_gated", payload)
+        await self._send_event(
+            websocket,
+            "response_gated",
+            **payload,
+        )
+
+    async def _apply_dashscope_tool_result(
+        self,
+        websocket: WebSocket,
+        conversation: Any,
+        result: dict[str, Any],
+        recorder: VoiceAgentSessionRecorder | None = None,
+    ) -> None:
+        prompt = VoiceAgentToolService.build_model_context_prompt(result)
+        if not prompt.strip():
+            return
+        payload = {
+            "provider": "DashScope",
+            "tool_name": str(result.get("tool_name", "search_web") or "search_web"),
+            "query": str(result.get("query", "")),
+            "turn_id": str(result.get("turn_id", "")),
+            "source_count": int(result.get("source_count", 0) or 0),
+            "elapsed_ms": int(result.get("elapsed_ms", 0) or 0),
+        }
+        if recorder is not None:
+            await recorder.record_tool_event("tool_context_injected", payload)
+        await self._send_event(
+            websocket,
+            "tool_context_injected",
+            **payload,
+        )
+        conversation.create_response(
+            instructions=prompt,
+            output_modalities=[MultiModality.AUDIO, MultiModality.TEXT],  # type: ignore[union-attr]
+        )
 
     def _resolve_google_settings(self, model: str | None) -> dict[str, str]:
         provider_settings = self.config.get_provider_settings("Google", model)
@@ -1047,6 +1237,8 @@ class RealtimeVoiceService:
         websocket: WebSocket,
         session: Any,
         memory_session: RealtimeMemorySession,
+        tool_session: VoiceAgentToolSession,
+        recorder: VoiceAgentSessionRecorder | None = None,
     ) -> None:
         while True:
             message = await websocket.receive()
@@ -1081,6 +1273,15 @@ class RealtimeVoiceService:
                     await self._send_event(websocket, "pong")
                     continue
                 if command_type == "stop":
+                    async def send_stop_tool_event(event_type: str, payload: dict[str, Any]) -> None:
+                        if recorder is not None:
+                            await recorder.record_tool_event(event_type, payload)
+                        await self._send_event(websocket, event_type, **payload)
+
+                    await tool_session.cancel(
+                        send_event=send_stop_tool_event,
+                        reason="session_stopped",
+                    )
                     break
                 continue
 
@@ -1095,31 +1296,45 @@ class RealtimeVoiceService:
         websocket: WebSocket,
         session: Any,
         memory_session: RealtimeMemorySession,
+        tool_session: VoiceAgentToolSession,
+        recorder: VoiceAgentSessionRecorder | None = None,
     ) -> None:
         pending_prefill_context = ""
+        gated_tool_turn_id = ""
+
+        async def send_tool_event(event_type: str, payload: dict[str, Any]) -> None:
+            if recorder is not None:
+                await recorder.record_tool_event(event_type, payload)
+            await self._send_event(websocket, event_type, **payload)
+
         while True:
             turn = session.receive()
             async for response in turn:
                 audio_data = getattr(response, "data", None)
                 if audio_data:
-                    await self._send_event(
-                        websocket,
-                        "assistant_audio",
-                        audio=base64.b64encode(audio_data).decode("ascii"),
-                        encoding="pcm_s16le",
-                        sample_rate=24000,
-                    )
+                    if not gated_tool_turn_id:
+                        await self._send_event(
+                            websocket,
+                            "assistant_audio",
+                            audio=base64.b64encode(audio_data).decode("ascii"),
+                            encoding="pcm_s16le",
+                            sample_rate=24000,
+                        )
 
                 response_text = getattr(response, "text", None)
                 if response_text:
-                    memory_session.note_assistant_text(str(response_text))
-                    await self._send_event(websocket, "assistant_text", text=str(response_text))
+                    if not gated_tool_turn_id:
+                        memory_session.note_assistant_text(str(response_text))
+                        if recorder is not None:
+                            await recorder.note_assistant_text(str(response_text))
+                        await self._send_event(websocket, "assistant_text", text=str(response_text))
 
                 server_content = getattr(response, "server_content", None)
                 if not server_content:
                     continue
 
                 if getattr(server_content, "interrupted", False):
+                    await tool_session.cancel(send_event=send_tool_event, reason="interrupted")
                     await self._send_event(websocket, "interrupted")
 
                 user_text = self._extract_transcript_text(
@@ -1128,6 +1343,8 @@ class RealtimeVoiceService:
                 )
                 if user_text:
                     memory_session.note_user_transcript(user_text)
+                    if recorder is not None:
+                        await recorder.note_user_transcript(user_text)
                     retrieval = await memory_session.retrieve_memory_context()
                     memory_context = str(retrieval.get("context", ""))
                     memory_count = int(retrieval.get("memories_retrieved", 0))
@@ -1152,14 +1369,38 @@ class RealtimeVoiceService:
                         )
                         pending_prefill_context = memory_context
                     await self._send_event(websocket, "user_transcript", text=user_text)
+                    async def on_google_tool_result(result: dict[str, Any]) -> None:
+                        nonlocal gated_tool_turn_id
+                        gated_tool_turn_id = ""
+                        await self._apply_google_tool_result(websocket, session, result, recorder)
+
+                    tool_request = VoiceAgentToolService.extract_tool_request(user_text)
+                    tool_turn_id = await tool_session.handle_user_transcript(
+                        user_text,
+                        send_event=send_tool_event,
+                        on_result=on_google_tool_result,
+                    )
+                    if tool_turn_id:
+                        gated_tool_turn_id = tool_turn_id
+                        await self._send_response_gated(
+                            websocket,
+                            provider="Google",
+                            tool_name=tool_request.tool_name if tool_request else "voice_tool",
+                            query=tool_request.query if tool_request else "",
+                            turn_id=tool_turn_id,
+                            recorder=recorder,
+                        )
 
                 assistant_transcript = self._extract_transcript_text(
                     server_content,
                     ("output_transcription", "output_audio_transcription"),
                 )
                 if assistant_transcript:
-                    memory_session.note_assistant_text(assistant_transcript)
-                    await self._send_event(websocket, "assistant_text", text=assistant_transcript)
+                    if not gated_tool_turn_id:
+                        memory_session.note_assistant_text(assistant_transcript)
+                        if recorder is not None:
+                            await recorder.note_assistant_text(assistant_transcript)
+                        await self._send_event(websocket, "assistant_text", text=assistant_transcript)
 
                 if getattr(server_content, "turn_complete", False):
                     memory_result = await memory_session.flush_turn()
@@ -1175,13 +1416,18 @@ class RealtimeVoiceService:
                     if pending_prefill_context:
                         await self._apply_google_memory_prefill(session, pending_prefill_context)
                         pending_prefill_context = ""
-                    await self._send_event(websocket, "turn_complete")
+                    if not gated_tool_turn_id:
+                        if recorder is not None:
+                            await recorder.complete_turn(memory_result)
+                        await self._send_event(websocket, "turn_complete")
 
     async def _client_to_dashscope_loop(
         self,
         websocket: WebSocket,
         conversation: Any,
         memory_session: RealtimeMemorySession,
+        tool_session: VoiceAgentToolSession,
+        recorder: VoiceAgentSessionRecorder | None = None,
     ) -> None:
         while True:
             message = await websocket.receive()
@@ -1211,6 +1457,15 @@ class RealtimeVoiceService:
                     await self._send_event(websocket, "pong")
                     continue
                 if command_type == "stop":
+                    async def send_stop_tool_event(event_type: str, payload: dict[str, Any]) -> None:
+                        if recorder is not None:
+                            await recorder.record_tool_event(event_type, payload)
+                        await self._send_event(websocket, event_type, **payload)
+
+                    await tool_session.cancel(
+                        send_event=send_stop_tool_event,
+                        reason="session_stopped",
+                    )
                     break
                 continue
 
@@ -1225,15 +1480,27 @@ class RealtimeVoiceService:
         memory_session: RealtimeMemorySession,
         conversation: Any,
         voice: str,
+        tool_session: VoiceAgentToolSession,
+        recorder: VoiceAgentSessionRecorder | None = None,
     ) -> None:
+        async def send_tool_event(event_type: str, payload: dict[str, Any]) -> None:
+            if recorder is not None:
+                await recorder.record_tool_event(event_type, payload)
+            await self._send_event(websocket, event_type, **payload)
+
+        gated_tool_turn_id = ""
         while True:
             event = await queue.get()
             event_type = str(event.get("type", "")).strip()
             if event_type == "closed":
                 break
+            if event_type == "interrupted":
+                await tool_session.cancel(send_event=send_tool_event, reason="interrupted")
             if event_type == "user_transcript":
                 user_text = str(event.get("text", ""))
                 memory_session.note_user_transcript(user_text)
+                if recorder is not None:
+                    await recorder.note_user_transcript(user_text)
                 retrieval = await memory_session.retrieve_memory_context()
                 memory_context = str(retrieval.get("context", ""))
                 memory_count = int(retrieval.get("memories_retrieved", 0))
@@ -1279,10 +1546,40 @@ class RealtimeVoiceService:
                         enable_turn_detection=True,
                         instructions=self._build_recall_miss_instructions(user_text),
                     )
+                async def on_dashscope_tool_result(result: dict[str, Any]) -> None:
+                    nonlocal gated_tool_turn_id
+                    gated_tool_turn_id = ""
+                    await self._apply_dashscope_tool_result(websocket, conversation, result, recorder)
+
+                tool_request = VoiceAgentToolService.extract_tool_request(user_text)
+                tool_turn_id = await tool_session.handle_user_transcript(
+                    user_text,
+                    send_event=send_tool_event,
+                    on_result=on_dashscope_tool_result,
+                )
+                if tool_turn_id:
+                    gated_tool_turn_id = tool_turn_id
+                    try:
+                        conversation.cancel_response()
+                    except Exception:
+                        pass
+                    await self._send_response_gated(
+                        websocket,
+                        provider="DashScope",
+                        tool_name=tool_request.tool_name if tool_request else "voice_tool",
+                        query=tool_request.query if tool_request else "",
+                        turn_id=tool_turn_id,
+                        recorder=recorder,
+                    )
             elif event_type == "assistant_text":
-                memory_session.note_assistant_text(str(event.get("text", "")))
+                if not gated_tool_turn_id:
+                    memory_session.note_assistant_text(str(event.get("text", "")))
+                    if recorder is not None:
+                        await recorder.note_assistant_text(str(event.get("text", "")))
             elif event_type == "turn_complete":
                 memory_result = await memory_session.flush_turn()
+                if recorder is not None and not gated_tool_turn_id:
+                    await recorder.complete_turn(memory_result)
                 await self._send_event(
                     websocket,
                     "memory_write",
@@ -1301,6 +1598,8 @@ class RealtimeVoiceService:
                     enable_turn_detection=True,
                     instructions=self._build_realtime_instructions(),
                 )
+            if gated_tool_turn_id and event_type in {"assistant_audio", "assistant_text", "turn_complete"}:
+                continue
             await websocket.send_json(event)
             if event_type == "error":
                 break
@@ -1314,6 +1613,12 @@ class RealtimeVoiceService:
     ) -> None:
         settings = self._resolve_google_settings(model)
         memory_session = RealtimeMemorySession()
+        tool_session = VoiceAgentToolSession()
+        recorder = await self._create_voice_session_recorder(
+            provider="Google",
+            model=settings["model"],
+            voice=voice,
+        )
         http_options: dict[str, str] = {"api_version": "v1beta"}
         if settings["base_url"]:
             http_options["base_url"] = settings["base_url"]
@@ -1329,12 +1634,13 @@ class RealtimeVoiceService:
                     provider="Google",
                     model=settings["model"],
                     voice=voice,
+                    session_id=recorder.session_id if recorder is not None else "",
                 )
                 send_task = asyncio.create_task(
-                    self._client_to_google_loop(websocket, session, memory_session)
+                    self._client_to_google_loop(websocket, session, memory_session, tool_session, recorder)
                 )
                 receive_task = asyncio.create_task(
-                    self._google_to_client_loop(websocket, session, memory_session)
+                    self._google_to_client_loop(websocket, session, memory_session, tool_session, recorder)
                 )
                 done, pending = await asyncio.wait(
                     {send_task, receive_task},
@@ -1353,8 +1659,13 @@ class RealtimeVoiceService:
             await self._send_event(websocket, "error", message=f"Google 实时会话启动失败: {str(e)}")
             return
         finally:
-            memory_session.flush_turn()
+            memory_result = await memory_session.flush_turn()
+            if recorder is not None:
+                await recorder.complete_turn(memory_result)
             await memory_session.drain()
+            await tool_session.drain()
+            if recorder is not None:
+                await recorder.finish()
 
     async def stream_dashscope_session(
         self,
@@ -1365,6 +1676,12 @@ class RealtimeVoiceService:
     ) -> None:
         settings = self._resolve_dashscope_settings(model)
         memory_session = RealtimeMemorySession()
+        tool_session = VoiceAgentToolSession()
+        recorder = await self._create_voice_session_recorder(
+            provider="DashScope",
+            model=settings["model"],
+            voice=voice,
+        )
         import dashscope
 
         dashscope.api_key = settings["api_key"]
@@ -1398,10 +1715,11 @@ class RealtimeVoiceService:
                 provider="DashScope",
                 model=settings["model"],
                 voice=voice,
+                session_id=recorder.session_id if recorder is not None else "",
             )
 
             send_task = asyncio.create_task(
-                self._client_to_dashscope_loop(websocket, conversation, memory_session)
+                self._client_to_dashscope_loop(websocket, conversation, memory_session, tool_session, recorder)
             )
             receive_task = asyncio.create_task(
                 self._dashscope_to_client_loop(
@@ -1410,6 +1728,8 @@ class RealtimeVoiceService:
                     memory_session,
                     conversation,
                     voice,
+                    tool_session,
+                    recorder,
                 )
             )
             done, pending = await asyncio.wait(
@@ -1429,8 +1749,13 @@ class RealtimeVoiceService:
             await self._send_event(websocket, "error", message=f"DashScope 实时会话启动失败: {str(e)}")
             return
         finally:
-            memory_session.flush_turn()
+            memory_result = await memory_session.flush_turn()
+            if recorder is not None:
+                await recorder.complete_turn(memory_result)
             await memory_session.drain()
+            await tool_session.drain()
+            if recorder is not None:
+                await recorder.finish()
             try:
                 conversation.close()
             except Exception:

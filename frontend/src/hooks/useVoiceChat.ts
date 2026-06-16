@@ -7,7 +7,9 @@ import {
   getPersistedEverMemConversationGroupId,
   persistEverMemConversationGroupId,
   type ChatMessage,
+  type VoiceAgentSource,
   type VoiceChatServerEvent,
+  type VoiceAgentToolRecord,
 } from "../api";
 import { createInlineTranslator, type UiLanguage } from "../i18n";
 import type { FormatErrorMessage } from "../utils/errorFormatting";
@@ -207,6 +209,33 @@ function mergeAssistantText(previous: string, incoming: string): string {
   return `${previous}${next}`;
 }
 
+function formatElapsedMs(value: number | undefined): string {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+    return "";
+  }
+  if (value < 1000) {
+    return `${Math.round(value)}ms`;
+  }
+  return `${(value / 1000).toFixed(1)}s`;
+}
+
+function buildToolMeta(params: {
+  toolName?: string;
+  turnId?: string;
+  sourceCount?: number;
+  elapsedMs?: number;
+  reason?: string;
+}): string {
+  const parts = [
+    params.turnId || "",
+    params.toolName || "",
+    typeof params.sourceCount === "number" ? `${params.sourceCount} sources` : "",
+    formatElapsedMs(params.elapsedMs),
+    params.reason || "",
+  ].filter(Boolean);
+  return parts.join(" · ");
+}
+
 function normalizeVoiceCaptureError(
   error: unknown,
   fallback: string,
@@ -283,6 +312,9 @@ export default function useVoiceChat({
   const [voiceChatMemoryWriteStatus, setVoiceChatMemoryWriteStatus] = useState("");
   const [voiceChatMemorySourceStatus, setVoiceChatMemorySourceStatus] = useState("");
   const [voiceChatMemoryScope, setVoiceChatMemoryScope] = useState("");
+  const [voiceChatAgentToolStatus, setVoiceChatAgentToolStatus] = useState("");
+  const [voiceChatAgentSources, setVoiceChatAgentSources] = useState<VoiceAgentSource[]>([]);
+  const [voiceChatAgentRunMeta, setVoiceChatAgentRunMeta] = useState("");
   const [voiceChatMemoryGroupId, setVoiceChatMemoryGroupId] = useState(
     () => getPersistedEverMemConversationGroupId("voice_chat")
   );
@@ -302,6 +334,7 @@ export default function useVoiceChat({
   const currentMemoryRetrieveAttemptedRef = useRef(false);
   const currentLocalPendingCountRef = useRef(0);
   const currentCloudCountRef = useRef(0);
+  const currentToolRecordsRef = useRef<VoiceAgentToolRecord[]>([]);
   const lastPreferredProviderRef = useRef(preferredProvider);
   const lastPreferredModelRef = useRef(preferredModel);
   const sessionEpochRef = useRef(0);
@@ -428,9 +461,26 @@ export default function useVoiceChat({
     return sessionEpochRef.current;
   }
 
+  function appendCurrentToolRecord(record: VoiceAgentToolRecord) {
+    currentToolRecordsRef.current = [...currentToolRecordsRef.current, record];
+  }
+
+  function cloneCurrentToolRecords(): VoiceAgentToolRecord[] {
+    return currentToolRecordsRef.current.map((record) => ({
+      ...record,
+      sources: record.sources?.map((source) => ({ ...source })),
+      artifact: record.artifact ? { ...record.artifact } : undefined,
+    }));
+  }
+
+  function resetCurrentToolRecords() {
+    currentToolRecordsRef.current = [];
+  }
+
   function commitCompletedTurn() {
     const userText = currentUserTurnRef.current.trim();
     const assistantText = currentAssistantTurnRef.current.trim();
+    const toolCalls = cloneCurrentToolRecords();
     const memorySaved = currentMemorySavedRef.current;
     const memoriesUsed = currentMemoriesRetrievedRef.current;
     const memorySourceSummary = buildMemorySourceSummary({
@@ -439,7 +489,7 @@ export default function useVoiceChat({
       localPendingCount: currentLocalPendingCountRef.current,
       cloudCount: currentCloudCountRef.current,
     });
-    if (!userText && !assistantText) {
+    if (!userText && !assistantText && toolCalls.length === 0) {
       return;
     }
     setVoiceChatMessages((prev) => {
@@ -447,19 +497,22 @@ export default function useVoiceChat({
       if (userText) {
         next.push({ role: "user", content: userText, memorySaved });
       }
-      if (assistantText) {
+      if (assistantText || toolCalls.length > 0) {
+        const fallbackToolMessage = toolCalls.at(-1)?.message || t("工具调用已记录", "Tool call recorded");
         next.push({
           role: "assistant",
-          content: assistantText,
+          content: assistantText || fallbackToolMessage,
           memoriesUsed: memoriesUsed > 0 ? memoriesUsed : undefined,
           memorySourceSummary: memorySourceSummary || undefined,
           memoryRetrievalAttempted: currentMemoryRetrieveAttemptedRef.current,
+          toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
         });
       }
       return next.slice(-12);
     });
     currentUserTurnRef.current = "";
     currentAssistantTurnRef.current = "";
+    resetCurrentToolRecords();
     currentMemorySavedRef.current = false;
     currentMemoryRetrieveAttemptedRef.current = false;
     currentLocalPendingCountRef.current = 0;
@@ -635,7 +688,170 @@ export default function useVoiceChat({
         return;
       case "interrupted":
         stopAssistantPlayback();
+        setVoiceChatAgentToolStatus(t("已打断当前语音任务", "Interrupted the current voice task"));
         setVoiceChatStatus(t("已打断助手，继续说话中…", "Assistant interrupted, continue speaking…"));
+        return;
+      case "tool_call_started":
+        appendCurrentToolRecord({
+          status: "started",
+          tool_name: event.tool_name,
+          turn_id: event.turn_id,
+          query: event.query,
+          message: event.message,
+        });
+        setVoiceChatAgentSources([]);
+        setVoiceChatAgentToolStatus(event.message || t("正在调用工具…", "Calling a tool…"));
+        setVoiceChatAgentRunMeta(buildToolMeta({
+          toolName: event.tool_name,
+          turnId: event.turn_id,
+        }));
+        setVoiceChatStatus(event.message || t("正在调用工具…", "Calling a tool…"));
+        return;
+      case "agent_progress":
+        appendCurrentToolRecord({
+          status: "progress",
+          stage: event.stage,
+          turn_id: event.turn_id,
+          message: event.message,
+          elapsed_ms: event.elapsed_ms,
+        });
+        setVoiceChatAgentToolStatus(event.message);
+        setVoiceChatAgentRunMeta(buildToolMeta({
+          turnId: event.turn_id,
+          elapsedMs: event.elapsed_ms,
+        }));
+        setVoiceChatStatus(event.message);
+        return;
+      case "tool_call_completed":
+        appendCurrentToolRecord({
+          status: "completed",
+          tool_name: event.tool_name,
+          turn_id: event.turn_id,
+          query: event.query,
+          source_count: event.source_count,
+          elapsed_ms: event.elapsed_ms,
+        });
+        setVoiceChatAgentToolStatus(
+          t(
+            `工具调用完成，已整理 ${event.source_count || 0} 个来源`,
+            `Tool completed, organized ${event.source_count || 0} sources`
+          )
+        );
+        setVoiceChatAgentRunMeta(buildToolMeta({
+          toolName: event.tool_name,
+          turnId: event.turn_id,
+          sourceCount: event.source_count || 0,
+          elapsedMs: event.elapsed_ms,
+        }));
+        return;
+      case "tool_call_failed":
+        appendCurrentToolRecord({
+          status: "failed",
+          tool_name: event.tool_name,
+          turn_id: event.turn_id,
+          query: event.query,
+          message: event.message,
+          elapsed_ms: event.elapsed_ms,
+        });
+        setVoiceChatAgentToolStatus(
+          event.message || t("工具调用失败", "Tool call failed")
+        );
+        setVoiceChatAgentRunMeta(buildToolMeta({
+          toolName: event.tool_name,
+          turnId: event.turn_id,
+          elapsedMs: event.elapsed_ms,
+        }));
+        return;
+      case "tool_call_cancelled":
+        appendCurrentToolRecord({
+          status: "cancelled",
+          tool_name: event.tool_name,
+          turn_id: event.turn_id,
+          query: event.query,
+          reason: event.reason,
+          elapsed_ms: event.elapsed_ms,
+        });
+        setVoiceChatAgentToolStatus(t("工具调用已取消", "Tool call cancelled"));
+        setVoiceChatAgentRunMeta(buildToolMeta({
+          toolName: event.tool_name,
+          turnId: event.turn_id,
+          elapsedMs: event.elapsed_ms,
+          reason: event.reason,
+        }));
+        return;
+      case "tool_context_injected":
+        appendCurrentToolRecord({
+          status: "context_injected",
+          provider: event.provider,
+          tool_name: event.tool_name,
+          turn_id: event.turn_id,
+          query: event.query,
+          source_count: event.source_count,
+          elapsed_ms: event.elapsed_ms,
+        });
+        setVoiceChatAgentToolStatus(
+          t(
+            `已将搜索结果交给 ${event.provider} 生成语音回答`,
+            `Passed search results to ${event.provider} for a voice answer`
+          )
+        );
+        setVoiceChatAgentRunMeta(buildToolMeta({
+          toolName: event.tool_name,
+          turnId: event.turn_id,
+          sourceCount: event.source_count,
+          elapsedMs: event.elapsed_ms,
+        }));
+        setVoiceChatStatus(t("正在基于搜索结果语音回答…", "Answering from search results…"));
+        return;
+      case "response_gated":
+        appendCurrentToolRecord({
+          status: "response_gated",
+          provider: event.provider,
+          tool_name: event.tool_name,
+          turn_id: event.turn_id,
+          query: event.query,
+          message: event.message,
+        });
+        setVoiceChatAgentToolStatus(
+          event.message || t("已暂停直接回答，等待工具结果", "Direct answer paused while waiting for tool results")
+        );
+        setVoiceChatAgentRunMeta(buildToolMeta({
+          toolName: event.tool_name,
+          turnId: event.turn_id,
+        }));
+        setVoiceChatStatus(t("正在等待搜索工具结果…", "Waiting for search tool results…"));
+        return;
+      case "agent_result":
+        appendCurrentToolRecord({
+          status: "result",
+          tool_name: event.tool_name,
+          turn_id: event.turn_id,
+          query: event.query,
+          answer: event.answer,
+          source_count: event.source_count,
+          elapsed_ms: event.elapsed_ms,
+          artifact: event.artifact,
+          sources: event.sources || [],
+        });
+        currentAssistantTurnRef.current = mergeAssistantText(
+          currentAssistantTurnRef.current,
+          event.answer
+        );
+        setVoiceChatReply(currentAssistantTurnRef.current);
+        setVoiceChatAgentSources(event.sources || []);
+        setVoiceChatAgentRunMeta(buildToolMeta({
+          toolName: event.tool_name,
+          turnId: event.turn_id,
+          sourceCount: event.source_count ?? event.sources.length,
+          elapsedMs: event.elapsed_ms,
+        }));
+        setVoiceChatAgentToolStatus(
+          t(
+            `已基于 ${event.sources.length} 个来源生成搜索摘要`,
+            `Generated a search summary from ${event.sources.length} sources`
+          )
+        );
+        setVoiceChatStatus(t("搜索摘要已生成", "Search summary generated"));
         return;
       case "turn_complete":
         {
@@ -703,6 +919,9 @@ export default function useVoiceChat({
       setVoiceChatMemoriesRetrieved(0);
       setVoiceChatMemoryWriteStatus("");
       setVoiceChatMemorySourceStatus("");
+      setVoiceChatAgentToolStatus("");
+      setVoiceChatAgentSources([]);
+      setVoiceChatAgentRunMeta("");
       setVoiceChatMemoryScope("");
       setVoiceChatMemoryGroupId(memoryGroupId);
 
@@ -844,6 +1063,7 @@ export default function useVoiceChat({
     currentMemoryRetrieveAttemptedRef.current = false;
     currentLocalPendingCountRef.current = 0;
     currentCloudCountRef.current = 0;
+    resetCurrentToolRecords();
     setVoiceChatMessages(Array.isArray(messages) ? messages : []);
     setVoiceChatTranscript("");
     setVoiceChatReply("");
@@ -851,6 +1071,9 @@ export default function useVoiceChat({
     setVoiceChatError("");
     setVoiceChatMemoryWriteStatus("");
     setVoiceChatMemorySourceStatus("");
+    setVoiceChatAgentToolStatus("");
+    setVoiceChatAgentSources([]);
+    setVoiceChatAgentRunMeta("");
     setVoiceChatStatus(
       messages.length
         ? t("已恢复历史实时语音会话", "Restored a previous realtime voice session")
@@ -898,6 +1121,7 @@ export default function useVoiceChat({
       currentMemoryRetrieveAttemptedRef.current = false;
       currentLocalPendingCountRef.current = 0;
       currentCloudCountRef.current = 0;
+      resetCurrentToolRecords();
       setVoiceChatTranscript("");
       setVoiceChatReply("");
       setVoiceChatMemoriesRetrieved(0);
@@ -907,12 +1131,18 @@ export default function useVoiceChat({
       setVoiceChatMemoryWriteStatus("");
       setVoiceChatMemorySourceStatus("");
       setVoiceChatMemoryScope("");
+      setVoiceChatAgentToolStatus("");
+      setVoiceChatAgentSources([]);
+      setVoiceChatAgentRunMeta("");
       clearPersistedEverMemConversationGroupId("voice_chat");
       setVoiceChatMemoryGroupId("");
     },
     voiceChatMemoryWriteStatus,
     voiceChatMemorySourceStatus,
     voiceChatMemoryScope,
+    voiceChatAgentToolStatus,
+    voiceChatAgentSources,
+    voiceChatAgentRunMeta,
     voiceChatMemoryGroupId,
     replaceSession,
   };

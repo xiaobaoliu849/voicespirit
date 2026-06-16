@@ -326,4 +326,152 @@ describe("useVoiceChat", () => {
     expect(result.current.voiceChatModel).toBe("qwen3-omni-flash-realtime-2025-12-01");
     expect(result.current.voiceChatModelOptions).toEqual(["qwen3-omni-flash-realtime-2025-12-01"]);
   });
+
+  it("tracks voice agent tool progress and grounded search sources", async () => {
+    const formatErrorMessage = createFormatErrorMessageStub();
+    ensureEverMemConversationGroupIdMock.mockResolvedValue("voice-group-001");
+
+    const { result } = renderHook(() =>
+      useVoiceChat({
+        formatErrorMessage,
+        providerOptions: ["DashScope"],
+        preferredProvider: "DashScope",
+        preferredModel: "qwen3-omni-flash-realtime-2025-12-01",
+        providerModelCatalog: {
+          DashScope: {
+            defaultModel: "qwen3-omni-flash-realtime-2025-12-01",
+            availableModels: ["qwen3-omni-flash-realtime-2025-12-01"],
+          },
+        },
+      })
+    );
+
+    await act(async () => {
+      await result.current.onToggleRecording();
+    });
+    const socket = FakeWebSocket.instances[0];
+    act(() => {
+      socket.emitOpen();
+      socket.emitMessage({
+        type: "user_transcript",
+        text: "帮我搜索 AI voice agent 的资料",
+      });
+      socket.emitMessage({
+        type: "tool_call_started",
+        tool_name: "search_web",
+        turn_id: "voice-tool-1",
+        query: "AI voice agent",
+        message: "正在搜索相关资料...",
+      });
+    });
+
+    expect(result.current.voiceChatAgentToolStatus).toBe("正在搜索相关资料...");
+    expect(result.current.voiceChatAgentRunMeta).toBe("voice-tool-1 · search_web");
+    expect(result.current.voiceChatAgentSources).toEqual([]);
+
+    act(() => {
+      socket.emitMessage({
+        type: "response_gated",
+        provider: "DashScope",
+        tool_name: "search_web",
+        turn_id: "voice-tool-1",
+        query: "AI voice agent",
+        message: "检测到工具请求，已暂停直接回答，等待工具结果。",
+      });
+    });
+
+    expect(result.current.voiceChatAgentToolStatus).toBe("检测到工具请求，已暂停直接回答，等待工具结果。");
+    expect(result.current.voiceChatAgentRunMeta).toBe("voice-tool-1 · search_web");
+    expect(result.current.voiceChatStatus).toBe("正在等待搜索工具结果…");
+
+    act(() => {
+      socket.emitMessage({
+        type: "agent_result",
+        turn_id: "voice-tool-1",
+        query: "AI voice agent",
+        answer: "我查到这些信息，可以先按来源做一个简要整合。",
+        source_count: 1,
+        elapsed_ms: 320,
+        sources: [
+          {
+            title: "Research source",
+            uri: "https://example.com/research",
+            snippet: "Fetched research content",
+            source_type: "web_search",
+          },
+        ],
+      });
+    });
+
+    expect(result.current.voiceChatReply).toContain("我查到这些信息");
+    expect(result.current.voiceChatAgentToolStatus).toBe("已基于 1 个来源生成搜索摘要");
+    expect(result.current.voiceChatAgentRunMeta).toBe("voice-tool-1 · 1 sources · 320ms");
+    expect(result.current.voiceChatAgentSources).toEqual([
+      {
+        title: "Research source",
+        uri: "https://example.com/research",
+        snippet: "Fetched research content",
+        source_type: "web_search",
+      },
+    ]);
+
+    act(() => {
+      socket.emitMessage({
+        type: "tool_context_injected",
+        provider: "DashScope",
+        tool_name: "search_web",
+        turn_id: "voice-tool-1",
+        query: "AI voice agent",
+        source_count: 1,
+        elapsed_ms: 320,
+      });
+    });
+
+    expect(result.current.voiceChatAgentToolStatus).toBe("已将搜索结果交给 DashScope 生成语音回答");
+    expect(result.current.voiceChatAgentRunMeta).toBe("voice-tool-1 · search_web · 1 sources · 320ms");
+    expect(result.current.voiceChatStatus).toBe("正在基于搜索结果语音回答…");
+
+    act(() => {
+      socket.emitMessage({ type: "turn_complete" });
+    });
+
+    expect(result.current.voiceChatMessages).toHaveLength(2);
+    expect(result.current.voiceChatMessages[0]).toMatchObject({
+      role: "user",
+      content: "帮我搜索 AI voice agent 的资料",
+    });
+    expect(result.current.voiceChatMessages[1]).toMatchObject({
+      role: "assistant",
+      content: expect.stringContaining("我查到这些信息"),
+      toolCalls: expect.arrayContaining([
+        expect.objectContaining({
+          status: "started",
+          tool_name: "search_web",
+          turn_id: "voice-tool-1",
+          query: "AI voice agent",
+        }),
+        expect.objectContaining({
+          status: "response_gated",
+          provider: "DashScope",
+          tool_name: "search_web",
+        }),
+        expect.objectContaining({
+          status: "result",
+          query: "AI voice agent",
+          source_count: 1,
+          sources: [
+            expect.objectContaining({
+              title: "Research source",
+              uri: "https://example.com/research",
+            }),
+          ],
+        }),
+        expect.objectContaining({
+          status: "context_injected",
+          provider: "DashScope",
+          tool_name: "search_web",
+        }),
+      ]),
+    });
+  });
 });

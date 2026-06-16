@@ -24,6 +24,7 @@ from routers import settings as settings_router
 from routers import transcription as transcription_router
 from routers import translate as translate_router
 from routers import tts as tts_router
+from routers import voice_chat as voice_chat_router
 from routers import voices as voices_router
 from services.audio_overview_service import AudioOverviewService, AudioOverviewServiceError
 from services.audio_agent_service import AudioAgentService
@@ -34,6 +35,7 @@ from services.settings_service import SettingsService
 from services.transcription_publish_adapter import build_transcription_publisher
 from services.transcription_service import TranscriptionService
 from services.user_auth_service import user_auth_service
+from services.voice_agent_session_repository import VoiceAgentSessionRepository
 
 
 class ApiSmokeTests(unittest.TestCase):
@@ -61,6 +63,56 @@ class ApiSmokeTests(unittest.TestCase):
             if isinstance(route, WebSocketRoute)
         }
         self.assertIn("/api/voice-chat/ws", websocket_paths)
+
+    def test_voice_chat_session_history_endpoints(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            original_repository = voice_chat_router.voice_agent_session_repository
+            repository = VoiceAgentSessionRepository(Path(tmp_dir) / "voice_agent.db")
+            voice_chat_router.voice_agent_session_repository = repository
+            try:
+                session = repository.create_session(
+                    provider="DashScope",
+                    model="qwen-realtime",
+                    voice="Cherry",
+                )
+                repository.upsert_turn(
+                    session["id"],
+                    "voice-tool-1",
+                    user_text="帮我搜索语音 Agent",
+                    assistant_text="我查到这些信息。",
+                    completed=True,
+                )
+                repository.add_tool_event(
+                    session["id"],
+                    "agent_result",
+                    {
+                        "tool_name": "search_web",
+                        "turn_id": "voice-tool-1",
+                        "query": "语音 Agent",
+                        "answer": "我查到这些信息。",
+                    },
+                )
+
+                list_response = self._request("GET", "/api/voice-chat/sessions?limit=5")
+                self.assertEqual(list_response.status_code, 200)
+                list_payload = list_response.json()
+                self.assertEqual(list_payload["count"], 1)
+                self.assertEqual(list_payload["sessions"][0]["id"], session["id"])
+
+                detail_response = self._request("GET", f"/api/voice-chat/sessions/{session['id']}")
+                self.assertEqual(detail_response.status_code, 200)
+                detail_payload = detail_response.json()
+                self.assertEqual(detail_payload["turns"][0]["user_text"], "帮我搜索语音 Agent")
+                self.assertEqual(detail_payload["tool_events"][0]["event_type"], "agent_result")
+
+                missing_response = self._request("GET", "/api/voice-chat/sessions/missing")
+                self.assertEqual(missing_response.status_code, 404)
+                self.assertEqual(
+                    missing_response.json()["detail"]["code"],
+                    "VOICE_AGENT_SESSION_NOT_FOUND",
+                )
+            finally:
+                voice_chat_router.voice_agent_session_repository = original_repository
 
     def test_realtime_voice_service_requires_google_api_key(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:

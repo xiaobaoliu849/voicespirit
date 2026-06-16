@@ -22,6 +22,103 @@ export type ChatAttachment = {
   content: string;
 };
 
+export type VoiceAgentSource = {
+  title: string;
+  uri: string;
+  snippet: string;
+  source_type: string;
+  score?: number;
+};
+
+export type VoiceAgentArtifact = {
+  type: string;
+  run_id?: number;
+  status?: string;
+  topic?: string;
+  current_step?: string;
+  source_text?: string;
+  target_language?: string;
+  translated_text?: string;
+  transcript_excerpt?: string;
+  summary?: string;
+  text?: string;
+  audio_path?: string;
+  voice?: string;
+  engine?: string;
+  rate?: string;
+  cache_hit?: boolean;
+  provider?: string;
+  model?: string;
+};
+
+export type VoiceAgentToolRecord = {
+  status:
+    | "started"
+    | "progress"
+    | "completed"
+    | "failed"
+    | "cancelled"
+    | "context_injected"
+    | "response_gated"
+    | "result";
+  tool_name?: string;
+  turn_id?: string;
+  query?: string;
+  message?: string;
+  answer?: string;
+  source_count?: number;
+  elapsed_ms?: number;
+  reason?: string;
+  provider?: string;
+  stage?: string;
+  sources?: VoiceAgentSource[];
+  artifact?: VoiceAgentArtifact;
+};
+
+export type VoiceAgentSessionHistory = {
+  id: string;
+  provider: string;
+  model: string;
+  voice: string;
+  status: string;
+  started_at: string;
+  ended_at?: string;
+  meta?: Record<string, unknown>;
+};
+
+export type VoiceAgentTurnHistory = {
+  id: number;
+  session_id: string;
+  turn_id: string;
+  user_text: string;
+  assistant_text: string;
+  memory_payload?: Record<string, unknown>;
+  completed: boolean;
+  started_at: string;
+  completed_at?: string;
+};
+
+export type VoiceAgentToolEventHistory = {
+  id: number;
+  session_id: string;
+  turn_id: string;
+  event_type: string;
+  tool_name: string;
+  query: string;
+  payload: Record<string, unknown>;
+  created_at: string;
+};
+
+export type VoiceAgentSessionHistoryListResponse = {
+  count: number;
+  sessions: VoiceAgentSessionHistory[];
+};
+
+export type VoiceAgentSessionHistoryDetailResponse = VoiceAgentSessionHistory & {
+  turns: VoiceAgentTurnHistory[];
+  tool_events: VoiceAgentToolEventHistory[];
+};
+
 export type ChatMessage = {
   role: "system" | "user" | "assistant";
   content: string;
@@ -30,6 +127,7 @@ export type ChatMessage = {
   memorySaved?: boolean;
   memorySourceSummary?: string;
   memoryRetrievalAttempted?: boolean;
+  toolCalls?: VoiceAgentToolRecord[];
 };
 
 export type ChatRequest = {
@@ -374,7 +472,7 @@ export type TranscriptionJobListResponse = {
 };
 
 export type VoiceChatServerEvent =
-  | { type: "session_open"; provider: string; model: string; voice: string }
+  | { type: "session_open"; provider: string; model: string; voice: string; session_id?: string }
   | { type: "memory_config"; enabled: boolean; scope: string; group_id?: string }
   | {
       type: "memory_context";
@@ -395,6 +493,72 @@ export type VoiceChatServerEvent =
   | { type: "assistant_text"; text: string }
   | { type: "assistant_audio"; audio: string; encoding: string; sample_rate: number }
   | { type: "interrupted" }
+  | {
+      type: "tool_call_started";
+      tool_name: string;
+      turn_id?: string;
+      query?: string;
+      message?: string;
+    }
+  | {
+      type: "agent_progress";
+      stage: string;
+      turn_id?: string;
+      message: string;
+      elapsed_ms?: number;
+    }
+  | {
+      type: "tool_call_completed";
+      tool_name: string;
+      turn_id?: string;
+      query?: string;
+      source_count?: number;
+      elapsed_ms?: number;
+    }
+  | {
+      type: "tool_call_failed";
+      tool_name: string;
+      turn_id?: string;
+      query?: string;
+      message: string;
+      elapsed_ms?: number;
+    }
+  | {
+      type: "tool_call_cancelled";
+      tool_name: string;
+      turn_id?: string;
+      query?: string;
+      reason?: string;
+      elapsed_ms?: number;
+    }
+  | {
+      type: "tool_context_injected";
+      provider: string;
+      tool_name: string;
+      turn_id?: string;
+      query?: string;
+      source_count?: number;
+      elapsed_ms?: number;
+    }
+  | {
+      type: "response_gated";
+      provider: string;
+      tool_name: string;
+      turn_id?: string;
+      query?: string;
+      message?: string;
+    }
+  | {
+      type: "agent_result";
+      tool_name?: string;
+      query: string;
+      turn_id?: string;
+      answer: string;
+      source_count?: number;
+      elapsed_ms?: number;
+      artifact?: VoiceAgentArtifact;
+      sources: VoiceAgentSource[];
+    }
   | { type: "turn_complete" }
   | { type: "pong" }
   | { type: "error"; message: string; provider?: string };
@@ -790,6 +954,32 @@ export function buildVoiceChatWebSocketUrl(params: {
     wsUrl.searchParams.set("voice", params.voice);
   }
   return wsUrl.toString();
+}
+
+export async function listVoiceAgentSessions(
+  limit = 20
+): Promise<VoiceAgentSessionHistoryListResponse> {
+  const normalizedLimit = Number.isFinite(limit) ? Math.floor(limit) : 20;
+  const safeLimit = Math.max(1, Math.min(normalizedLimit, 200));
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/voice-chat/sessions?limit=${encodeURIComponent(String(safeLimit))}`
+  );
+  if (!response.ok) {
+    await throwApiError(response);
+  }
+  return (await response.json()) as VoiceAgentSessionHistoryListResponse;
+}
+
+export async function fetchVoiceAgentSession(
+  sessionId: string
+): Promise<VoiceAgentSessionHistoryDetailResponse> {
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/voice-chat/sessions/${encodeURIComponent(sessionId)}`
+  );
+  if (!response.ok) {
+    await throwApiError(response);
+  }
+  return (await response.json()) as VoiceAgentSessionHistoryDetailResponse;
 }
 
 export async function fetchApiRuntimeInfo(): Promise<ApiRuntimeInfo> {

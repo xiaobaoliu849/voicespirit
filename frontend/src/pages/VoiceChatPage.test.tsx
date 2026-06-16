@@ -50,4 +50,30 @@ describe("VoiceChatPage", () => {
 
     expect(screen.getByText("已回忆 1 条长期记忆（本地待同步 1，云端 0）")).toBeInTheDocument();
   });
+
+  it("shows voice agent tool status and sources", () => {
+    render(
+      <VoiceChatPage
+        voiceChat={createVoiceChatController({
+          voiceChatAgentToolStatus: "已基于 1 个来源生成搜索摘要",
+          voiceChatAgentRunMeta: "voice-tool-1 · search_web · 1 sources · 320ms",
+          voiceChatAgentSources: [
+            {
+              title: "Research source",
+              uri: "https://example.com/research",
+              snippet: "Fetched research content",
+              source_type: "web_search",
+            },
+          ],
+        })}
+        errorRuntimeContext={{}}
+      />
+    );
+
+    expect(screen.getByText("已基于 1 个来源生成搜索摘要")).toBeInTheDocument();
+    expect(screen.getByText("voice-tool-1 · search_web · 1 sources · 320ms")).toBeInTheDocument();
+    expect(screen.getByText("工具来源")).toBeInTheDocument();
+    expect(screen.getByText("Research source")).toBeInTheDocument();
+    expect(screen.getByText("Fetched research content")).toBeInTheDocument();
+  });
 });

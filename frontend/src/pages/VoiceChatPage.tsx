@@ -176,6 +176,38 @@ export default function VoiceChatPage({ voiceChat, errorRuntimeContext }: Props)
                 {voiceChat.voiceChatMemoryWriteStatus}
               </div>
             ) : null}
+            {voiceChat.voiceChatAgentToolStatus ? (
+              <div className="vsVoiceMemoryNotice">
+                {voiceChat.voiceChatAgentToolStatus}
+              </div>
+            ) : null}
+            {voiceChat.voiceChatAgentRunMeta ? (
+              <div className="vsFieldHint">
+                {voiceChat.voiceChatAgentRunMeta}
+              </div>
+            ) : null}
+            {voiceChat.voiceChatAgentSources.length > 0 ? (
+              <div className="vsField" style={{ marginTop: 12 }}>
+                <label className="vsFieldLabel">{t("工具来源", "Tool sources")}</label>
+                <div style={{ display: "grid", gap: 8 }}>
+                  {voiceChat.voiceChatAgentSources.map((source, index) => (
+                    <div
+                      key={`${source.uri || source.title}-${index}`}
+                      className="vsRealtimeContent"
+                      style={{ border: "1px solid var(--line)", borderRadius: 10, padding: 12, background: "white" }}
+                    >
+                      <div style={{ fontWeight: 700 }}>{source.title || t("未命名来源", "Untitled source")}</div>
+                      {source.uri ? (
+                        <a href={source.uri} target="_blank" rel="noreferrer" className="vsFieldHint">
+                          {source.uri}
+                        </a>
+                      ) : null}
+                      <div className="vsFieldHint">{source.snippet}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
             <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 12 }}>
               <button type="button" className="vsBtnSecondary" onClick={voiceChat.onResetSession}>
                 {t("清空本轮", "Clear session")}
