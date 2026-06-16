@@ -1,9 +1,11 @@
 import React, { useEffect, useState, useMemo } from "react";
 import {
+  API_BASE_URL,
   createTranscriptionJobFromUrl,
   fetchTranscriptionJob,
   transcribeAudio,
   type TranscriptionJobResponse,
+  type WordTimestamp,
 } from "../api";
 import ErrorNotice from "../components/ErrorNotice";
 import { TranscriptionCard } from "../components/TranscriptionCard";
@@ -21,6 +23,218 @@ type ViewMode = "library" | "detail";
 
 function isPollingStatus(status: string | null | undefined): boolean {
   return status === "submitted" || status === "running";
+}
+
+// ── SRT / VTT helpers ──
+
+function pad2(n: number): string {
+  return n < 10 ? `0${n}` : `${n}`;
+}
+
+function pad3(n: number): string {
+  if (n < 10) return `00${n}`;
+  if (n < 100) return `0${n}`;
+  return `${n}`;
+}
+
+function formatSrtTime(totalSeconds: number): string {
+  const h = Math.floor(totalSeconds / 3600);
+  const m = Math.floor((totalSeconds % 3600) / 60);
+  const s = Math.floor(totalSeconds % 60);
+  const ms = Math.round((totalSeconds % 1) * 1000);
+  return `${pad2(h)}:${pad2(m)}:${pad2(s)},${pad3(ms)}`;
+}
+
+function formatVttTime(totalSeconds: number): string {
+  const h = Math.floor(totalSeconds / 3600);
+  const m = Math.floor((totalSeconds % 3600) / 60);
+  const s = Math.floor(totalSeconds % 60);
+  const ms = Math.round((totalSeconds % 1) * 1000);
+  return `${pad2(h)}:${pad2(m)}:${pad2(s)}.${pad3(ms)}`;
+}
+
+function splitTranscriptToSegments(text: string): string[] {
+  const cleaned = text.replace(/\r\n/g, "\n").trim();
+  if (!cleaned) return [];
+
+  // Split by sentence-ending punctuation (CJK + Western) or double newlines
+  const raw = cleaned.split(/(?<=[。！？!?\n])\s*/);
+  const segments: string[] = [];
+  let buf = "";
+
+  for (const part of raw) {
+    const trimmed = part.trim();
+    if (!trimmed) continue;
+    // If buffer + part is too long for a subtitle line, flush first
+    if (buf && (buf.length + trimmed.length > 60 || buf.includes("\n"))) {
+      segments.push(buf.trim());
+      buf = "";
+    }
+    buf += (buf ? " " : "") + trimmed;
+    // Flush if we hit a natural sentence boundary
+    if (/[。！？!?\n]$/.test(trimmed)) {
+      segments.push(buf.trim());
+      buf = "";
+    }
+  }
+  if (buf.trim()) segments.push(buf.trim());
+
+  // If we ended up with very few segments, split by character count
+  if (segments.length <= 1 && cleaned.length > 80) {
+    const chunks: string[] = [];
+    const chars = [...cleaned];
+    let chunk = "";
+    for (const ch of chars) {
+      chunk += ch;
+      if (chunk.length >= 50 && /[，,。！？!?\s]/.test(ch)) {
+        chunks.push(chunk.trim());
+        chunk = "";
+      }
+    }
+    if (chunk.trim()) chunks.push(chunk.trim());
+    return chunks.length > 0 ? chunks : segments;
+  }
+
+  return segments;
+}
+
+function generateSrt(text: string, durationSec: number, words?: WordTimestamp[] | null): string {
+  // If we have word-level timestamps, use them directly
+  if (words && words.length > 0) {
+    return generateSrtFromWords(words);
+  }
+
+  // Otherwise, estimate timestamps from segments
+  const segments = splitTranscriptToSegments(text);
+  if (segments.length === 0) return "";
+  const safeDuration = durationSec > 0 ? durationSec : segments.length * 5;
+  const segDuration = safeDuration / segments.length;
+
+  return segments
+    .map((seg, i) => {
+      const start = i * segDuration;
+      const end = Math.min((i + 1) * segDuration, safeDuration);
+      return `${i + 1}\n${formatSrtTime(start)} --> ${formatSrtTime(end)}\n${seg}`;
+    })
+    .join("\n\n");
+}
+
+function generateSrtFromWords(words: WordTimestamp[]): string {
+  // Group words into subtitle segments (max ~10 words or ~5 seconds per segment)
+  const segments: Array<{ start: number; end: number; text: string }> = [];
+  let currentSegment: WordTimestamp[] = [];
+  let segmentStart = words[0]?.start ?? 0;
+
+  for (const word of words) {
+    currentSegment.push(word);
+
+    // Start new segment if: >10 words, >5 seconds, or sentence-ending punctuation
+    const segmentDuration = word.end - segmentStart;
+    const isSentenceEnd = /[。！？!?\n]$/.test(word.text);
+    if (currentSegment.length >= 10 || segmentDuration >= 5 || isSentenceEnd) {
+      segments.push({
+        start: segmentStart,
+        end: word.end,
+        text: currentSegment.map(w => w.text).join(" "),
+      });
+      currentSegment = [];
+      segmentStart = word.end;
+    }
+  }
+
+  // Add remaining words as final segment
+  if (currentSegment.length > 0) {
+    segments.push({
+      start: segmentStart,
+      end: currentSegment[currentSegment.length - 1].end,
+      text: currentSegment.map(w => w.text).join(" "),
+    });
+  }
+
+  return segments
+    .map((seg, i) => {
+      return `${i + 1}\n${formatSrtTime(seg.start)} --> ${formatSrtTime(seg.end)}\n${seg.text}`;
+    })
+    .join("\n\n");
+}
+
+function generateVtt(text: string, durationSec: number, words?: WordTimestamp[] | null): string {
+  // If we have word-level timestamps, use them directly
+  if (words && words.length > 0) {
+    return generateVttFromWords(words);
+  }
+
+  // Otherwise, estimate timestamps from segments
+  const segments = splitTranscriptToSegments(text);
+  if (segments.length === 0) return "WEBVTT\n";
+  const safeDuration = durationSec > 0 ? durationSec : segments.length * 5;
+  const segDuration = safeDuration / segments.length;
+
+  const cues = segments
+    .map((seg, i) => {
+      const start = i * segDuration;
+      const end = Math.min((i + 1) * segDuration, safeDuration);
+      return `${formatVttTime(start)} --> ${formatVttTime(end)}\n${seg}`;
+    })
+    .join("\n\n");
+
+  return `WEBVTT\n\n${cues}\n`;
+}
+
+function generateVttFromWords(words: WordTimestamp[]): string {
+  // Group words into subtitle segments (max ~10 words or ~5 seconds per segment)
+  const segments: Array<{ start: number; end: number; text: string }> = [];
+  let currentSegment: WordTimestamp[] = [];
+  let segmentStart = words[0]?.start ?? 0;
+
+  for (const word of words) {
+    currentSegment.push(word);
+
+    // Start new segment if: >10 words, >5 seconds, or sentence-ending punctuation
+    const segmentDuration = word.end - segmentStart;
+    const isSentenceEnd = /[。！？!?\n]$/.test(word.text);
+    if (currentSegment.length >= 10 || segmentDuration >= 5 || isSentenceEnd) {
+      segments.push({
+        start: segmentStart,
+        end: word.end,
+        text: currentSegment.map(w => w.text).join(" "),
+      });
+      currentSegment = [];
+      segmentStart = word.end;
+    }
+  }
+
+  // Add remaining words as final segment
+  if (currentSegment.length > 0) {
+    segments.push({
+      start: segmentStart,
+      end: currentSegment[currentSegment.length - 1].end,
+      text: currentSegment.map(w => w.text).join(" "),
+    });
+  }
+
+  const cues = segments
+    .map((seg) => {
+      return `${formatVttTime(seg.start)} --> ${formatVttTime(seg.end)}\n${seg.text}`;
+    })
+    .join("\n\n");
+
+  return `WEBVTT\n\n${cues}\n`;
+}
+
+function resolveAudioSourceUrl(sourceUrl: string | null | undefined): string {
+  const trimmed = String(sourceUrl || "").trim();
+  if (!trimmed) {
+    return "";
+  }
+  if (/^(?:https?:|blob:|data:)/i.test(trimmed)) {
+    return trimmed;
+  }
+  try {
+    return new URL(trimmed, API_BASE_URL).toString();
+  } catch {
+    return trimmed;
+  }
 }
 
 function buildJobStatusText(
@@ -82,6 +296,9 @@ export const TranscriptionPage: React.FC<Props> = ({ onSendToChat }) => {
   const [modalError, setModalError] = useState<Error | null>(null);
   const [infoMessage, setInfoMessage] = useState("");
   const [detailLoading, setDetailLoading] = useState(false);
+  const [audioDuration, setAudioDuration] = useState(0);
+  const [words, setWords] = useState<WordTimestamp[] | null>(null);
+  const [showExportMenu, setShowExportMenu] = useState(false);
 
   const {
     history,
@@ -89,6 +306,7 @@ export const TranscriptionPage: React.FC<Props> = ({ onSendToChat }) => {
     refreshHistory,
     addOrUpdateJob,
     removeJob,
+    retryJob,
     setActiveFilter: setHistoryFilter,
   } = useTranscriptionHistory();
 
@@ -154,20 +372,27 @@ export const TranscriptionPage: React.FC<Props> = ({ onSendToChat }) => {
   }, [history, activeFilter, searchQuery]);
 
   // ── Handlers ──
-  async function handleLocalTranscription(file: File) {
+  async function handleLocalTranscription(file: File, provider?: string) {
     setModalError(null);
     setError(null);
     setJob(null);
     setTranscript("");
+    setWords(null);
     setIsSyncBusy(true);
     setStatusMessage(
       t("正在上传并同步转写本地音频…", "Uploading and transcribing local audio...")
     );
 
     try {
-      const result = await transcribeAudio(file);
+      const result = await transcribeAudio(file, provider);
       setTranscript(result.transcript);
       setMemorySaved(Boolean(result.memory_saved));
+      if (result.duration_seconds && result.duration_seconds > 0) {
+        setAudioDuration(result.duration_seconds);
+      }
+      if (result.words && result.words.length > 0) {
+        setWords(result.words);
+      }
       setShowNewModal(false);
       setViewMode("detail");
 
@@ -321,6 +546,7 @@ export const TranscriptionPage: React.FC<Props> = ({ onSendToChat }) => {
     setInfoMessage("");
     setStatusMessage("");
     setMemorySaved(false);
+    setAudioDuration(0);
   }
 
   async function handleCopy() {
@@ -333,20 +559,51 @@ export const TranscriptionPage: React.FC<Props> = ({ onSendToChat }) => {
     }
   }
 
-  function handleExport() {
+  function handleExport(format: "txt" | "srt" | "vtt" = "txt") {
     if (!transcript) return;
-    const blob = new Blob([transcript], { type: "text/plain;charset=utf-8" });
+    let content: string;
+    let ext: string;
+    let mime: string;
+    const duration = audioDuration > 0 ? audioDuration : 300; // fallback 5min
+
+    if (format === "srt") {
+      content = generateSrt(transcript, duration, words);
+      ext = "srt";
+      mime = "application/x-subrip";
+    } else if (format === "vtt") {
+      content = generateVtt(transcript, duration, words);
+      ext = "vtt";
+      mime = "text/vtt";
+    } else {
+      content = transcript;
+      ext = "txt";
+      mime = "text/plain";
+    }
+
+    const blob = new Blob([content], { type: `${mime};charset=utf-8` });
     const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = "transcript.txt";
-    document.body.appendChild(anchor);
-    anchor.click();
-    document.body.removeChild(anchor);
-    URL.revokeObjectURL(url);
-    setInfoMessage(
-      t("转写文本已导出为 transcript.txt。", "Transcript exported as transcript.txt.")
-    );
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `transcript.${ext}`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    if (format === "srt") {
+      setInfoMessage(
+        words && words.length > 0
+          ? t("转写文本已导出为 SRT 字幕（精确时间戳）。", "Transcript exported as SRT subtitle (precise timestamps).")
+          : t("转写文本已导出为 SRT 字幕。", "Transcript exported as SRT subtitle.")
+      );
+    } else if (format === "vtt") {
+      setInfoMessage(
+        words && words.length > 0
+          ? t("转写文本已导出为 VTT 字幕（精确时间戳）。", "Transcript exported as VTT subtitle (precise timestamps).")
+          : t("转写文本已导出为 VTT 字幕。", "Transcript exported as VTT subtitle.")
+      );
+    } else {
+      setInfoMessage(
+        t("转写文本已导出为 transcript.txt。", "Transcript exported as transcript.txt.")
+      );
+    }
   }
 
   function handleSendToChat() {
@@ -379,6 +636,7 @@ export const TranscriptionPage: React.FC<Props> = ({ onSendToChat }) => {
   // RENDER: Detail / Reader View
   // ═══════════════════════════════════════════════════
   if (viewMode === "detail") {
+    const audioSourceUrl = resolveAudioSourceUrl(job?.source_url);
     const fileName = job?.file_name || t("转写详情", "Transcription Detail");
     const detailStatusClass =
       job?.status === "completed"
@@ -422,25 +680,62 @@ export const TranscriptionPage: React.FC<Props> = ({ onSendToChat }) => {
             >
               {t("复制", "Copy")}
             </button>
-            <button
-              onClick={handleExport}
-              disabled={!transcript}
-              className="vsBtnSecondary"
-              style={{ height: 34, fontSize: 13, padding: "0 14px" }}
-            >
-              {t("导出 TXT", "Export TXT")}
-            </button>
+            <div style={{ position: "relative" }}>
+              <button
+                className="vsBtnSecondary"
+                disabled={!transcript}
+                onClick={() => setShowExportMenu((v) => !v)}
+                style={{ height: 34, fontSize: 13, padding: "0 14px" }}
+              >
+                {t("导出", "Export")} ▾
+              </button>
+              {showExportMenu && transcript && (
+                <>
+                  <div
+                    style={{ position: "fixed", inset: 0, zIndex: 99 }}
+                    onClick={() => setShowExportMenu(false)}
+                  />
+                  <div className="vsExportDropdownMenu">
+                    <button
+                      className="vsExportDropdownItem"
+                      onClick={() => { handleExport("txt"); setShowExportMenu(false); }}
+                    >
+                      {t("导出 TXT 文本", "Export TXT")}
+                    </button>
+                    <button
+                      className="vsExportDropdownItem"
+                      onClick={() => { handleExport("srt"); setShowExportMenu(false); }}
+                    >
+                      {t("导出 SRT 字幕", "Export SRT Subtitle")}
+                    </button>
+                    <button
+                      className="vsExportDropdownItem"
+                      onClick={() => { handleExport("vtt"); setShowExportMenu(false); }}
+                    >
+                      {t("导出 VTT 字幕", "Export VTT Subtitle")}
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
           </div>
         </div>
 
         {/* Audio Player */}
-        {job?.source_url && (
+        {audioSourceUrl && (
           <div style={{ padding: "16px 24px 0", flexShrink: 0, display: "flex", justifyContent: "center" }}>
-            <audio 
-              controls 
-              src={job.source_url} 
+            <audio
+              controls
+              src={audioSourceUrl}
+              aria-label={t("转写音频播放器", "Transcription audio player")}
               style={{ width: "100%", maxWidth: "720px", height: "40px", borderRadius: "8px", outline: "none" }}
               controlsList="nodownload"
+              onLoadedMetadata={(e) => {
+                const d = (e.target as HTMLAudioElement).duration;
+                if (d && isFinite(d) && d > 0 && audioDuration === 0) {
+                  setAudioDuration(d);
+                }
+              }}
             />
           </div>
         )}
@@ -727,6 +1022,10 @@ export const TranscriptionPage: React.FC<Props> = ({ onSendToChat }) => {
                     removeJob(item.job_id);
                   }
                 }}
+                onRetry={item.status === "failed" ? (e) => {
+                  e.stopPropagation();
+                  retryJob(item.job_id).catch(() => {});
+                } : undefined}
               />
             ))}
           </div>

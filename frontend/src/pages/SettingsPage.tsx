@@ -1,5 +1,5 @@
-import { useState, ReactNode } from "react";
-import { Terminal } from "lucide-react";
+import { useState, ReactNode, useMemo } from "react";
+import { Terminal, Globe, Cpu, Brain, Mic, Monitor } from "lucide-react";
 import { ProviderIcon } from "@lobehub/icons";
 import EvermindBadge from "../components/EvermindBadge";
 import ErrorNotice from "../components/ErrorNotice";
@@ -22,11 +22,18 @@ const getProviderDisplayNames = (t: (zh: string, en: string) => string): Record<
   Groq: t("Groq 极速 API", "Groq Fast API"),
   OpenRouter: t("OpenRouter 聚合", "OpenRouter Aggregator"),
   SiliconFlow: t("硅基流动 SiliconFlow", "SiliconFlow"),
-  Xiaomi: t("小米 mimo", "Xiaomi mimo")
+  Xiaomi: t("小米 mimo", "Xiaomi mimo"),
+  OpenAI: t("OpenAI", "OpenAI"),
+  ElevenLabs: t("ElevenLabs TTS", "ElevenLabs TTS"),
+  Ollama: t("本地 Ollama", "Local Ollama"),
+  Deepgram: t("Deepgram ASR", "Deepgram ASR"),
 });
 
 const getLobeProviderKey = (name: string): string => {
-  const lower = name.toLowerCase();
+  let lower = name.toLowerCase();
+  if (lower.startsWith("custom_")) {
+    lower = lower.substring(7);
+  }
   if (lower.includes("dashscope")) return "qwen";
   if (lower.includes("siliconflow")) return "siliconcloud";
   if (lower === "xiaomi") return "xiaomimimo";
@@ -38,6 +45,8 @@ const getLobeProviderKey = (name: string): string => {
   if (lower === "groq") return "groq";
   if (lower === "openrouter") return "openrouter";
   if (lower === "zenmux") return "zenmux";
+  if (lower === "ollama") return "ollama";
+  if (lower === "deepgram") return "deepgram";
   return lower;
 };
 
@@ -58,14 +67,31 @@ export default function SettingsPage({ settings, errorRuntimeContext, onClose }:
   const [showRawModels, setShowRawModels] = useState(false);
   const [providerSearch, setProviderSearch] = useState("");
   const [showApiKey, setShowApiKey] = useState(false);
-  const providerDisplayNames = getProviderDisplayNames(t);
+
+  const [showAddCustomModal, setShowAddCustomModal] = useState(false);
+  const [customName, setCustomName] = useState("");
+  const [customBaseUrl, setCustomBaseUrl] = useState("");
+  const [customApiKey, setCustomApiKey] = useState("");
+  const [customUseMaxTokens, setCustomUseMaxTokens] = useState(false);
+  const [customHeadersJson, setCustomHeadersJson] = useState("{}");
+  const [customModalError, setCustomModalError] = useState("");
+
+  const providerDisplayNames = useMemo(() => {
+    const base = getProviderDisplayNames(t);
+    const customList = settings.customProviders || [];
+    for (const cp of customList) {
+      if (cp && cp.id) {
+        base[cp.id] = cp.name;
+      }
+    }
+    return base;
+  }, [t, settings.customProviders]);
 
   // Keep the overall form wrapper but conditionally render the body based on nav.
   return (
     <div className="vsSettingsLayout">
       {/* ── Left Navigation ── */}
       <nav className="vsSettingsNav">
-        <h2 className="vsSettingsNavTitle">{t("偏好设置", "Preferences")}</h2>
         <ul className="vsSettingsNavList">
           <li>
             <button
@@ -73,7 +99,9 @@ export default function SettingsPage({ settings, errorRuntimeContext, onClose }:
               className={`vsSettingsNavItem ${activeCategory === "general" ? "active" : ""}`}
               onClick={() => setActiveCategory("general")}
             >
-              <div className="vsSettingsNavIcon">🌐</div>
+              <div className="vsSettingsNavIcon">
+                <Globe size={16} />
+              </div>
               <div className="vsSettingsNavItemTitle">{t("通用", "General")}</div>
             </button>
           </li>
@@ -83,8 +111,10 @@ export default function SettingsPage({ settings, errorRuntimeContext, onClose }:
               className={`vsSettingsNavItem ${activeCategory === "provider" ? "active" : ""}`}
               onClick={() => setActiveCategory("provider")}
             >
-              <div className="vsSettingsNavIcon">⚡</div>
-              <div className="vsSettingsNavItemTitle">{t("AI 供应商", "AI Providers")}</div>
+              <div className="vsSettingsNavIcon">
+                <Cpu size={16} />
+              </div>
+              <div className="vsSettingsNavItemTitle">{t("提供商", "Providers")}</div>
             </button>
           </li>
           <li>
@@ -93,8 +123,10 @@ export default function SettingsPage({ settings, errorRuntimeContext, onClose }:
               className={`vsSettingsNavItem ${activeCategory === "memory" ? "active" : ""}`}
               onClick={() => setActiveCategory("memory")}
             >
-              <div className="vsSettingsNavIcon">🧠</div>
-              <div className="vsSettingsNavItemTitle">{t("记忆中心", "Memory")}</div>
+              <div className="vsSettingsNavIcon">
+                <Brain size={16} />
+              </div>
+              <div className="vsSettingsNavItemTitle">{t("记忆", "Memory")}</div>
             </button>
           </li>
           <li>
@@ -103,8 +135,10 @@ export default function SettingsPage({ settings, errorRuntimeContext, onClose }:
               className={`vsSettingsNavItem ${activeCategory === "transcription" ? "active" : ""}`}
               onClick={() => setActiveCategory("transcription")}
             >
-              <div className="vsSettingsNavIcon">🎙️</div>
-              <div className="vsSettingsNavItemTitle">{t("文件转写", "Transcription")}</div>
+              <div className="vsSettingsNavIcon">
+                <Mic size={16} />
+              </div>
+              <div className="vsSettingsNavItemTitle">{t("转写", "Transcription")}</div>
             </button>
           </li>
           <li>
@@ -113,8 +147,10 @@ export default function SettingsPage({ settings, errorRuntimeContext, onClose }:
               className={`vsSettingsNavItem ${activeCategory === "desktop" ? "active" : ""}`}
               onClick={() => setActiveCategory("desktop")}
             >
-              <div className="vsSettingsNavIcon">💻</div>
-              <div className="vsSettingsNavItemTitle">{t("系统与运行时", "System & Runtime")}</div>
+              <div className="vsSettingsNavIcon">
+                <Monitor size={16} />
+              </div>
+              <div className="vsSettingsNavItemTitle">{t("系统", "System")}</div>
             </button>
           </li>
         </ul>
@@ -193,6 +229,22 @@ export default function SettingsPage({ settings, errorRuntimeContext, onClose }:
                     placeholder={t("搜索供应商...", "Search providers...")}
                   />
                 </div>
+                <button
+                  type="button"
+                  className="vsBtnSecondary vsBtnSmall"
+                  style={{ margin: "0 12px 12px 12px", display: "flex", justifyContent: "center", alignItems: "center", gap: "4px", padding: "6px 10px", height: "32px", fontSize: "13px" }}
+                  onClick={() => {
+                    setCustomName("");
+                    setCustomBaseUrl("");
+                    setCustomApiKey("");
+                    setCustomUseMaxTokens(false);
+                    setCustomHeadersJson("{}");
+                    setCustomModalError("");
+                    setShowAddCustomModal(true);
+                  }}
+                >
+                  ➕ {t("添加自定义服务商", "Add Custom Provider")}
+                </button>
                 <div className="vsProviderSelectGroup">
                   {settings.providerOptions
                     .filter(name => {
@@ -226,11 +278,30 @@ export default function SettingsPage({ settings, errorRuntimeContext, onClose }:
               {/* Right Column: Config Details (fills ALL remaining space) */}
               <div className="vsProviderConfigColumn">
                 <div className="vsProviderConfigHeader">
-                  <div className="vsProviderConfigTitleRow">
-                    <h2 className="vsProviderConfigTitle">{providerDisplayNames[settings.settingsProvider] || settings.settingsProvider}</h2>
+                  <div className="vsProviderConfigTitleRow" style={{ width: "100%", display: "flex", alignItems: "center" }}>
+                    <h2 className="vsProviderConfigTitle" style={{ display: "flex", alignItems: "center" }}>
+                      {providerDisplayNames[settings.settingsProvider] || settings.settingsProvider}
+                      {settings.isCustomProvider && (
+                        <span style={{ fontSize: "11px", marginLeft: "8px", padding: "2px 6px", borderRadius: "4px", backgroundColor: "#e0e7ff", color: "#3730a3", fontWeight: "normal" }}>CUSTOM</span>
+                      )}
+                    </h2>
                     {settings.settingsApiKey
                       ? <span className="vsProviderStatusBadge active">{t("活跃", "Active")}</span>
                       : <span className="vsProviderStatusBadge">{t("未激活", "Inactive")}</span>}
+                    {settings.isCustomProvider && (
+                      <button
+                        type="button"
+                        className="vsBtnSecondary vsBtnSmall"
+                        style={{ marginLeft: "auto", backgroundColor: "#fee2e2", color: "#991b1b", border: "1px solid #fca5a5", padding: "4px 8px" }}
+                        onClick={() => {
+                          if (confirm(t(`确定要删除服务商 "${providerDisplayNames[settings.settingsProvider]}" 吗？`, `Are you sure you want to delete provider "${providerDisplayNames[settings.settingsProvider]}"?`))) {
+                            void settings.onDeleteCustomProvider(settings.settingsProvider);
+                          }
+                        }}
+                      >
+                        🗑️ {t("删除服务商", "Delete Provider")}
+                      </button>
+                    )}
                   </div>
                 </div>
 
@@ -267,25 +338,66 @@ export default function SettingsPage({ settings, errorRuntimeContext, onClose }:
                     <span className="vsFieldHint">{t("留空则使用该供应商的默认 API 端点", "Leave empty to use the default API endpoint for this provider")}</span>
                   </label>
 
-                  <label className="vsField">
-                    <span className="vsFieldLabel">{t("默认主模型", "Default Model")}</span>
-                    <select
-                      className="vsSelect"
-                      value={settings.settingsDefaultModel}
-                      onChange={(e) => settings.onDefaultModelChange(e.target.value)}
-                      disabled={settings.settingsBusy || settings.settingsSaving}
-                    >
-                      <option value="">{t("-- 请选择 --", "-- Select --")}</option>
-                      {settings.settingsAvailableModels.map((modelId) => (
-                        <option key={modelId} value={modelId}>
-                          {modelId}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
+                  {settings.isCustomProvider && (
+                    <>
+                      <label className="vsField">
+                        <span className="vsFieldLabel">{t("使用 max_completion_tokens", "Use max_completion_tokens")}</span>
+                        <div style={{ display: "flex", alignItems: "center", marginTop: "6px" }}>
+                          <input
+                            type="checkbox"
+                            checked={settings.settingsProviderUseMaxCompletionTokens}
+                            onChange={(e) => settings.onUseMaxCompletionTokensChange(e.target.checked)}
+                            style={{ width: "16px", height: "16px", cursor: "pointer" }}
+                          />
+                          <span style={{ marginLeft: "8px", fontSize: "12px", color: "#666" }}>
+                            {t("针对 o1, o3-mini 等新大模型启用，使用 max_completion_tokens 代替 max_tokens", "Enable for newer models like o1, o3-mini, using max_completion_tokens instead of max_tokens")}
+                          </span>
+                        </div>
+                      </label>
+
+                      <label className="vsField">
+                        <span className="vsFieldLabel">{t("自定义请求头 (JSON 可选)", "Custom Headers (JSON Optional)")}</span>
+                        <textarea
+                          className="vsInput"
+                          style={{ fontFamily: "monospace", minHeight: "60px", fontSize: "13px", padding: "8px" }}
+                          value={settings.settingsProviderHeadersJson}
+                          onChange={(e) => settings.onHeadersJsonChange(e.target.value)}
+                          placeholder='{ "User-Agent": "my-client/1.0" }'
+                        />
+                      </label>
+                    </>
+                  )}
+
+                  {settings.settingsProvider !== "Deepgram" && settings.settingsProvider !== "OpenAI" && (
+                    <label className="vsField">
+                      <span className="vsFieldLabel">{t("默认主模型", "Default Model")}</span>
+                      <select
+                        className="vsSelect"
+                        value={settings.settingsDefaultModel}
+                        onChange={(e) => settings.onDefaultModelChange(e.target.value)}
+                        disabled={settings.settingsBusy || settings.settingsSaving}
+                      >
+                        <option value="">{t("-- 请选择 --", "-- Select --")}</option>
+                        {settings.settingsAvailableModels.map((modelId) => (
+                          <option key={modelId} value={modelId}>
+                            {modelId}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  )}
                 </div>
 
-                {/* Model Management Section */}
+                {/* Model Management Section — hidden for ASR-only providers */}
+                {settings.settingsProvider === "Deepgram" || settings.settingsProvider === "OpenAI" ? (
+                  <div className="vsProviderModelSection">
+                    <div className="vsSettingsNotice ok">
+                      {settings.settingsProvider === "Deepgram"
+                        ? t("Deepgram 用于语音识别 (ASR)，使用 nova-3 模型，支持精确单词级时间戳。", "Deepgram is used for speech recognition (ASR) with the nova-3 model, supporting precise word-level timestamps.")
+                        : t("OpenAI 用于语音识别 (ASR)，使用 Whisper 模型。", "OpenAI is used for speech recognition (ASR) with the Whisper model.")}
+                    </div>
+                  </div>
+                ) : (
                 <div className="vsProviderModelSection">
                   <div className="vsModelManagerHeader">
                     <h3 className="vsCardSubTitle" style={{ margin: 0 }}>
@@ -313,7 +425,7 @@ export default function SettingsPage({ settings, errorRuntimeContext, onClose }:
                   {settings.settingsAvailableModels.length === 0 ? (
                     <div className="vsEmptyModels">
                       <p>
-                        {settings.settingsApiKey
+                        {(settings.settingsApiKey || settings.settingsProvider === "Ollama")
                           ? t("暂无模型，点击「获取」拉取列表。", "No models yet. Click Fetch to pull the list.")
                           : t("请先填入 API Key，再点击「获取」。", "Fill API Key first, then click Fetch.")}
                       </p>
@@ -362,6 +474,7 @@ export default function SettingsPage({ settings, errorRuntimeContext, onClose }:
                     </div>
                   )}
                 </div>
+                )}
 
                 {settings.settingsProvider === "Xiaomi" && (
                   <div className="vsProviderModelSection">
@@ -389,6 +502,7 @@ export default function SettingsPage({ settings, errorRuntimeContext, onClose }:
                     </div>
                   </div>
                 )}
+
               </div>
             </div>
           )}
@@ -631,6 +745,7 @@ export default function SettingsPage({ settings, errorRuntimeContext, onClose }:
                   </div>
                 </div>
               )}
+
             </div>
           )}
 
@@ -909,6 +1024,195 @@ export default function SettingsPage({ settings, errorRuntimeContext, onClose }:
 
         </form>
       </section>
+
+      {showAddCustomModal && (
+        <div
+          className="vsModalOverlay"
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: "rgba(0, 0, 0, 0.4)",
+            display: "flex",
+            justifyContent: "center",
+            alignItems: "center",
+            zIndex: 9999,
+            backdropFilter: "blur(4px)"
+          }}
+          onClick={() => setShowAddCustomModal(false)}
+        >
+          <div
+            className="vsModalContent"
+            style={{
+              backgroundColor: "var(--background-card, #ffffff)",
+              border: "1px solid var(--border-color, #e5e7eb)",
+              borderRadius: "12px",
+              width: "480px",
+              maxHeight: "90vh",
+              overflowY: "auto",
+              boxShadow: "0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1)",
+              display: "flex",
+              flexDirection: "column",
+              color: "var(--text)"
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                padding: "16px 20px",
+                borderBottom: "1px solid var(--border-color, #e5e7eb)",
+              }}
+            >
+              <h3 style={{ margin: 0, fontSize: "16px", fontWeight: 600 }}>{t("添加自定义服务商", "Add Custom Provider")}</h3>
+              <button
+                type="button"
+                style={{
+                  background: "transparent",
+                  border: "none",
+                  fontSize: "18px",
+                  cursor: "pointer",
+                  color: "#9ca3af",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center"
+                }}
+                onClick={() => setShowAddCustomModal(false)}
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div style={{ padding: "20px", display: "flex", flexDirection: "column", gap: "16px" }}>
+              {customModalError && (
+                <div style={{ padding: "10px 12px", borderRadius: "6px", backgroundColor: "#fee2e2", color: "#b91c1c", fontSize: "13px" }}>
+                  ⚠️ {customModalError}
+                </div>
+              )}
+
+              <label style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                <span style={{ fontSize: "13px", fontWeight: 500 }}>{t("服务商名称", "Provider Name")} *</span>
+                <input
+                  className="vsInput"
+                  value={customName}
+                  onChange={(e) => setCustomName(e.target.value)}
+                  placeholder={t("例如：Nvidia", "e.g., Nvidia")}
+                  required
+                />
+              </label>
+
+              <label style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                <span style={{ fontSize: "13px", fontWeight: 500 }}>Base URL *</span>
+                <input
+                  className="vsInput"
+                  value={customBaseUrl}
+                  onChange={(e) => setCustomBaseUrl(e.target.value)}
+                  placeholder="https://api.example.com/v1"
+                  required
+                />
+              </label>
+
+              <label style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                <span style={{ fontSize: "13px", fontWeight: 500 }}>API Key ({t("可选", "Optional")})</span>
+                <input
+                  className="vsInput"
+                  type="password"
+                  value={customApiKey}
+                  onChange={(e) => setCustomApiKey(e.target.value)}
+                  placeholder="your-api-key"
+                />
+              </label>
+
+              <label style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                <span style={{ fontSize: "13px", fontWeight: 500 }}>API {t("协议/格式", "Format")}</span>
+                <select className="vsSelect" disabled style={{ opacity: 0.8 }}>
+                  <option value="openai">OpenAI-compatible (/chat/completions)</option>
+                </select>
+              </label>
+
+              <label style={{ display: "flex", alignItems: "center", gap: "8px", cursor: "pointer", marginTop: "4px" }}>
+                <input
+                  type="checkbox"
+                  checked={customUseMaxTokens}
+                  onChange={(e) => setCustomUseMaxTokens(e.target.checked)}
+                  style={{ width: "16px", height: "16px", cursor: "pointer" }}
+                />
+                <span style={{ fontSize: "13px" }}>{t("使用 max_completion_tokens 代替 max_tokens", "Use max_completion_tokens instead of max_tokens")}</span>
+              </label>
+
+              <label style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                <span style={{ fontSize: "13px", fontWeight: 500 }}>{t("自定义请求头 (JSON 格式 可选)", "Custom Headers (JSON Optional)")}</span>
+                <textarea
+                  className="vsInput"
+                  style={{ fontFamily: "monospace", minHeight: "60px", fontSize: "12px", padding: "8px" }}
+                  value={customHeadersJson}
+                  onChange={(e) => setCustomHeadersJson(e.target.value)}
+                  placeholder='{ "User-Agent": "my-client/1.0" }'
+                />
+              </label>
+            </div>
+
+            {/* Modal Footer */}
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "flex-end",
+                gap: "12px",
+                padding: "16px 20px",
+                borderTop: "1px solid var(--border-color, #e5e7eb)",
+                backgroundColor: "var(--background-card-hover, #f9fafb)"
+              }}
+            >
+              <button
+                type="button"
+                className="vsBtnSecondary"
+                onClick={() => setShowAddCustomModal(false)}
+              >
+                {t("取消", "Cancel")}
+              </button>
+              <button
+                type="button"
+                className="vsBtnPrimary"
+                onClick={async () => {
+                  setCustomModalError("");
+                  const nameTrim = customName.trim();
+                  const urlTrim = customBaseUrl.trim();
+                  if (!nameTrim) {
+                    setCustomModalError(t("服务商名称不能为空。", "Provider name cannot be empty."));
+                    return;
+                  }
+                  if (!urlTrim) {
+                    setCustomModalError(t("Base URL 不能为空。", "Base URL cannot be empty."));
+                    return;
+                  }
+                  if (customHeadersJson.trim()) {
+                    try {
+                      JSON.parse(customHeadersJson);
+                    } catch (err) {
+                      setCustomModalError(t("自定义请求头 JSON 格式不正确。", "Invalid Custom Headers JSON format."));
+                      return;
+                    }
+                  }
+                  try {
+                    await settings.onAddCustomProvider(nameTrim, urlTrim, customApiKey.trim(), customUseMaxTokens, customHeadersJson);
+                    setShowAddCustomModal(false);
+                  } catch (err: any) {
+                    setCustomModalError(err.message || String(err));
+                  }
+                }}
+              >
+                {t("确认添加", "Confirm")}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

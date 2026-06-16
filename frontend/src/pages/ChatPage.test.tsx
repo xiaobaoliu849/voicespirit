@@ -12,7 +12,7 @@ describe('ChatPage', () => {
                 errorRuntimeContext={{}}
             />
         );
-        expect(screen.getByText(/VoiceSpirit/)).toBeInTheDocument();
+        expect(screen.getByText(/声之灵/)).toBeInTheDocument();
         expect(screen.getByRole('button', { name: '发送' })).toBeInTheDocument();
         expect(screen.queryByText('实时语音')).not.toBeInTheDocument();
         expect(screen.queryByText(/麦克风按钮当前使用/)).not.toBeInTheDocument();

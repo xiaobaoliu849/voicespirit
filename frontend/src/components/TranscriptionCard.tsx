@@ -7,6 +7,7 @@ type Props = {
   isActive?: boolean;
   onClick: () => void;
   onDelete: (e: React.MouseEvent) => void;
+  onRetry?: (e: React.MouseEvent) => void;
 };
 
 /* Deterministic gradient palette based on filename hash */
@@ -83,6 +84,7 @@ export const TranscriptionCard: React.FC<Props> = ({
   isActive,
   onClick,
   onDelete,
+  onRetry,
 }) => {
   const { t } = useI18n();
   const fileName = item.file_name || t("未知文件", "Unknown file");
@@ -165,13 +167,24 @@ export const TranscriptionCard: React.FC<Props> = ({
         ) : (
           <span />
         )}
-        <button
-          className="vsTranscribeCardDeleteBtn"
-          onClick={onDelete}
-          title={t("删除记录", "Delete record")}
-        >
-          {t("删除", "Delete")}
-        </button>
+        <div className="vsTranscribeCardActions">
+          {item.status === "failed" && onRetry && (
+            <button
+              className="vsTranscribeCardRetryBtn"
+              onClick={onRetry}
+              title={t("重试转写", "Retry transcription")}
+            >
+              {t("重试", "Retry")}
+            </button>
+          )}
+          <button
+            className="vsTranscribeCardDeleteBtn"
+            onClick={onDelete}
+            title={t("删除记录", "Delete record")}
+          >
+            {t("删除", "Delete")}
+          </button>
+        </div>
       </div>
     </div>
   );

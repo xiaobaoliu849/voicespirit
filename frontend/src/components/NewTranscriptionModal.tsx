@@ -6,7 +6,7 @@ import { useI18n } from "../i18n";
 type Props = {
   open: boolean;
   onClose: () => void;
-  onLocalTranscribe: (file: File) => void;
+  onLocalTranscribe: (file: File, provider?: string) => void;
   onRemoteSubmit: (url: string) => void;
   isBusy: boolean;
   isSyncBusy: boolean;
@@ -28,6 +28,7 @@ export const NewTranscriptionModal: React.FC<Props> = ({
   const [inputMode, setInputMode] = useState<"local" | "remote">("local");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [remoteUrl, setRemoteUrl] = useState("");
+  const [asrProvider, setAsrProvider] = useState<string>("auto");
 
   if (!open) return null;
 
@@ -37,7 +38,8 @@ export const NewTranscriptionModal: React.FC<Props> = ({
 
   function handleSubmitLocal() {
     if (!selectedFile) return;
-    onLocalTranscribe(selectedFile);
+    const provider = asrProvider === "auto" ? undefined : asrProvider;
+    onLocalTranscribe(selectedFile, provider);
   }
 
   function handleSubmitRemote() {
@@ -109,6 +111,44 @@ export const NewTranscriptionModal: React.FC<Props> = ({
                 "Supports MP3, WAV, M4A, FLAC, AAC, OGG formats (max 25MB)"
               )}
             />
+            <div className="vsField" style={{ gap: "8px" }}>
+              <label
+                className="vsFieldLabel"
+                style={{ fontSize: "13px", fontWeight: 600, color: "var(--text)" }}
+              >
+                {t("语音识别引擎", "Speech Recognition Engine")}
+              </label>
+              <select
+                value={asrProvider}
+                onChange={(e) => setAsrProvider(e.target.value)}
+                disabled={isBusy}
+                className="vsSelect"
+                style={{
+                  width: "100%",
+                  height: "44px",
+                  borderRadius: "10px",
+                  fontSize: "14px",
+                }}
+              >
+                <option value="auto">{t("自动选择 (优先精确时间戳)", "Auto (prefer precise timestamps)")}</option>
+                <option value="deepgram">Deepgram (Nova-3)</option>
+                <option value="openai">OpenAI Whisper</option>
+                <option value="xiaomi">{t("小米 MiMo", "Xiaomi MiMo")}</option>
+                <option value="dashscope">{t("阿里 DashScope Qwen", "Alibaba DashScope Qwen")}</option>
+              </select>
+              <span
+                style={{
+                  fontSize: "12px",
+                  color: "var(--muted)",
+                  lineHeight: "1.4",
+                }}
+              >
+                {t(
+                  "Deepgram 和 OpenAI Whisper 支持精确单词级时间戳，适合生成字幕。",
+                  "Deepgram and OpenAI Whisper support precise word-level timestamps, ideal for subtitle generation."
+                )}
+              </span>
+            </div>
             <button
               onClick={handleSubmitLocal}
               disabled={!selectedFile || isBusy}

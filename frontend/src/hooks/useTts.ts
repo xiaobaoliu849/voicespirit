@@ -1,9 +1,46 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { fetchSpeakAudio, fetchVoices, type TtsEngine, type VoiceInfo } from "../api";
+import { fetchSpeakAudio, fetchVoices, extractPdfText, polishPdfText, type TtsEngine, type VoiceInfo } from "../api";
 import { createInlineTranslator, type UiLanguage } from "../i18n";
 import type { FormatErrorMessage } from "../utils/errorFormatting";
+import { formatVoiceLabel } from "../utils/voiceFormatter";
 
 export type TtsWorkspaceMode = "text" | "dialogue" | "pdf";
+
+function sortVoices(voices: VoiceInfo[], uiLanguage: UiLanguage): VoiceInfo[] {
+  return [...voices].sort((a, b) => {
+    const localeA = (a.locale || "").toLowerCase();
+    const localeB = (b.locale || "").toLowerCase();
+
+    const isZhA = localeA.startsWith("zh");
+    const isZhB = localeB.startsWith("zh");
+    const isEnA = localeA.startsWith("en");
+    const isEnB = localeB.startsWith("en");
+
+    if (uiLanguage === "zh-CN") {
+      // Chinese first
+      if (isZhA && !isZhB) return -1;
+      if (!isZhA && isZhB) return 1;
+      if (isZhA && isZhB) return a.name.localeCompare(b.name);
+
+      // English second
+      if (isEnA && !isEnB) return -1;
+      if (!isEnA && isEnB) return 1;
+      if (isEnA && isEnB) return a.name.localeCompare(b.name);
+    } else {
+      // English first
+      if (isEnA && !isEnB) return -1;
+      if (!isEnA && isEnB) return 1;
+      if (isEnA && isEnB) return a.name.localeCompare(b.name);
+
+      // Chinese second
+      if (isZhA && !isZhB) return -1;
+      if (!isZhA && isZhB) return 1;
+      if (isZhA && isZhB) return a.name.localeCompare(b.name);
+    }
+
+    return a.locale.localeCompare(b.locale) || a.name.localeCompare(b.name);
+  });
+}
 
 type Options = {
   defaultText: string;
@@ -30,6 +67,8 @@ export default function useTts({ defaultText, formatErrorMessage, language = "zh
   const [loadingVoices, setLoadingVoices] = useState(true);
   const [loadingVoicesB, setLoadingVoicesB] = useState(true);
   const [generating, setGenerating] = useState(false);
+  const [extractingPdf, setExtractingPdf] = useState(false);
+  const [polishingPdf, setPolishingPdf] = useState(false);
   const [ttsError, setTtsError] = useState("");
   const [ttsInfo, setTtsInfo] = useState("");
 
@@ -45,7 +84,9 @@ export default function useTts({ defaultText, formatErrorMessage, language = "zh
         }
         setVoices(data.voices);
         if (data.voices.length > 0) {
-          setVoice(data.voices[0].name);
+          // Set default voice as the first sorted voice for better UX
+          const sorted = sortVoices(data.voices, language);
+          setVoice(sorted[0].name);
         } else {
           setVoice("");
         }
@@ -64,7 +105,7 @@ export default function useTts({ defaultText, formatErrorMessage, language = "zh
     return () => {
       disposed = true;
     };
-  }, [formatErrorMessage, ttsEngine]);
+  }, [formatErrorMessage, ttsEngine, language]);
 
   useEffect(() => {
     let disposed = false;
@@ -78,7 +119,8 @@ export default function useTts({ defaultText, formatErrorMessage, language = "zh
         }
         setVoicesB(data.voices);
         if (data.voices.length > 0) {
-          setVoiceB(data.voices[0].name);
+          const sorted = sortVoices(data.voices, language);
+          setVoiceB(sorted[0].name);
         } else {
           setVoiceB("");
         }
@@ -97,27 +139,31 @@ export default function useTts({ defaultText, formatErrorMessage, language = "zh
     return () => {
       disposed = true;
     };
-  }, [formatErrorMessage, ttsEngineB]);
+  }, [formatErrorMessage, ttsEngineB, language]);
 
   const voiceOptions = useMemo(() => {
-    return voices.map((item) => ({
+    const sorted = sortVoices(voices, language);
+    return sorted.map((item) => ({
       value: item.name,
-      label: `${item.short_name || item.name} (${item.locale})`
+      label: formatVoiceLabel(item, t)
     }));
-  }, [voices]);
+  }, [voices, language, t]);
 
   const voiceOptionsB = useMemo(() => {
-    return voicesB.map((item) => ({
+    const sorted = sortVoices(voicesB, language);
+    return sorted.map((item) => ({
       value: item.name,
-      label: `${item.short_name || item.name} (${item.locale})`
+      label: formatVoiceLabel(item, t)
     }));
-  }, [voicesB]);
+  }, [voicesB, language, t]);
   const engineOptions = useMemo(
     () => [
       { value: "edge" as TtsEngine, label: "Edge TTS", hint: t("系统级稳定合成，适合基础朗读。", "Stable system-level synthesis for standard narration.") },
       { value: "qwen_flash" as TtsEngine, label: "Qwen TTS Flash", hint: t("阿里云 Qwen 音色，更适合中文与角色感。", "Alibaba Qwen voices, well suited to Chinese and stylized delivery.") },
       { value: "minimax" as TtsEngine, label: "MiniMax TTS", hint: t("MiniMax 多风格音色，适合配音与角色化朗读。", "MiniMax multi-style voices for dubbing and character reads.") },
       { value: "xiaomi" as TtsEngine, label: "Xiaomi TTS", hint: t("小米精品音色，支持唱歌模式与情感微调。", "Xiaomi high-quality voices, supporting singing mode and emotional nuances.") },
+      { value: "openai" as TtsEngine, label: "OpenAI TTS", hint: t("OpenAI 拟真音色，合成效果极其自然逼真。", "OpenAI realistic voices with highly natural synthesis.") },
+      { value: "elevenlabs" as TtsEngine, label: "ElevenLabs TTS", hint: t("ElevenLabs 顶尖音频合成，支持克隆及极高表现力音色。", "ElevenLabs top-tier voice synthesis, supports cloning and premium expression.") },
     ],
     [t]
   );
@@ -211,13 +257,33 @@ export default function useTts({ defaultText, formatErrorMessage, language = "zh
     }
   }
 
-  function onPdfFileChange(file: File | null) {
+  async function onPdfFileChange(file: File | null) {
     setPdfFile(file);
     if (!file) {
       setPdfText("");
+      setTtsInfo("");
+      return;
     }
     if (ttsMode === "pdf" && ttsError) {
       setTtsError("");
+    }
+
+    try {
+      setExtractingPdf(true);
+      setTtsInfo(t("正在从 PDF 中提取文本...", "Extracting text from PDF..."));
+      const res = await extractPdfText(file);
+      setPdfText(res.text);
+      setTtsInfo(
+        t(
+          `成功从 PDF 提取了 ${res.page_count} 页文本。`,
+          `Successfully extracted text from ${res.page_count} pages of PDF.`
+        )
+      );
+    } catch (err) {
+      setTtsError(formatErrorMessage(err, t("PDF 文本提取失败", "Failed to extract text from PDF.")));
+      setTtsInfo("");
+    } finally {
+      setExtractingPdf(false);
     }
   }
 
@@ -225,6 +291,22 @@ export default function useTts({ defaultText, formatErrorMessage, language = "zh
     setPdfText(value);
     if (ttsMode === "pdf" && ttsError) {
       setTtsError("");
+    }
+  }
+
+  async function onPolishPdfText() {
+    if (!pdfText.trim()) return;
+    try {
+      setPolishingPdf(true);
+      setTtsInfo(t("正在使用 AI 整理并优化朗读文本...", "AI is organizing and optimizing text for TTS..."));
+      const res = await polishPdfText(pdfText);
+      setPdfText(res.polished_text);
+      setTtsInfo(t("AI 朗读优化完成！已移除符号、页码并转译数学公式。", "AI optimization complete! Removed symbols, page numbers, and translated formulas."));
+    } catch (err) {
+      setTtsError(formatErrorMessage(err, t("AI 朗读优化失败", "Failed to optimize text with AI.")));
+      setTtsInfo("");
+    } finally {
+      setPolishingPdf(false);
     }
   }
 
@@ -246,6 +328,8 @@ export default function useTts({ defaultText, formatErrorMessage, language = "zh
     loadingVoices,
     loadingVoicesB,
     generating,
+    extractingPdf,
+    polishingPdf,
     ttsError,
     ttsInfo,
     engineOptions,
@@ -260,10 +344,12 @@ export default function useTts({ defaultText, formatErrorMessage, language = "zh
     onDialogueTextChange,
     onPdfFileChange,
     onPdfTextChange,
+    onPolishPdfText,
     onVoiceChange: setVoice,
     onVoiceBChange: setVoiceB,
     onRateChange: setRate
   };
+
 }
 
 export type UseTtsResult = ReturnType<typeof useTts>;

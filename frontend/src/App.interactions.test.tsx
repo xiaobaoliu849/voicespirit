@@ -396,7 +396,7 @@ describe("App interactions", () => {
     fireEvent.click(screen.getByRole("button", { name: "开始同步转写" }));
 
     await waitFor(() => {
-      expect(mockedTranscribeAudio).toHaveBeenCalledWith(audioFile);
+      expect(mockedTranscribeAudio.mock.calls[0][0]).toBe(audioFile);
     });
     expect(await screen.findByText("同步转写结果")).toBeInTheDocument();
     expect(screen.getByText("同步转写完成，摘要已写入长期记忆。")).toBeInTheDocument();
@@ -410,7 +410,7 @@ describe("App interactions", () => {
 
     const settingsBtn = screen.getByTestId("nav-settings");
     fireEvent.click(settingsBtn);
-    fireEvent.click(screen.getByRole("button", { name: /系统与运行时/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^系统$/ }));
     fireEvent.click(screen.getByRole("button", { name: "显示系统运行时日志" }));
 
     await waitFor(() => {
@@ -497,7 +497,7 @@ describe("App interactions", () => {
     expect(screen.getByText("脚本已导出为文本文件。")).toBeInTheDocument();
   });
   it("saves settings and shows success message", async () => {
-    mockedFetchSettings.mockResolvedValueOnce({
+    mockedFetchSettings.mockResolvedValue({
       config_path: "/tmp/config.json",
       providers: ["DashScope", "Google"],
       settings: {
@@ -549,7 +549,7 @@ describe("App interactions", () => {
     const modelSelect = screen.getByLabelText("默认主模型");
     fireEvent.change(modelSelect, { target: { value: "qwen-max" } });
 
-    fireEvent.click(screen.getByRole("button", { name: /文件转写/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^转写$/ }));
 
     const publicBaseUrlInput = screen.getByPlaceholderText("https://files.example.com");
     fireEvent.change(publicBaseUrlInput, {

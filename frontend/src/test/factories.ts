@@ -42,6 +42,10 @@ export function createChatController(
     setUseMemory: vi.fn(),
     deepThinking: false,
     setDeepThinking: vi.fn(),
+    chatAttachments: [],
+    addChatAttachment: vi.fn(),
+    removeChatAttachment: vi.fn(),
+    clearChatAttachments: vi.fn(),
     ...overrides
   };
 }
@@ -65,6 +69,8 @@ export function createTtsController(
     loadingVoices: false,
     loadingVoicesB: false,
     generating: false,
+    extractingPdf: false,
+    polishingPdf: false,
     ttsError: "",
     ttsInfo: "",
     engineOptions: [
@@ -85,9 +91,11 @@ export function createTtsController(
     onDialogueTextChange: vi.fn(),
     onPdfFileChange: vi.fn(),
     onPdfTextChange: vi.fn(),
+    onPolishPdfText: vi.fn(),
     onVoiceChange: vi.fn(),
     onVoiceBChange: vi.fn(),
     onRateChange: vi.fn(),
+
     ...overrides
   };
 }
@@ -114,6 +122,9 @@ export function createVoiceChatController(
     voiceChatMemoryWriteStatus: "",
     voiceChatMemorySourceStatus: "",
     voiceChatMemoryScope: "",
+    voiceChatAgentToolStatus: "",
+    voiceChatAgentSources: [],
+    voiceChatAgentRunMeta: "",
     voiceChatMemoryGroupId: "",
     voiceChatMessages: [],
     sessionSummary: [],
@@ -281,6 +292,10 @@ export function createSettingsController(
       runtimeCopyStatus: "idle"
     },
     providerOptions: ["DashScope", "Google", "Xiaomi"],
+    customProviders: overrides.customProviders ?? [],
+    settingsProviderUseMaxCompletionTokens: overrides.settingsProviderUseMaxCompletionTokens ?? false,
+    settingsProviderHeadersJson: overrides.settingsProviderHeadersJson ?? "{}",
+    isCustomProvider: overrides.isCustomProvider ?? false,
     onSubmit: vi.fn(),
     onReload: vi.fn(),
     onProviderChange: vi.fn(),
@@ -294,6 +309,10 @@ export function createSettingsController(
     onEnableAllModels: vi.fn(),
     onDisableAllModels: vi.fn(),
     onFetchModels: vi.fn(),
+    onAddCustomProvider: overrides.onAddCustomProvider ?? vi.fn(),
+    onDeleteCustomProvider: overrides.onDeleteCustomProvider ?? vi.fn(),
+    onUseMaxCompletionTokensChange: overrides.onUseMaxCompletionTokensChange ?? vi.fn(),
+    onHeadersJsonChange: overrides.onHeadersJsonChange ?? vi.fn(),
     onTranscriptionUploadModeChange: vi.fn(),
     onTranscriptionPublicBaseUrlChange: vi.fn(),
     onTranscriptionS3BucketChange: vi.fn(),
@@ -372,6 +391,9 @@ export function createAudioOverviewController(
     audioOverviewLanguage: "zh",
     audioOverviewPodcastId: 12,
     audioOverviewMergeStrategy: "auto",
+    audioOverviewIntroMusic: false,
+    audioOverviewIntroMusicStyle: "warm",
+    audioOverviewIntroMusicDurationMs: 2500,
     audioOverviewTopic: "AI 对个人学习习惯的影响",
     audioOverviewTurnCount: 8,
     audioOverviewAdvancedOpen: false,
@@ -439,8 +461,12 @@ export function createAudioOverviewController(
     onRateChange: vi.fn(),
     onGapMsChange: vi.fn(),
     onMergeStrategyChange: vi.fn(),
+    onIntroMusicChange: vi.fn(),
+    onIntroMusicStyleChange: vi.fn(),
+    onIntroMusicDurationChange: vi.fn(),
     onRefreshList: vi.fn(),
     onLoadPodcast: vi.fn(),
+    onDeletePodcastById: vi.fn(),
     onRetryAgentRun: vi.fn(),
     ...overrides
   };

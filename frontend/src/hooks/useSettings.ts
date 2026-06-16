@@ -21,7 +21,10 @@ const PROVIDER_API_KEY_FIELD: Record<string, string> = {
   Groq: "groq_api_key",
   DashScope: "dashscope_api_key",
   Google: "google_api_key",
-  Xiaomi: "xiaomi_api_key"
+  Xiaomi: "xiaomi_api_key",
+  Ollama: "ollama_api_key",
+  Deepgram: "deepgram_api_key",
+  OpenAI: "openai_api_key"
 };
 
 function parseModelValue(
@@ -87,6 +90,9 @@ export default function useSettings({ formatErrorMessage }: Options) {
   const [transcriptionS3KeyPrefix, setTranscriptionS3KeyPrefix] = useState("transcription");
   const [xiaomiApiKey, setXiaomiApiKey] = useState("");
   const [xiaomiApiUrl, setXiaomiApiUrl] = useState("");
+  const [customProviders, setCustomProviders] = useState<any[]>([]);
+  const [settingsProviderUseMaxCompletionTokens, setSettingsProviderUseMaxCompletionTokens] = useState(false);
+  const [settingsProviderHeadersJson, setSettingsProviderHeadersJson] = useState("{}");
 
   const [evermemEnabled, setEvermemEnabled] = useState(false);
   const [evermemApiUrl, setEvermemApiUrl] = useState("");
@@ -240,12 +246,25 @@ export default function useSettings({ formatErrorMessage }: Options) {
     if (!settingsData) {
       return {};
     }
-    return Object.fromEntries(
+    const catalog = Object.fromEntries(
       Object.entries(settingsData.default_models || {}).map(([provider, value]) => {
         const parsed = parseModelValue(value);
         return [provider, parsed];
       })
     );
+
+    const rawCustom = settingsData.custom_providers || [];
+    for (const cp of rawCustom) {
+      if (cp && cp.id) {
+        catalog[cp.id] = {
+          defaultModel: cp.default_model || "",
+          availableModels: cp.available_models || [],
+          enabledModels: cp.enabled_models || [],
+        };
+      }
+    }
+
+    return catalog;
   }, [settingsData]);
 
   const memorySection = useMemo(() => {
@@ -424,17 +443,46 @@ export default function useSettings({ formatErrorMessage }: Options) {
     if (!settingsData) {
       return;
     }
-    const keyField = PROVIDER_API_KEY_FIELD[settingsProvider];
-    const apiKey = keyField ? settingsData.api_keys[keyField] || "" : "";
-    const apiUrl = settingsData.api_urls[settingsProvider] || "";
-    const modelValue = settingsData.default_models[settingsProvider];
-    const { defaultModel, availableModels, enabledModels } = parseModelValue(modelValue);
+    
+    // Sync custom providers list
+    const rawCustom = settingsData.custom_providers || [];
+    setCustomProviders(rawCustom);
 
-    setSettingsApiKey(apiKey);
-    setSettingsApiUrl(apiUrl);
-    setSettingsDefaultModel(defaultModel);
-    setSettingsAvailableModels(availableModels);
-    setSettingsEnabledModels(enabledModels);
+    const isCustom = settingsProvider.startsWith("custom_");
+    if (isCustom) {
+      const customProv = rawCustom.find((p: any) => p.id === settingsProvider);
+      if (customProv) {
+        setSettingsApiKey(customProv.api_key || "");
+        setSettingsApiUrl(customProv.base_url || "");
+        setSettingsDefaultModel(customProv.default_model || "");
+        setSettingsAvailableModels(customProv.available_models || []);
+        setSettingsEnabledModels(customProv.enabled_models || []);
+        setSettingsProviderUseMaxCompletionTokens(!!customProv.use_max_completion_tokens);
+        setSettingsProviderHeadersJson(JSON.stringify(customProv.custom_headers || {}, null, 2));
+      } else {
+        setSettingsApiKey("");
+        setSettingsApiUrl("");
+        setSettingsDefaultModel("");
+        setSettingsAvailableModels([]);
+        setSettingsEnabledModels([]);
+        setSettingsProviderUseMaxCompletionTokens(false);
+        setSettingsProviderHeadersJson("{}");
+      }
+    } else {
+      const keyField = PROVIDER_API_KEY_FIELD[settingsProvider];
+      const apiKey = keyField ? settingsData.api_keys[keyField] || "" : "";
+      const apiUrl = settingsData.api_urls[settingsProvider] || "";
+      const modelValue = settingsData.default_models[settingsProvider];
+      const { defaultModel, availableModels, enabledModels } = parseModelValue(modelValue);
+
+      setSettingsApiKey(apiKey);
+      setSettingsApiUrl(apiUrl);
+      setSettingsDefaultModel(defaultModel);
+      setSettingsAvailableModels(availableModels);
+      setSettingsEnabledModels(enabledModels);
+      setSettingsProviderUseMaxCompletionTokens(false);
+      setSettingsProviderHeadersJson("{}");
+    }
 
     const xiaomiSettings = settingsData.xiaomi || {};
     if (typeof xiaomiSettings.api_key === "string") setXiaomiApiKey(xiaomiSettings.api_key);
@@ -555,8 +603,10 @@ export default function useSettings({ formatErrorMessage }: Options) {
     setSettingsError("");
     setSettingsInfo("");
 
+    const isCustom = settingsProvider.startsWith("custom_");
     const keyField = PROVIDER_API_KEY_FIELD[settingsProvider];
-    if (!keyField) {
+
+    if (!isCustom && !keyField) {
       setSettingsError(
         t(
           `暂不支持该供应商的密钥映射：${settingsProvider}`,
@@ -582,22 +632,38 @@ export default function useSettings({ formatErrorMessage }: Options) {
         store_transcript_fulltext: evermemStoreTranscript
       });
 
-      const result = await updateSettings({
+      let updatedCustomProviders = [...customProviders];
+      if (isCustom) {
+        let headersObj = {};
+        if (settingsProviderHeadersJson.trim()) {
+          try {
+            headersObj = JSON.parse(settingsProviderHeadersJson);
+          } catch (err) {
+            setSettingsError(t("自定义请求头 JSON 格式不正确。", "Invalid Custom Headers JSON format."));
+            setSettingsSaving(false);
+            return;
+          }
+        }
+        updatedCustomProviders = customProviders.map((p) => {
+          if (p.id === settingsProvider) {
+            return {
+              ...p,
+              api_key: settingsApiKey.trim(),
+              base_url: settingsApiUrl.trim(),
+              default_model: settingsDefaultModel.trim(),
+              available_models: settingsAvailableModels,
+              enabled_models: settingsEnabledModels,
+              use_max_completion_tokens: settingsProviderUseMaxCompletionTokens,
+              custom_headers: headersObj,
+            };
+          }
+          return p;
+        });
+      }
+
+      const patch: Record<string, any> = {
         general_settings: {
           display_language: displayLanguage
-        },
-        api_keys: {
-          [keyField]: settingsApiKey.trim()
-        },
-        api_urls: {
-          [settingsProvider]: settingsApiUrl.trim()
-        },
-        default_models: {
-          [settingsProvider]: {
-            default: settingsDefaultModel.trim(),
-            available: settingsAvailableModels,
-            enabled: settingsEnabledModels
-          }
         },
         memory_settings: {
           enabled: evermemEnabled,
@@ -634,8 +700,29 @@ export default function useSettings({ formatErrorMessage }: Options) {
         },
         shortcuts: {
           wake_app: desktopWakeShortcut.trim()
+        },
+        custom_providers: updatedCustomProviders
+      };
+
+      if (!isCustom) {
+        if (keyField) {
+          patch.api_keys = {
+            [keyField]: settingsApiKey.trim()
+          };
         }
-      });
+        patch.api_urls = {
+          [settingsProvider]: settingsApiUrl.trim()
+        };
+        patch.default_models = {
+          [settingsProvider]: {
+            default: settingsDefaultModel.trim(),
+            available: settingsAvailableModels,
+            enabled: settingsEnabledModels
+          }
+        };
+      }
+
+      const result = await updateSettings(patch);
       setSettingsData(result.settings);
       setSettingsConfigPath(result.config_path);
       setSettingsProviders(result.providers);
@@ -647,6 +734,73 @@ export default function useSettings({ formatErrorMessage }: Options) {
       );
     } catch (err) {
       setSettingsError(formatErrorMessage(err, t("保存设置失败。", "Failed to save settings.")));
+    } finally {
+      setSettingsSaving(false);
+    }
+  }
+
+  async function onAddCustomProvider(name: string, baseUrl: string, apiKey: string, useMaxTokens: boolean, headersJson: string) {
+    let headersObj = {};
+    if (headersJson.trim()) {
+      try {
+        headersObj = JSON.parse(headersJson);
+      } catch (err) {
+        throw new Error(t("自定义请求头 JSON 格式不正确。", "Invalid Custom Headers JSON format."));
+      }
+    }
+
+    const newId = `custom_${Date.now()}`;
+    const newProvider = {
+      id: newId,
+      name,
+      base_url: baseUrl,
+      api_key: apiKey,
+      use_max_completion_tokens: useMaxTokens,
+      custom_headers: headersObj,
+      default_model: "",
+      available_models: [],
+      enabled_models: [],
+    };
+
+    const updatedList = [...customProviders, newProvider];
+    setCustomProviders(updatedList);
+    setSettingsProvider(newId);
+
+    setSettingsSaving(true);
+    try {
+      const result = await updateSettings({
+        custom_providers: updatedList
+      });
+      setSettingsData(result.settings);
+      setSettingsConfigPath(result.config_path);
+      setSettingsProviders(result.providers);
+      setSettingsInfo(t("已成功添加自定义服务商。", "Successfully added custom provider."));
+    } catch (err) {
+      setSettingsError(formatErrorMessage(err, t("添加自定义服务商失败。", "Failed to add custom provider.")));
+    } finally {
+      setSettingsSaving(false);
+    }
+  }
+
+  async function onDeleteCustomProvider(id: string) {
+    const updatedList = customProviders.filter((p) => p.id !== id);
+    setCustomProviders(updatedList);
+
+    if (settingsProvider === id) {
+      setSettingsProvider("DashScope");
+    }
+
+    setSettingsSaving(true);
+    try {
+      const result = await updateSettings({
+        custom_providers: updatedList
+      });
+      setSettingsData(result.settings);
+      setSettingsConfigPath(result.config_path);
+      setSettingsProviders(result.providers);
+      setSettingsInfo(t("已成功删除自定义服务商。", "Successfully deleted custom provider."));
+    } catch (err) {
+      setSettingsError(formatErrorMessage(err, t("删除自定义服务商失败。", "Failed to delete custom provider.")));
     } finally {
       setSettingsSaving(false);
     }
@@ -705,6 +859,10 @@ export default function useSettings({ formatErrorMessage }: Options) {
     providerOptions: settingsProviders.length
       ? settingsProviders
       : Object.keys(PROVIDER_API_KEY_FIELD),
+    customProviders,
+    settingsProviderUseMaxCompletionTokens,
+    settingsProviderHeadersJson,
+    isCustomProvider: settingsProvider.startsWith("custom_"),
     onSubmit,
     onReload: loadSettings,
     onProviderChange: setSettingsProvider,
@@ -718,6 +876,10 @@ export default function useSettings({ formatErrorMessage }: Options) {
     onEnableAllModels,
     onDisableAllModels,
     onFetchModels,
+    onAddCustomProvider,
+    onDeleteCustomProvider,
+    onUseMaxCompletionTokensChange: setSettingsProviderUseMaxCompletionTokens,
+    onHeadersJsonChange: setSettingsProviderHeadersJson,
     onTranscriptionUploadModeChange: setTranscriptionUploadMode,
     onTranscriptionPublicBaseUrlChange: setTranscriptionPublicBaseUrl,
     onTranscriptionS3BucketChange: setTranscriptionS3Bucket,

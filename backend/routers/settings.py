@@ -144,6 +144,9 @@ async def fetch_models(provider: str, payload: FetchModelsRequest) -> FetchModel
     if not api_key and cfg_settings:
         api_key = cfg_settings.get("api_key", "").strip()
 
+    if provider == "Ollama" and not api_key:
+        api_key = "ollama"
+
     base_url = (payload.base_url or "").strip()
     if not base_url and cfg_settings:
         base_url = cfg_settings.get("base_url", "").strip()
@@ -173,14 +176,27 @@ async def fetch_models(provider: str, payload: FetchModelsRequest) -> FetchModel
             },
         )
 
-    url = f"{base_url}/models"
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Accept": "application/json",
-    }
-    if provider == "OpenRouter":
-        headers["HTTP-Referer"] = "https://voicespirit.local"
-        headers["X-Title"] = "VoiceSpirit"
+    if provider == "Ollama":
+        # Native API endpoint is /api/tags
+        # base_url is typically http://localhost:11434/v1
+        base = base_url
+        if base.endswith("/v1"):
+            base = base[:-3]
+        url = f"{base}/api/tags"
+        headers = {
+            "Accept": "application/json",
+        }
+        if api_key and api_key != "ollama":
+            headers["Authorization"] = f"Bearer {api_key}"
+    else:
+        url = f"{base_url}/models"
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Accept": "application/json",
+        }
+        if provider == "OpenRouter":
+            headers["HTTP-Referer"] = "https://voicespirit.local"
+            headers["X-Title"] = "VoiceSpirit"
 
     import httpx
     try:
@@ -209,19 +225,25 @@ async def fetch_models(provider: str, payload: FetchModelsRequest) -> FetchModel
 
     try:
         data = response.json()
-        raw_models = data.get("data", [])
-        if not isinstance(raw_models, list):
-            if isinstance(data, list):
-                raw_models = data
-            else:
-                raw_models = []
-
         model_ids = []
-        for m in raw_models:
-            if isinstance(m, dict) and "id" in m:
-                model_ids.append(str(m["id"]))
-            elif isinstance(m, str):
-                model_ids.append(m)
+        if provider == "Ollama":
+            raw_models = data.get("models", [])
+            for m in raw_models:
+                if isinstance(m, dict) and "name" in m:
+                    model_ids.append(str(m["name"]))
+        else:
+            raw_models = data.get("data", [])
+            if not isinstance(raw_models, list):
+                if isinstance(data, list):
+                    raw_models = data
+                else:
+                    raw_models = []
+
+            for m in raw_models:
+                if isinstance(m, dict) and "id" in m:
+                    model_ids.append(str(m["id"]))
+                elif isinstance(m, str):
+                    model_ids.append(m)
 
         model_ids = sorted(list(set(model_ids)))
 

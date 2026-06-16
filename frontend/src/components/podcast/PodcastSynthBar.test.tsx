@@ -8,7 +8,7 @@ describe("PodcastSynthBar", () => {
     render(<PodcastSynthBar audioOverview={createAudioOverviewController()} />);
 
     expect(screen.getByRole("button", { name: /合成/ })).toBeInTheDocument();
-    expect(screen.getAllByRole("option", { name: "Yunxi" })).toHaveLength(2);
+    expect(screen.getAllByRole("option", { name: /Yunxi/ })).toHaveLength(2);
   });
 
   it("renders advanced synth controls when expanded", () => {

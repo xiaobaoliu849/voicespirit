@@ -1,3 +1,4 @@
+import json
 import logging
 import tempfile
 import uuid
@@ -66,7 +67,6 @@ except ImportError:
 logger = logging.getLogger(__name__)
 router = APIRouter()
 transcription_service = TranscriptionService()
-transcription_service = TranscriptionService()
 
 
 class StructuredErrorDetail(BaseModel):
@@ -79,10 +79,18 @@ class StructuredErrorResponse(BaseModel):
     detail: StructuredErrorDetail
 
 
+class WordTimestamp(BaseModel):
+    text: str
+    start: float
+    end: float
+
+
 class TranscriptionSyncResponse(BaseModel):
     transcript: str
     job_id: str | None = None
     memory_saved: bool = False
+    duration_seconds: float | None = None
+    words: list[WordTimestamp] | None = None
 
 
 class TranscriptionJobResponse(BaseModel):
@@ -149,11 +157,15 @@ def _job_to_response(job: TranscriptionJob) -> TranscriptionJobResponse:
                 pass
     
     # Use dictionary unpacking to avoid "unexpected keyword" IDE errors if inheritance is broken
-    source_url = job.source_url
-    if not source_url and job.file_path:
+    # Always prefer the local proxy endpoint when the file exists locally,
+    # so the browser doesn't try to fetch a remote/public URL directly.
+    source_url: str | None = None
+    if job.file_path:
         path = Path(str(job.file_path))
         if path.is_file():
             source_url = f"/api/transcription/jobs/{job.job_id}/audio"
+    if not source_url:
+        source_url = job.source_url
 
     data: dict[str, Any] = {
         "job_id": str(job.job_id or ""),
@@ -191,33 +203,54 @@ async def _persist_upload(file: UploadFile, target_dir: Path, suffix: str) -> Pa
         500: {"description": "Transcription failed.", "model": StructuredErrorResponse},
     },
 )
-async def transcribe_audio(request: Request, file: UploadFile = File(...)) -> TranscriptionSyncResponse:
+async def transcribe_audio(
+    request: Request,
+    file: UploadFile = File(...),
+    provider: str | None = Query(
+        default=None,
+        description="ASR provider to use: deepgram, openai/whisper, dashscope/qwen, xiaomi/mimo. Auto-selects if not specified.",
+    ),
+) -> TranscriptionSyncResponse:
     suffix = _validate_upload(file)
 
     try:
         upload_path = await _persist_upload(file, transcription_service.jobs_dir / "uploads", suffix)
-        transcript = await transcription_service.transcribe_file(upload_path)
-        
+        result = await transcription_service.transcribe_file(upload_path, provider=provider)
+        transcript = result["text"]
+        duration_seconds = result.get("duration_seconds")
+        words_raw = result.get("words")
+
+        # Convert words to WordTimestamp objects
+        words = None
+        if words_raw:
+            words = [WordTimestamp(**w) for w in words_raw if isinstance(w, dict)]
+
         job = await transcription_service.create_completed_sync_job(
             file_path=str(upload_path),
             original_filename=file.filename or "sync_upload",
             transcript=transcript
         )
-        
+
+        # Save words to job if available
+        if words:
+            transcription_service._persist_words(job.job_id or "", words_raw)
+
         memory_saved = await transcription_service.maybe_save_memory(
             transcript_text=transcript,
             headers=dict(request.headers),
             source="transcription_sync",
         )
-        
+
         if memory_saved:
             transcription_service.update_job(job.job_id or "", memory_saved=True)
-            
+
         return TranscriptionSyncResponse(
             **{
-                "transcript": transcript, 
+                "transcript": transcript,
                 "job_id": job.job_id,
-                "memory_saved": memory_saved
+                "memory_saved": memory_saved,
+                "duration_seconds": duration_seconds,
+                "words": words,
             }
         )
     except ValueError as exc:
@@ -421,6 +454,31 @@ async def retry_transcription_job(job_id: str) -> TranscriptionJobResponse:
         ) from exc
 
 
+@router.delete( # type: ignore
+    "/jobs/{job_id}",
+    responses={
+        404: {"description": "Transcription job not found.", "model": StructuredErrorResponse},
+        500: {"description": "Failed to delete transcription job.", "model": StructuredErrorResponse},
+    },
+)
+async def delete_transcription_job(job_id: str) -> dict[str, bool]:
+    try:
+        deleted = transcription_service.delete_job(job_id)
+        if not deleted:
+            raise HTTPException(
+                status_code=404,
+                detail=_error("TRANSCRIPTION_JOB_NOT_FOUND", f"Transcription job not found: {job_id}"),
+            )
+        return {"ok": True}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=_error("TRANSCRIPTION_JOB_DELETE_FAILED", str(exc)),
+        ) from exc
+
+
 @router.get( # type: ignore
     "/jobs/{job_id}/transcript.txt",
     responses={
@@ -482,5 +540,40 @@ async def download_transcription_job_audio(job_id: str):
     return FileResponse(
         path=str(audio_path),
         filename=filename,
-        media_type="audio/mpeg" if str(audio_path).endswith(".mp3") else "audio/wav",
+        media_type=TranscriptionService._guess_mime_type(audio_path),
     )
+
+
+@router.get( # type: ignore
+    "/jobs/{job_id}/words",
+    response_model=list[WordTimestamp],
+    responses={
+        404: {"description": "Words data not found.", "model": StructuredErrorResponse},
+    },
+)
+async def get_transcription_job_words(job_id: str) -> list[WordTimestamp]:
+    """Get word-level timestamps for a transcription job."""
+    job = transcription_service.get_job(job_id)
+    if job is None:
+        raise HTTPException(
+            status_code=404,
+            detail=_error("TRANSCRIPTION_JOB_NOT_FOUND", f"Transcription job not found: {job_id}"),
+        )
+
+    words_path = transcription_service.jobs_dir / f"{job_id}_words.json"
+    if not words_path.is_file():
+        raise HTTPException(
+            status_code=404,
+            detail=_error("TRANSCRIPTION_WORDS_NOT_FOUND", f"Words data not found for job: {job_id}"),
+        )
+
+    try:
+        words_data = json.loads(words_path.read_text(encoding="utf-8"))
+        if not isinstance(words_data, list):
+            raise ValueError("Invalid words data format")
+        return [WordTimestamp(**w) for w in words_data if isinstance(w, dict)]
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=_error("TRANSCRIPTION_WORDS_READ_FAILED", f"Failed to read words data: {str(exc)}"),
+        ) from exc

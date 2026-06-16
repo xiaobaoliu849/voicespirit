@@ -24,6 +24,7 @@ from routers import settings as settings_router
 from routers import transcription as transcription_router
 from routers import translate as translate_router
 from routers import tts as tts_router
+from routers import voice_chat as voice_chat_router
 from routers import voices as voices_router
 from services.audio_overview_service import AudioOverviewService, AudioOverviewServiceError
 from services.audio_agent_service import AudioAgentService
@@ -34,6 +35,7 @@ from services.settings_service import SettingsService
 from services.transcription_publish_adapter import build_transcription_publisher
 from services.transcription_service import TranscriptionService
 from services.user_auth_service import user_auth_service
+from services.voice_agent_session_repository import VoiceAgentSessionRepository
 
 
 class ApiSmokeTests(unittest.TestCase):
@@ -61,6 +63,56 @@ class ApiSmokeTests(unittest.TestCase):
             if isinstance(route, WebSocketRoute)
         }
         self.assertIn("/api/voice-chat/ws", websocket_paths)
+
+    def test_voice_chat_session_history_endpoints(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            original_repository = voice_chat_router.voice_agent_session_repository
+            repository = VoiceAgentSessionRepository(Path(tmp_dir) / "voice_agent.db")
+            voice_chat_router.voice_agent_session_repository = repository
+            try:
+                session = repository.create_session(
+                    provider="DashScope",
+                    model="qwen-realtime",
+                    voice="Cherry",
+                )
+                repository.upsert_turn(
+                    session["id"],
+                    "voice-tool-1",
+                    user_text="帮我搜索语音 Agent",
+                    assistant_text="我查到这些信息。",
+                    completed=True,
+                )
+                repository.add_tool_event(
+                    session["id"],
+                    "agent_result",
+                    {
+                        "tool_name": "search_web",
+                        "turn_id": "voice-tool-1",
+                        "query": "语音 Agent",
+                        "answer": "我查到这些信息。",
+                    },
+                )
+
+                list_response = self._request("GET", "/api/voice-chat/sessions?limit=5")
+                self.assertEqual(list_response.status_code, 200)
+                list_payload = list_response.json()
+                self.assertEqual(list_payload["count"], 1)
+                self.assertEqual(list_payload["sessions"][0]["id"], session["id"])
+
+                detail_response = self._request("GET", f"/api/voice-chat/sessions/{session['id']}")
+                self.assertEqual(detail_response.status_code, 200)
+                detail_payload = detail_response.json()
+                self.assertEqual(detail_payload["turns"][0]["user_text"], "帮我搜索语音 Agent")
+                self.assertEqual(detail_payload["tool_events"][0]["event_type"], "agent_result")
+
+                missing_response = self._request("GET", "/api/voice-chat/sessions/missing")
+                self.assertEqual(missing_response.status_code, 404)
+                self.assertEqual(
+                    missing_response.json()["detail"]["code"],
+                    "VOICE_AGENT_SESSION_NOT_FOUND",
+                )
+            finally:
+                voice_chat_router.voice_agent_session_repository = original_repository
 
     def test_realtime_voice_service_requires_google_api_key(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -683,9 +735,9 @@ class ApiSmokeTests(unittest.TestCase):
             )
 
     def test_transcription_sync_endpoint(self) -> None:
-        async def fake_transcribe_file(file_path: str | Path) -> str:
+        async def fake_transcribe_file(file_path: str | Path, **kwargs: Any) -> dict:
             self.assertTrue(Path(file_path).is_file())
-            return "同步转写成功"
+            return {"text": "同步转写成功", "duration_seconds": 12.5}
 
         async def fake_save_memory(**kwargs: Any) -> bool:
             self.assertIn("同步转写成功", kwargs["transcript_text"])
@@ -959,6 +1011,35 @@ class ApiSmokeTests(unittest.TestCase):
                 self.assertEqual(download.status_code, 200)
                 self.assertIn("text/plain", download.headers.get("content-type", ""))
                 self.assertIn("已完成 transcript", download.text)
+            finally:
+                transcription_router.transcription_service.jobs_dir = original_jobs_dir
+
+    def test_transcription_job_audio_download_uses_original_mime_type(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            jobs_dir = Path(tmp_dir) / "jobs"
+            jobs_dir.mkdir(parents=True, exist_ok=True)
+            audio_path = Path(tmp_dir) / "meeting.m4a"
+            audio_path.write_bytes(b"m4a-demo")
+            original_jobs_dir = transcription_router.transcription_service.jobs_dir
+            transcription_router.transcription_service.jobs_dir = jobs_dir
+            try:
+                job = asyncio.run(
+                    transcription_router.transcription_service.prepare_long_transcription_job(
+                        audio_path,
+                        "meeting.m4a",
+                    )
+                )
+
+                loaded = self._request("GET", f"/api/transcription/jobs/{job.job_id}")
+                self.assertEqual(loaded.status_code, 200)
+                self.assertEqual(
+                    loaded.json()["source_url"],
+                    f"/api/transcription/jobs/{job.job_id}/audio",
+                )
+
+                audio = self._request("GET", f"/api/transcription/jobs/{job.job_id}/audio")
+                self.assertEqual(audio.status_code, 200)
+                self.assertIn("audio/mp4", audio.headers.get("content-type", ""))
             finally:
                 transcription_router.transcription_service.jobs_dir = original_jobs_dir
 
@@ -1276,6 +1357,67 @@ class ApiSmokeTests(unittest.TestCase):
                 self.assertTrue(payload["remember_tts"])
             finally:
                 settings_router.settings_service = original_service
+
+    def test_settings_ollama_provider_can_be_updated(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            config_path = Path(tmp_dir) / "config.json"
+            config_path.write_text("{}", encoding="utf-8")
+            test_service = SettingsService(config=BackendConfig(config_path))
+
+            original_service = settings_router.settings_service
+            settings_router.settings_service = test_service
+            try:
+                r_put = self._request(
+                    "PUT",
+                    "/api/settings/",
+                    json={
+                        "merge": True,
+                        "settings": {
+                            "api_keys": {"ollama_api_key": ""},
+                            "api_urls": {"Ollama": "http://127.0.0.1:11434/v1"},
+                            "default_models": {
+                                "Ollama": {
+                                    "default": "qwen2.5:latest",
+                                    "available": ["qwen2.5:latest", "deepseek-r1:7b"],
+                                    "enabled": ["qwen2.5:latest"]
+                                }
+                            },
+                        },
+                    },
+                )
+                self.assertEqual(r_put.status_code, 200)
+                payload = r_put.json()
+                self.assertEqual(payload["settings"]["api_urls"]["Ollama"], "http://127.0.0.1:11434/v1")
+                self.assertEqual(payload["settings"]["default_models"]["Ollama"]["default"], "qwen2.5:latest")
+            finally:
+                settings_router.settings_service = original_service
+
+    def test_fetch_models_ollama_native_api(self) -> None:
+        from unittest.mock import AsyncMock, MagicMock
+        mock_response = AsyncMock()
+        mock_response.status_code = 200
+        mock_response.json = MagicMock(return_value={
+            "models": [
+                {"name": "qwen2.5:latest"},
+                {"name": "deepseek-r1:7b"}
+            ]
+        })
+        mock_response.raise_for_status = lambda: None
+
+        with patch("httpx.AsyncClient.get", return_value=mock_response) as mock_get:
+            response = self._request(
+                "POST",
+                "/api/settings/providers/Ollama/fetch-models",
+                json={"api_key": "", "base_url": "http://localhost:11434/v1"}
+            )
+            self.assertEqual(response.status_code, 200)
+            data = response.json()
+            self.assertEqual(data["provider"], "Ollama")
+            self.assertEqual(data["models"], ["deepseek-r1:7b", "qwen2.5:latest"])
+            mock_get.assert_called_once_with(
+                "http://localhost:11434/api/tags",
+                headers={"Accept": "application/json"}
+            )
 
     def test_desktop_status_endpoint_returns_preflight_summary(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:

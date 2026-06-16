@@ -19,12 +19,38 @@ TTS_ENGINE_EDGE = "edge"
 TTS_ENGINE_QWEN_FLASH = "qwen_flash"
 TTS_ENGINE_MINIMAX = "minimax"
 TTS_ENGINE_XIAOMI = "xiaomi"
+TTS_ENGINE_OPENAI = "openai"
+TTS_ENGINE_ELEVENLABS = "elevenlabs"
+
 SUPPORTED_TTS_ENGINES = {
     TTS_ENGINE_EDGE,
     TTS_ENGINE_QWEN_FLASH,
     TTS_ENGINE_MINIMAX,
     TTS_ENGINE_XIAOMI,
+    TTS_ENGINE_OPENAI,
+    TTS_ENGINE_ELEVENLABS,
 }
+
+OPENAI_VOICES = [
+    {"name": "alloy", "short_name": "Alloy", "locale": "multi", "gender": "Neutral"},
+    {"name": "echo", "short_name": "Echo", "locale": "multi", "gender": "Male"},
+    {"name": "fable", "short_name": "Fable", "locale": "multi", "gender": "Neutral"},
+    {"name": "onyx", "short_name": "Onyx", "locale": "multi", "gender": "Male"},
+    {"name": "nova", "short_name": "Nova", "locale": "multi", "gender": "Female"},
+    {"name": "shimmer", "short_name": "Shimmer", "locale": "multi", "gender": "Female"},
+]
+
+ELEVENLABS_VOICES = [
+    {"name": "21m0aEP3W9qOfdrWSyXx", "short_name": "Rachel", "locale": "en-US", "gender": "Female"},
+    {"name": "2Ezo5yI4SP56xRC3pOI3", "short_name": "Clyde", "locale": "en-US", "gender": "Male"},
+    {"name": "AZnzlk1XvdvUeBnXmlld", "short_name": "Dom", "locale": "en-US", "gender": "Male"},
+    {"name": "CYw3db4g4HsRz56a4v7t", "short_name": "Dave", "locale": "en-GB", "gender": "Male"},
+    {"name": "ErXwobaYiN019PkySvjV", "short_name": "Antoni", "locale": "en-US", "gender": "Male"},
+    {"name": "Lcfc5NaZ2c0U3L90tI6C", "short_name": "Emily", "locale": "en-US", "gender": "Female"},
+    {"name": "pNInz6obpgqAjEL4s7P5", "short_name": "Adam", "locale": "en-US", "gender": "Male"},
+    {"name": "pi50t7uMc9ZUB5L7vew", "short_name": "Nicole", "locale": "en-US", "gender": "Female"},
+    {"name": "EXAVITQu4vr4xnSDxMaL", "short_name": "Bella", "locale": "en-US", "gender": "Female"},
+]
 
 DEFAULT_EDGE_VOICE = "zh-CN-XiaoxiaoNeural"
 DEFAULT_QWEN_FLASH_MODEL = "qwen3-tts-flash-2025-11-27"
@@ -270,9 +296,134 @@ class TTSService:
         audio_bytes = base64.b64decode(audio_data)
         path.write_bytes(audio_bytes)
 
+    async def _generate_openai_audio(self, text: str, voice: str, rate: str, path: Path) -> None:
+        self.config.reload()
+        api_key = str(self.config.get_all().get("api_keys", {}).get("openai_api_key", "")).strip()
+        if not api_key:
+            raise RuntimeError("OpenAI API Key is not configured.")
+
+        base_url = str(self.config.get_all().get("api_urls", {}).get("OpenAI", "")).strip()
+        if not base_url:
+            base_url = "https://api.openai.com/v1"
+        if not base_url.startswith(("http://", "https://")):
+            base_url = f"https://{base_url}"
+        base_url = base_url.rstrip("/")
+
+        speed = 1.0
+        if rate:
+            match = re.match(r"^([+-]?)(\d+)%$", rate.strip())
+            if match:
+                sign = match.group(1)
+                percent = float(match.group(2)) / 100.0
+                if sign == "-":
+                    speed = max(0.25, 1.0 - percent)
+                else:
+                    speed = min(4.0, 1.0 + percent)
+
+        model = self.config.get_provider_settings("OpenAI").get("model", "").strip() or "tts-1"
+
+        payload = {
+            "model": model,
+            "input": text,
+            "voice": voice.lower() if voice else "alloy",
+            "response_format": "mp3",
+            "speed": speed,
+        }
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        }
+
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            response = await client.post(f"{base_url}/audio/speech", json=payload, headers=headers)
+        if response.status_code != 200:
+            raise RuntimeError(f"OpenAI TTS API error: {response.status_code} - {response.text}")
+        
+        path.write_bytes(response.content)
+
+    async def _generate_elevenlabs_audio(self, text: str, voice: str, path: Path) -> None:
+        self.config.reload()
+        api_key = str(self.config.get_all().get("api_keys", {}).get("elevenlabs_api_key", "")).strip()
+        if not api_key:
+            raise RuntimeError("ElevenLabs API Key is not configured.")
+
+        base_url = str(self.config.get_all().get("api_urls", {}).get("ElevenLabs", "")).strip()
+        if not base_url:
+            base_url = "https://api.elevenlabs.io/v1"
+        if not base_url.startswith(("http://", "https://")):
+            base_url = f"https://{base_url}"
+        base_url = base_url.rstrip("/")
+
+        voice_id = voice or "21m0aEP3W9qOfdrWSyXx"
+        url = f"{base_url}/text-to-speech/{voice_id}"
+
+        model = self.config.get_provider_settings("ElevenLabs").get("model", "").strip() or "eleven_multilingual_v2"
+
+        payload = {
+            "text": text,
+            "model_id": model,
+            "voice_settings": {
+                "stability": 0.5,
+                "similarity_boost": 0.75,
+            },
+        }
+        headers = {
+            "xi-api-key": api_key,
+            "Content-Type": "application/json",
+        }
+
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            response = await client.post(url, json=payload, headers=headers)
+        if response.status_code != 200:
+            raise RuntimeError(f"ElevenLabs TTS API error: {response.status_code} - {response.text}")
+
+        path.write_bytes(response.content)
+
+    async def _fetch_elevenlabs_voices(self) -> list[dict[str, Any]]:
+        self.config.reload()
+        api_key = str(self.config.get_all().get("api_keys", {}).get("elevenlabs_api_key", "")).strip()
+        if not api_key:
+            return ELEVENLABS_VOICES
+        
+        base_url = str(self.config.get_all().get("api_urls", {}).get("ElevenLabs", "")).strip()
+        if not base_url:
+            base_url = "https://api.elevenlabs.io/v1"
+        if not base_url.startswith(("http://", "https://")):
+            base_url = f"https://{base_url}"
+        base_url = base_url.rstrip("/")
+
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.get(f"{base_url}/voices", headers={"xi-api-key": api_key})
+                if response.status_code == 200:
+                    data = response.json()
+                    voices_data = data.get("voices", [])
+                    if voices_data:
+                        loaded = []
+                        for v in voices_data:
+                            labels = v.get("labels", {})
+                            gender = labels.get("gender", "Unknown")
+                            accent = labels.get("accent", "multi")
+                            loaded.append({
+                                "name": v.get("voice_id"),
+                                "short_name": f"{v.get('name')} (ElevenLabs)",
+                                "locale": accent,
+                                "gender": gender.capitalize(),
+                            })
+                        return loaded
+        except Exception:
+            pass
+        return ELEVENLABS_VOICES
+
     def detect_engine_by_voice(self, voice: str | None) -> str:
         if not voice:
             return TTS_ENGINE_EDGE
+        # Check OpenAI voices
+        if any(v["name"] == voice for v in OPENAI_VOICES):
+            return TTS_ENGINE_OPENAI
+        # Check ElevenLabs voices
+        if any(v["name"] == voice for v in ELEVENLABS_VOICES) or (voice and len(voice) == 20 and voice.isalnum()):
+            return TTS_ENGINE_ELEVENLABS
         # 1. Check Qwen custom/designed/cloned prefixes or names
         if voice.startswith(("qwen3-tts-vd", "qwen3-tts-vc")):
             return TTS_ENGINE_QWEN_FLASH
@@ -316,6 +467,10 @@ class TTSService:
             selected_voice = voice or QWEN_FLASH_VOICES[0]["name"]
         elif normalized_engine == TTS_ENGINE_MINIMAX:
             selected_voice = voice or MINIMAX_VOICES[0]["name"]
+        elif normalized_engine == TTS_ENGINE_OPENAI:
+            selected_voice = voice or OPENAI_VOICES[0]["name"]
+        elif normalized_engine == TTS_ENGINE_ELEVENLABS:
+            selected_voice = voice or ELEVENLABS_VOICES[0]["name"]
         else:
             selected_voice = voice or XIAOMI_VOICES[0]["name"]
 
@@ -331,6 +486,10 @@ class TTSService:
             await self._generate_qwen_flash_audio(cleaned, selected_voice, path)
         elif normalized_engine == TTS_ENGINE_MINIMAX:
             await self._generate_minimax_audio(cleaned, selected_voice, path)
+        elif normalized_engine == TTS_ENGINE_OPENAI:
+            await self._generate_openai_audio(cleaned, selected_voice, rate, path)
+        elif normalized_engine == TTS_ENGINE_ELEVENLABS:
+            await self._generate_elevenlabs_audio(cleaned, selected_voice, path)
         else:
             await self._generate_xiaomi_audio(cleaned, selected_voice, path)
 
@@ -412,6 +571,13 @@ class TTSService:
 
         return str(output_path)
 
+    def _clean_edge_voice_short_name(self, short_name: str) -> str:
+        if "-" in short_name:
+            short_name = short_name.split("-")[-1]
+        if short_name.endswith("Neural"):
+            short_name = short_name[:-6]
+        return short_name
+
     async def list_voices(
         self,
         locale: str | None = None,
@@ -424,6 +590,11 @@ class TTSService:
             return self._filter_by_locale(MINIMAX_VOICES, locale)
         if normalized_engine == TTS_ENGINE_XIAOMI:
             return self._filter_by_locale(XIAOMI_VOICES, locale)
+        if normalized_engine == TTS_ENGINE_OPENAI:
+            return self._filter_by_locale(OPENAI_VOICES, locale)
+        if normalized_engine == TTS_ENGINE_ELEVENLABS:
+            voices = await self._fetch_elevenlabs_voices()
+            return self._filter_by_locale(voices, locale)
 
         if edge_tts is None:
             return self._filter_by_locale(FALLBACK_EDGE_VOICES, locale)
@@ -434,13 +605,13 @@ class TTSService:
             normalized = [
                 {
                     "name": item.get("Name", ""),
-                    "short_name": item.get("ShortName", ""),
+                    "short_name": self._clean_edge_voice_short_name(item.get("ShortName", "")),
                     "locale": item.get("Locale", ""),
                     "gender": item.get("Gender", ""),
                 }
                 for item in voices
             ]
             normalized = [v for v in normalized if v["name"]]
-            return self._filter_by_locale(normalized[:120], locale)
+            return self._filter_by_locale(normalized, locale)
         except Exception:
             return self._filter_by_locale(FALLBACK_EDGE_VOICES, locale)

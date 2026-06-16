@@ -1,5 +1,6 @@
 # Project config
 config.json
+config.json.bak*
 
 # Python
 *.pyc
@@ -10,6 +11,7 @@ build/
 dist/
 *.spec
 backend/.venv/
+backend/.venv-win/
 backend/temp_audio/
 .voicespirit-desktop/
 
@@ -17,18 +19,14 @@ backend/temp_audio/
 .claude/settings.local.json
 .kiro/
 
+# IDE
+.vscode/
+
 # Media/Temp
 *.png
 *.mp3
 *.jpg
-!donate_qr.png
 backup_before_cleanup/
-005.mp3
-1.png
-2.png
-3.png
-5.png
-6.png
 
 # OS
 Thumbs.db
@@ -41,6 +39,7 @@ frontend/dist/
 frontend/*.log
 frontend/test_output.log
 frontend/*.tsbuildinfo
+frontend/inspect_icons.js
 
 # Desktop local runtime
 .desktop-venv/
@@ -49,8 +48,18 @@ frontend/*.tsbuildinfo
 desktop_window.json
 desktop.lock
 
+# Database
+voice_spirit.db
+voice_spirit.log
+
+# Local utility scripts
+cleanup_lock.ps1
+reset_prefill.ps1
+
 # Test/cache
 tests/__pycache__/
+.pytest_cache/
+.temp_skills_*/
 
 # Downloaded packages
 *.deb

@@ -1,4 +1,5 @@
 :root {
+  --sidebar-transition: 0.34s cubic-bezier(0.22, 1, 0.36, 1);
   --display-font: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Georgia, serif;
   --body-font: "SF Pro Text", "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
 
@@ -128,8 +129,8 @@ textarea {
   border-right: 1px solid var(--sidebar-line);
   color: var(--sidebar-text);
   min-height: 0;
-  transition: width 0.34s cubic-bezier(0.22, 1, 0.36, 1);
-  width: 236px;
+  transition: width var(--sidebar-transition);
+  width: 216px;
   overflow: hidden;
   position: relative;
   height: 100%;
@@ -150,13 +151,13 @@ textarea {
   background:
     linear-gradient(180deg, color-mix(in oklab, var(--bg-card) 85%, var(--accent-soft)) 0%, var(--bg-secondary) 100%);
   border-bottom: 1px solid var(--border-color);
-  transition: padding 0.34s cubic-bezier(0.22, 1, 0.36, 1), gap 0.34s cubic-bezier(0.22, 1, 0.36, 1);
+  transition: padding var(--sidebar-transition), gap var(--sidebar-transition);
 }
 
 .vsSidebar.collapsed .vsSidebarHeader {
   height: 76px;
-  justify-content: center;
-  padding: 0 12px;
+  justify-content: flex-start;
+  padding: 0 20px;
 }
 
 .vsBrand {
@@ -166,11 +167,12 @@ textarea {
   flex: 1;
   min-width: 0;
   height: 42px;
+  transition: gap var(--sidebar-transition);
 }
 
 .vsSidebar.collapsed .vsBrand {
   gap: 0;
-  justify-content: center;
+  justify-content: flex-start;
   flex: 1;
   width: 100%;
 }
@@ -207,9 +209,9 @@ textarea {
   min-width: 0;
   overflow: hidden;
   transition:
-    opacity 0.24s ease,
-    max-width 0.34s cubic-bezier(0.22, 1, 0.36, 1),
-    transform 0.34s cubic-bezier(0.22, 1, 0.36, 1);
+    opacity 0.2s ease,
+    max-width var(--sidebar-transition),
+    transform var(--sidebar-transition);
   max-width: 160px;
 }
 
@@ -264,6 +266,7 @@ textarea {
 
 .vsSidebarAction {
   padding: 12px 14px 16px;
+  transition: padding var(--sidebar-transition);
 }
 
 .vsSidebar.collapsed .vsSidebarAction {
@@ -283,7 +286,7 @@ textarea {
   cursor: pointer;
   display: flex;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
   gap: 12px;
   padding: 0 14px;
   box-shadow: var(--shadow-sm);
@@ -292,7 +295,10 @@ textarea {
     background 0.2s ease,
     border-color 0.2s ease,
     transform 0.2s ease,
-    box-shadow 0.2s ease;
+    box-shadow 0.2s ease,
+    padding var(--sidebar-transition),
+    gap var(--sidebar-transition),
+    border-radius var(--sidebar-transition);
 }
 
 .vsNewChatBtn:hover {
@@ -303,11 +309,11 @@ textarea {
 }
 
 .vsSidebar.collapsed .vsNewChatBtn {
-  display: grid;
-  place-items: center;
-  justify-content: center;
-  padding: 0;
+  display: flex;
+  justify-content: flex-start;
+  padding: 0 18px;
   border-radius: 18px;
+  gap: 0;
 }
 
 .vsNewChatIcon {
@@ -325,13 +331,12 @@ textarea {
   overflow: hidden;
   max-width: 120px;
   transition:
-    opacity 0.22s ease,
-    max-width 0.34s cubic-bezier(0.22, 1, 0.36, 1),
-    transform 0.34s cubic-bezier(0.22, 1, 0.36, 1);
+    opacity 0.2s ease,
+    max-width var(--sidebar-transition),
+    transform var(--sidebar-transition);
 }
 
 .vsSidebar.collapsed .vsNewChatText {
-  position: absolute;
   opacity: 0;
   max-width: 0;
   transform: translateX(-4px);
@@ -347,9 +352,15 @@ textarea {
   padding-top: 0;
 }
 
-.vsSidebarTop,
+.vsSidebarTop {
+  min-height: 0;
+}
+
 .vsSidebarBody {
   min-height: 0;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
 }
 
 .vsSidebarSection {
@@ -364,11 +375,13 @@ textarea {
   display: grid;
   gap: 6px;
   padding: 0 10px;
+  transition: padding var(--sidebar-transition), gap var(--sidebar-transition);
 }
 
 .vsNavItem {
   display: flex;
   align-items: center;
+  justify-content: flex-start;
   gap: 12px;
   width: 100%;
   border: 0;
@@ -381,7 +394,14 @@ textarea {
   font-weight: 600;
   font-size: 13px;
   cursor: pointer;
-  transition: all 0.2s ease;
+  box-shadow: none;
+  transition:
+    background 0.2s ease,
+    border-color 0.2s ease,
+    color 0.2s ease,
+    padding var(--sidebar-transition),
+    border-radius var(--sidebar-transition),
+    gap var(--sidebar-transition);
   overflow: hidden;
   white-space: nowrap;
   position: relative;
@@ -392,6 +412,7 @@ textarea {
   background: color-mix(in oklab, var(--bg-card) 80%, var(--accent-soft));
   color: var(--sidebar-text-strong);
   border-color: color-mix(in oklab, var(--accent) 10%, var(--line));
+  box-shadow: none;
 }
 
 .vsNavItem.active {
@@ -430,16 +451,17 @@ textarea {
   overflow: hidden;
   max-width: 140px;
   transition:
-    opacity 0.22s ease,
-    max-width 0.34s cubic-bezier(0.22, 1, 0.36, 1),
-    transform 0.34s cubic-bezier(0.22, 1, 0.36, 1);
+    opacity 0.2s ease,
+    max-width var(--sidebar-transition),
+    transform var(--sidebar-transition);
   opacity: 1;
 }
 
 .vsSidebar.collapsed .vsNavItem {
   border-radius: 18px;
-  justify-content: center;
-  padding: 13px 0;
+  justify-content: flex-start;
+  padding: 13px 18px;
+  gap: 0;
 }
 
 .vsSidebar.collapsed .vsNavItemText {
@@ -447,7 +469,7 @@ textarea {
   max-width: 0;
   margin-left: 0;
   transform: translateX(-4px);
-  position: absolute;
+  pointer-events: none;
 }
 
 .vsSidebar.collapsed .vsNav {
@@ -464,6 +486,7 @@ textarea {
   height: 28px;
   background: linear-gradient(180deg, var(--accent), var(--brand));
   border-radius: 999px;
+  transition: left var(--sidebar-transition);
 }
 
 .vsSidebar.collapsed .vsNavActiveIndicator {
@@ -480,6 +503,25 @@ textarea {
   margin-top: auto;
   padding: 18px 10px 14px;
   border-top: 1px solid color-mix(in oklab, var(--accent) 8%, var(--line));
+  transition:
+    opacity var(--sidebar-transition),
+    max-height var(--sidebar-transition),
+    padding var(--sidebar-transition),
+    border-top-color var(--sidebar-transition),
+    margin-top var(--sidebar-transition);
+  max-height: 400px;
+  opacity: 1;
+  overflow: hidden;
+}
+
+.vsSidebar.collapsed .vsHistorySection {
+  max-height: 0;
+  opacity: 0;
+  padding-top: 0;
+  padding-bottom: 0;
+  border-top-color: transparent;
+  pointer-events: none;
+  margin-top: 0;
 }
 
 .vsHistoryHead {
@@ -528,8 +570,10 @@ textarea {
   cursor: pointer;
   display: flex;
   align-items: center;
+  justify-content: flex-start;
   gap: 10px;
   font-size: 13px;
+  box-shadow: none;
   transition: background 0.2s, border-color 0.2s, transform 0.2s;
   white-space: nowrap;
   border: 1px solid transparent;
@@ -539,11 +583,12 @@ textarea {
   background: color-mix(in oklab, var(--bg-card) 84%, var(--accent-soft));
   color: var(--sidebar-text-strong);
   border-color: color-mix(in oklab, var(--accent) 10%, var(--line));
+  box-shadow: none;
 }
 
 .vsSidebar.collapsed .vsHistoryItem {
-  padding: 10px 0;
-  justify-content: center;
+  padding: 10px 18px;
+  justify-content: flex-start;
 }
 
 .vsHistoryIcon {
@@ -601,6 +646,7 @@ textarea {
   display: flex;
   flex-direction: column;
   gap: 14px;
+  transition: padding var(--sidebar-transition);
 }
 
 .vsSidebar.collapsed .vsSidebarFooter {
@@ -617,14 +663,15 @@ textarea {
   overflow: hidden;
   max-width: 120px;
   transition:
-    opacity 0.22s ease,
-    max-width 0.34s cubic-bezier(0.22, 1, 0.36, 1),
-    transform 0.34s cubic-bezier(0.22, 1, 0.36, 1);
+    opacity 0.2s ease,
+    max-width var(--sidebar-transition),
+    transform var(--sidebar-transition);
 }
 
 .vsFooterAction {
   display: flex;
   align-items: center;
+  justify-content: flex-start;
   gap: 12px;
   width: 100%;
   border: 1px solid transparent;
@@ -637,7 +684,14 @@ textarea {
   font-weight: 600;
   font-size: 13px;
   cursor: pointer;
-  transition: all 0.2s ease;
+  box-shadow: none;
+  transition:
+    background 0.2s ease,
+    border-color 0.2s ease,
+    color 0.2s ease,
+    padding var(--sidebar-transition),
+    border-radius var(--sidebar-transition),
+    gap var(--sidebar-transition);
   overflow: hidden;
   white-space: nowrap;
 }
@@ -646,6 +700,7 @@ textarea {
   background: color-mix(in oklab, var(--bg-card) 84%, var(--accent-soft));
   color: var(--sidebar-text-strong);
   border-color: color-mix(in oklab, var(--accent) 10%, var(--line));
+  box-shadow: none;
 }
 
 .vsFooterAction.active {
@@ -657,14 +712,16 @@ textarea {
 
 .vsSidebar.collapsed .vsFooterAction {
   border-radius: 18px;
-  justify-content: center;
-  padding: 0;
+  justify-content: flex-start;
+  padding: 0 18px;
+  gap: 0;
 }
 
 .vsSidebar.collapsed .vsFooterAction > span {
   opacity: 0;
   max-width: 0;
   transform: translateX(-4px);
+  pointer-events: none;
 }
 
 .vsProfileCard {
@@ -1537,8 +1594,11 @@ button:focus-visible {
   background-image: url("data:image/svg+xml,%3Csvg width='10' height='6' viewBox='0 0 10 6' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1L5 5L9 1' stroke='%23888' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: right 10px center;
-  min-width: 100px;
-  max-width: 200px;
+  min-width: 160px;
+  max-width: 380px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  overflow: hidden;
 }
 
 .vsComposerPillSelect:hover {
@@ -3827,10 +3887,10 @@ button.danger:focus-visible {
 }
 
 .vsSettingsNav {
-  width: 180px;
-  background: #fff;
+  width: 160px;
+  background: #f8fafc;
   border-right: 1px solid var(--line);
-  padding: 20px 12px;
+  padding: 16px 8px;
   display: flex;
   flex-direction: column;
   flex-shrink: 0;
@@ -3838,7 +3898,7 @@ button.danger:focus-visible {
 
 .vsSettingsNavTitle {
   margin: 0 0 16px 8px;
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 700;
   color: var(--text);
   letter-spacing: 0.02em;
@@ -3850,41 +3910,51 @@ button.danger:focus-visible {
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 2px;
 }
 
 .vsSettingsNavItem {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 10px 12px;
-  border: 0;
-  border-radius: 8px;
-  background: transparent;
-  color: var(--text);
-  text-align: left;
-  cursor: pointer;
-  transition: all 0.2s;
+  width: 100% !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: flex-start !important;
+  gap: 10px !important;
+  padding: 8px 10px !important;
+  border: 0 !important;
+  border-radius: 6px !important;
+  background: transparent !important;
+  color: var(--text) !important;
+  text-align: left !important;
+  cursor: pointer !important;
+  box-shadow: none !important;
+  transform: none !important;
+  font-weight: normal !important;
+  transition: background 0.15s ease, color 0.15s ease !important;
 }
 
 .vsSettingsNavItem:hover {
-  background: var(--brand-soft);
+  background: #f1f5f9 !important;
+  color: var(--text) !important;
+  box-shadow: none !important;
+  transform: none !important;
 }
 
 .vsSettingsNavItem.active {
-  background: var(--brand-soft);
-  color: var(--brand-dark);
+  background: #e0f2fe !important;
+  color: #0369a1 !important;
+  font-weight: 500 !important;
+  box-shadow: none !important;
+  transform: none !important;
 }
 
 .vsSettingsNavIcon {
-  font-size: 18px;
+  font-size: 16px;
   line-height: 1;
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 24px;
-  height: 24px;
+  width: 20px;
+  height: 20px;
   opacity: 0.8;
 }
 
@@ -3893,8 +3963,8 @@ button.danger:focus-visible {
 }
 
 .vsSettingsNavItemTitle {
-  font-size: 14px;
-  font-weight: 600;
+  font-size: 13px !important;
+  font-weight: 500 !important;
 }
 
 .vsSettingsContent {
@@ -5827,6 +5897,32 @@ button.danger:focus-visible {
   background: #fff1f2;
 }
 
+.vsTranscribeCardActions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.vsTranscribeCardRetryBtn {
+  opacity: 0;
+  border: none;
+  background: transparent;
+  color: #6366f1;
+  font-size: 12px;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+  transition: all 0.2s;
+}
+
+.vsTranscribeCard:hover .vsTranscribeCardRetryBtn {
+  opacity: 1;
+}
+
+.vsTranscribeCardRetryBtn:hover {
+  background: #eef2ff;
+}
+
 /* ── Empty State ── */
 .vsTranscribeEmpty {
   display: flex;
@@ -6002,6 +6098,43 @@ button.danger:focus-visible {
   display: flex;
   gap: 8px;
   flex-shrink: 0;
+  flex-wrap: nowrap;
+  align-items: center;
+  white-space: nowrap;
+}
+
+.vsExportDropdownMenu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 100;
+  min-width: 180px;
+  background: var(--surface, #fff);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+}
+
+.vsExportDropdownItem {
+  display: block;
+  width: 100%;
+  padding: 8px 12px;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  border-radius: 6px;
+  transition: background 0.15s;
+  white-space: nowrap;
+}
+
+.vsExportDropdownItem:hover {
+  background: var(--brand-soft, rgba(99, 102, 241, 0.08));
 }
 
 .vsTranscribeDetailContent {
@@ -6009,6 +6142,8 @@ button.danger:focus-visible {
   min-height: 0;
   overflow-y: auto;
   padding: 24px;
+  user-select: text;
+  -webkit-user-select: text;
 }
 
 .vsTranscribeDetailTranscript {
@@ -6020,6 +6155,9 @@ button.danger:focus-visible {
   white-space: pre-wrap;
   word-break: break-word;
   font-family: "Inter", "SF Pro Text", -apple-system, sans-serif;
+  user-select: text;
+  -webkit-user-select: text;
+  cursor: text;
 }
 
 .vsTranscribeDetailTranscript.loading {
@@ -6215,4 +6353,97 @@ button.danger:focus-visible {
 
 .vsPodcastGlobalError {
   padding: 0 24px 12px;
+}
+
+/* Attachment Styles */
+.vsComposerAttachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: -8px;
+  padding: 0 4px;
+}
+
+.vsAttachmentPill {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: color-mix(in oklab, var(--bg-card) 90%, var(--accent-soft));
+  border: 1px solid var(--line);
+  padding: 6px 12px;
+  border-radius: 16px;
+  font-size: 13px;
+  color: var(--text);
+  max-width: 250px;
+}
+
+.vsAttachmentPill.loading {
+  opacity: 0.8;
+}
+
+.vsAttachmentPillIcon {
+  font-size: 14px;
+}
+
+.vsAttachmentPillName {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vsAttachmentPillDelete {
+  border: none;
+  background: none;
+  font-size: 16px;
+  color: var(--text-soft);
+  cursor: pointer;
+  padding: 0 2px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.vsAttachmentPillDelete:hover {
+  color: var(--brand-dark);
+}
+
+.vsMessageAttachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.vsMessageAttachmentPill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: rgba(255, 255, 255, 0.15);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  padding: 4px 8px;
+  border-radius: 8px;
+  font-size: 11px;
+  font-weight: 500;
+  color: inherit;
+}
+
+.vsAttachmentIcon {
+  font-size: 11px;
+}
+
+.vsAttachmentName {
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vsAttachmentPill .spinner-mini {
+  width: 12px;
+  height: 12px;
+  border: 2px solid transparent;
+  border-top-color: var(--brand);
+  border-radius: 50%;
+  animation: vsSpin 0.8s linear infinite;
 }

@@ -1,7 +1,9 @@
+import { useRef, useState } from "react";
 import {
   getChatQuickActions,
   type QuickAction
 } from "../appConfig";
+import { extractPdfText } from "../api";
 import ErrorNotice from "../components/ErrorNotice";
 import type { UseChatResult } from "../hooks/useChat";
 import type { UseVoiceChatResult } from "../hooks/useVoiceChat";
@@ -66,6 +68,50 @@ function Composer({
   const hasInput = chat.chatInput.trim().length > 0;
   const isRealtime = isVoiceRealtimeModel(chat.chatProvider, chat.chatModel);
 
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [parsingFiles, setParsingFiles] = useState<string[]>([]);
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      if (file.type === "application/pdf" || file.name.endsWith(".pdf")) {
+        setParsingFiles((prev) => [...prev, file.name]);
+        try {
+          const res = await extractPdfText(file);
+          if (res && res.text) {
+            chat.addChatAttachment(file.name, res.text);
+          } else {
+            alert(t("PDF 提取内容为空。", "Extracted PDF content is empty."));
+          }
+        } catch (err) {
+          console.error(err);
+          alert(t("PDF 文本提取失败：", "Failed to extract text from PDF: ") + (err instanceof Error ? err.message : String(err)));
+        } finally {
+          setParsingFiles((prev) => prev.filter((name) => name !== file.name));
+        }
+      } else {
+        // Handle as text file
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          const text = event.target?.result;
+          if (typeof text === "string") {
+            chat.addChatAttachment(file.name, text);
+          }
+        };
+        reader.onerror = (event) => {
+          console.error("Failed to read file:", event);
+          alert(t("读取文件失败：", "Failed to read file: ") + file.name);
+        };
+        reader.readAsText(file);
+      }
+    }
+    // Clear input value so we can upload the same file again
+    e.target.value = "";
+  };
+
   return (
     <div className="vsComposer">
       {!isVoiceActive ? (
@@ -74,7 +120,7 @@ function Composer({
             rows={1}
             value={chat.chatInput}
             onChange={(e) => chat.onInputChange(e.target.value)}
-            placeholder={t("随便说点什么...一个想法、半句话...", "Say anything... a thought, half a sentence...")}
+            placeholder={t("输入聊天内容，或者点击右下角麦克风开始语音通话...", "Type to chat, or click the microphone in the bottom right to start a voice call...")}
             onKeyDown={chat.onComposerKeyDown}
             disabled={textChatBlocked}
           />
@@ -89,9 +135,47 @@ function Composer({
         </div>
       )}
 
+      {/* Attachment Preview Section */}
+      {((chat.chatAttachments && chat.chatAttachments.length > 0) || parsingFiles.length > 0) && (
+        <div className="vsComposerAttachments">
+          {chat.chatAttachments?.map((att, index) => (
+            <div key={`${index}-${att.name}`} className="vsAttachmentPill">
+              <span className="vsAttachmentPillIcon">📄</span>
+              <span className="vsAttachmentPillName" title={att.name}>{att.name}</span>
+              <button
+                type="button"
+                className="vsAttachmentPillDelete"
+                onClick={() => chat.removeChatAttachment(index)}
+                title={t("删除附件", "Delete attachment")}
+              >
+                ×
+              </button>
+            </div>
+          ))}
+          {parsingFiles.map((name) => (
+            <div key={name} className="vsAttachmentPill loading">
+              <span className="spinner-mini"></span>
+              <span className="vsAttachmentPillName" title={name}>{name}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
       <div className="vsComposerToolbar">
         <div className="vsComposerToolbarLeft">
-          <button type="button" className="vsToolbarBtn" aria-label={t("附件", "Attachment")}>
+          <input
+            type="file"
+            ref={fileInputRef}
+            style={{ display: "none" }}
+            onChange={handleFileChange}
+            multiple
+          />
+          <button
+            type="button"
+            className="vsToolbarBtn"
+            aria-label={t("附件", "Attachment")}
+            onClick={() => fileInputRef.current?.click()}
+          >
             <PaperclipIcon />
           </button>
           
@@ -183,8 +267,8 @@ export default function ChatPage({ chat, voiceChat, errorRuntimeContext }: Props
                 ✨
               </div>
               <div>
-                <h1 className="vsWelcomeHeroTitle">{t("今天聊点什么？", "What shall we chat about today?")}</h1>
-                <p className="vsWelcomeHeroSubtitle">{t("随便说点什么...剩下交给 VoiceSpirit。", "Say anything... leave the rest to VoiceSpirit.")}</p>
+                <h1 className="vsWelcomeHeroTitle">{t("声之灵，倾听你的声音", "Voice Spirit, listening to your voice")}</h1>
+                <p className="vsWelcomeHeroSubtitle">{t("点击右下角麦克风开启实时通话。", "Click the microphone in the bottom right to start a live voice call.")}</p>
               </div>
             </div>
 
@@ -260,6 +344,16 @@ export default function ChatPage({ chat, voiceChat, errorRuntimeContext }: Props
                     ) : null}
                   </div>
                 ) : null}
+                {msg.role === "user" && msg.attachments && msg.attachments.length > 0 && (
+                  <div className="vsMessageAttachments">
+                    {msg.attachments.map((att, aIdx) => (
+                      <div key={aIdx} className="vsMessageAttachmentPill">
+                        <span className="vsAttachmentIcon">📄</span>
+                        <span className="vsAttachmentName" title={att.name}>{att.name}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
                 <p>
                   {msg.content ||
                     (chat.chatBusy &&

@@ -134,7 +134,7 @@ export default function AppSidebar({
             </nav>
           </div>
 
-          {hasHistoryItems && !isCollapsed ? (
+          {hasHistoryItems ? (
             <section className="vsSidebarSection vsHistorySection">
               <div className="vsHistoryHead">
                 <button
@@ -213,7 +213,7 @@ export default function AppSidebar({
               onClick={onAuthClick}
             >
               <Fingerprint size={18} />
-              {!isCollapsed && <span>{authReady ? authLabel : t("登录账号", "Login")}</span>}
+              <span>{authReady ? authLabel : t("登录账号", "Login")}</span>
             </button>
 
             <button
@@ -224,7 +224,7 @@ export default function AppSidebar({
               onClick={() => onOpenSettings()}
             >
               <Settings size={18} />
-              {!isCollapsed && <span>{t("设置", "Settings")}</span>}
+              <span>{t("设置", "Settings")}</span>
             </button>
           </div>
         </div>

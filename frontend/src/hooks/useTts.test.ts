@@ -2,11 +2,13 @@ import { renderHook, act } from '@testing-library/react';
 import { describe, it, expect, vi } from 'vitest';
 import useTts from './useTts';
 import { createFormatErrorMessageStub } from '../test/factories';
-import { fetchSpeakAudio } from '../api';
+import { fetchSpeakAudio, extractPdfText, polishPdfText } from '../api';
 
 vi.mock('../api', () => ({
     fetchVoices: vi.fn().mockResolvedValue({ voices: [] }),
-    fetchSpeakAudio: vi.fn()
+    fetchSpeakAudio: vi.fn(),
+    extractPdfText: vi.fn().mockResolvedValue({ filename: 'demo.pdf', page_count: 1, text: '' }),
+    polishPdfText: vi.fn().mockResolvedValue({ provider: 'DashScope', model: 'model', polished_text: '' })
 }));
 
 describe('useTts', () => {
@@ -16,7 +18,7 @@ describe('useTts', () => {
 
         act(() => {
             result.current.onTtsModeChange('dialogue');
-            result.current.onDialogueTextChange('A: 你好\\nB: 你好，今天聊什么？');
+            result.current.onDialogueTextChange('A: 你好\nB: 你好，今天聊什么？');
         });
 
         expect(result.current.ttsMode).toBe('dialogue');
@@ -54,7 +56,10 @@ describe('useTts', () => {
 
         act(() => {
             result.current.onTtsModeChange('pdf');
-            result.current.onPdfFileChange(new File(['pdf'], 'demo.pdf', { type: 'application/pdf' }));
+        });
+
+        await act(async () => {
+            await result.current.onPdfFileChange(new File(['pdf'], 'demo.pdf', { type: 'application/pdf' }));
         });
 
         await act(async () => {
@@ -62,6 +67,30 @@ describe('useTts', () => {
         });
 
         expect(result.current.ttsError).toBe('请先选择 PDF 并准备可朗读文本。');
+    });
+
+    it('extracts pdf text successfully on file change', async () => {
+        const formatErrorMessage = createFormatErrorMessageStub();
+        const { result } = renderHook(() => useTts({ defaultText: 'Initial text', formatErrorMessage }));
+        
+        const mockExtractedText = "Extracted text content from PDF file.";
+        vi.mocked(extractPdfText).mockResolvedValueOnce({
+            filename: 'demo.pdf',
+            page_count: 3,
+            text: mockExtractedText
+        });
+
+        act(() => {
+            result.current.onTtsModeChange('pdf');
+        });
+
+        await act(async () => {
+            await result.current.onPdfFileChange(new File(['pdf'], 'demo.pdf', { type: 'application/pdf' }));
+        });
+
+        expect(extractPdfText).toHaveBeenCalled();
+        expect(result.current.pdfText).toBe(mockExtractedText);
+        expect(result.current.ttsInfo).toContain("成功从 PDF 提取了 3 页文本");
     });
 
     it('submits dialogue text to speech generation', async () => {
@@ -88,5 +117,30 @@ describe('useTts', () => {
                 engine: 'edge'
             })
         );
+    });
+
+    it('polishes pdf text successfully', async () => {
+        const formatErrorMessage = createFormatErrorMessageStub();
+        const { result } = renderHook(() => useTts({ defaultText: 'Initial text', formatErrorMessage }));
+
+        const mockPolishedText = "Polished text content.";
+        vi.mocked(polishPdfText).mockResolvedValueOnce({
+            provider: 'DashScope',
+            model: 'model',
+            polished_text: mockPolishedText
+        });
+
+        act(() => {
+            result.current.onTtsModeChange('pdf');
+            result.current.onPdfTextChange('raw text with page number [1] and math symbol $n \\ge 3$');
+        });
+
+        await act(async () => {
+            await result.current.onPolishPdfText();
+        });
+
+        expect(polishPdfText).toHaveBeenCalled();
+        expect(result.current.pdfText).toBe(mockPolishedText);
+        expect(result.current.ttsInfo).toContain("AI 朗读优化完成");
     });
 });
