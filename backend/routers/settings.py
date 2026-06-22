@@ -125,6 +125,14 @@ class FetchModelsResponse(BaseModel):
     models: list[str]
 
 
+GOOGLE_MODEL_LIST_SUPPLEMENTS = [
+    "gemini-2.5-flash-native-audio-preview-12-2025",
+    "gemini-3.1-flash-live-preview",
+    "gemini-3.5-live-translate-preview",
+]
+GOOGLE_MODELS_BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
+
+
 @router.post(
     "/providers/{provider}/fetch-models",
     response_model=FetchModelsResponse,
@@ -153,7 +161,10 @@ async def fetch_models(provider: str, payload: FetchModelsRequest) -> FetchModel
 
     if not base_url:
         from services.config_loader import DEFAULT_BASE_URLS
-        base_url = DEFAULT_BASE_URLS.get(provider, "").strip()
+        if provider == "Google":
+            base_url = GOOGLE_MODELS_BASE_URL
+        else:
+            base_url = DEFAULT_BASE_URLS.get(provider, "").strip()
 
     base_url = base_url.rstrip("/")
 
@@ -190,10 +201,11 @@ async def fetch_models(provider: str, payload: FetchModelsRequest) -> FetchModel
             headers["Authorization"] = f"Bearer {api_key}"
     else:
         url = f"{base_url}/models"
-        headers = {
-            "Authorization": f"Bearer {api_key}",
-            "Accept": "application/json",
-        }
+        headers = {"Accept": "application/json"}
+        if provider == "Google":
+            headers["x-goog-api-key"] = api_key
+        else:
+            headers["Authorization"] = f"Bearer {api_key}"
         if provider == "OpenRouter":
             headers["HTTP-Referer"] = "https://voicespirit.local"
             headers["X-Title"] = "VoiceSpirit"
@@ -232,7 +244,10 @@ async def fetch_models(provider: str, payload: FetchModelsRequest) -> FetchModel
                 if isinstance(m, dict) and "name" in m:
                     model_ids.append(str(m["name"]))
         else:
-            raw_models = data.get("data", [])
+            if provider == "Google":
+                raw_models = data.get("models", [])
+            else:
+                raw_models = data.get("data", [])
             if not isinstance(raw_models, list):
                 if isinstance(data, list):
                     raw_models = data
@@ -240,10 +255,19 @@ async def fetch_models(provider: str, payload: FetchModelsRequest) -> FetchModel
                     raw_models = []
 
             for m in raw_models:
-                if isinstance(m, dict) and "id" in m:
+                if isinstance(m, dict) and provider == "Google":
+                    model_id = str(m.get("name") or m.get("baseModelId") or "").strip()
+                    if model_id.startswith("models/"):
+                        model_id = model_id.removeprefix("models/")
+                    if model_id:
+                        model_ids.append(model_id)
+                elif isinstance(m, dict) and "id" in m:
                     model_ids.append(str(m["id"]))
                 elif isinstance(m, str):
                     model_ids.append(m)
+
+        if provider == "Google":
+            model_ids.extend(GOOGLE_MODEL_LIST_SUPPLEMENTS)
 
         model_ids = sorted(list(set(model_ids)))
 

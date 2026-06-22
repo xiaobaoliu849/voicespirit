@@ -18,6 +18,7 @@ import {
   ChevronRight,
   MessageSquarePlus,
   MessageSquare,
+  Trash2,
   X
 } from "lucide-react";
 
@@ -136,17 +137,16 @@ export default function AppSidebar({
 
           {hasHistoryItems ? (
             <section className="vsSidebarSection vsHistorySection">
-              <div className="vsHistoryHead">
+              <div className="vsHistoryList custom-scrollbar">
                 <button
                   type="button"
                   className="vsHistoryClearBtn"
                   onClick={onClearHistory}
-                  title={isCollapsed ? t("清除全部对话", "Clear all chats") : undefined}
+                  aria-label={t("清除全部对话", "Clear all chats")}
+                  title={t("清除全部对话", "Clear all chats")}
                 >
-                  {isCollapsed ? "✕" : t("清除全部", "Clear all")}
+                  <Trash2 size={13} />
                 </button>
-              </div>
-              <div className="vsHistoryList custom-scrollbar">
                 {chatHistoryItems.map((item) => (
                   <div key={item.id} className="vsHistoryRow">
                     <button

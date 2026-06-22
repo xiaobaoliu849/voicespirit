@@ -30,6 +30,7 @@ from services.audio_overview_service import AudioOverviewService, AudioOverviewS
 from services.audio_agent_service import AudioAgentService
 from services.config_loader import BackendConfig
 from services.evermem_config import EverMemConfig
+from services import realtime_voice_service as realtime_voice_module
 from services.realtime_voice_service import RealtimeVoiceService
 from services.settings_service import SettingsService
 from services.transcription_publish_adapter import build_transcription_publisher
@@ -131,6 +132,28 @@ class ApiSmokeTests(unittest.TestCase):
             with self.assertRaises(RuntimeError) as exc:
                 service._resolve_google_settings(None)
             self.assertIn("Google API Key", str(exc.exception))
+
+    def test_realtime_google_settings_do_not_use_rest_models_base_url(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            config_path = Path(tmp_dir) / "config.json"
+            config_path.write_text(
+                json.dumps(
+                    {
+                        "api_keys": {"google_api_key": "test-key"},
+                        "api_urls": {"Google": "https://generativelanguage.googleapis.com/v1beta"},
+                        "default_models": {"Google": {"default": "gemini-3.1-flash-live-preview", "available": []}},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            service = RealtimeVoiceService(config=BackendConfig(config_path))
+            with (
+                patch.object(realtime_voice_module, "genai", object()),
+                patch.object(realtime_voice_module, "types", object()),
+            ):
+                settings = service._resolve_google_settings(None)
+            self.assertEqual(settings["base_url"], "")
+            self.assertEqual(settings["model"], "gemini-3.1-flash-live-preview")
 
     def test_desktop_web_app_routes_serve_built_frontend(self) -> None:
         app_routes = {getattr(route, "path", ""): route for route in self.app.routes}
@@ -1313,6 +1336,76 @@ class ApiSmokeTests(unittest.TestCase):
                 payload = r_put.json()
                 self.assertEqual(payload["settings"]["api_keys"]["dashscope_api_key"], "test-key")
                 self.assertEqual(payload["settings"]["default_models"]["DashScope"]["default"], "qwen-plus")
+            finally:
+                settings_router.settings_service = original_service
+
+    def test_google_fetch_models_uses_gemini_rest_shape(self) -> None:
+        captured: dict[str, Any] = {}
+
+        class FakeResponse:
+            status_code = 200
+
+            def raise_for_status(self) -> None:
+                return None
+
+            def json(self) -> dict[str, Any]:
+                return {
+                    "models": [
+                        {"name": "models/gemini-3.5-flash"},
+                        {"baseModelId": "gemini-3.5-pro"},
+                    ]
+                }
+
+        class FakeAsyncClient:
+            def __init__(self, *args: Any, **kwargs: Any) -> None:
+                captured["client_kwargs"] = kwargs
+
+            async def __aenter__(self) -> "FakeAsyncClient":
+                return self
+
+            async def __aexit__(self, *args: Any) -> None:
+                return None
+
+            async def get(self, url: str, headers: dict[str, str]) -> FakeResponse:
+                captured["url"] = url
+                captured["headers"] = headers
+                return FakeResponse()
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            config_path = Path(tmp_dir) / "config.json"
+            config_path.write_text(
+                json.dumps({"api_keys": {"google_api_key": "test-key"}, "api_urls": {"Google": ""}}),
+                encoding="utf-8",
+            )
+            test_service = SettingsService(config=BackendConfig(config_path))
+
+            original_service = settings_router.settings_service
+            settings_router.settings_service = test_service
+            try:
+                with patch("httpx.AsyncClient", FakeAsyncClient):
+                    response = asyncio.run(
+                        settings_router.fetch_models(
+                            "Google",
+                            settings_router.FetchModelsRequest(),
+                        )
+                    )
+
+                self.assertEqual(
+                    captured["url"],
+                    "https://generativelanguage.googleapis.com/v1beta/models",
+                )
+                self.assertEqual(captured["headers"]["x-goog-api-key"], "test-key")
+                self.assertNotIn("Authorization", captured["headers"])
+                self.assertEqual(
+                    response.models,
+                    [
+                        "gemini-2.5-flash-native-audio-preview-12-2025",
+                        "gemini-3.1-flash-live-preview",
+                        "gemini-3.5-flash",
+                        "gemini-3.5-live-translate-preview",
+                        "gemini-3.5-pro",
+                    ],
+                )
             finally:
                 settings_router.settings_service = original_service
 

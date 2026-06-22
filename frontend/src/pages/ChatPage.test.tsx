@@ -34,7 +34,7 @@ describe('ChatPage', () => {
         expect(screen.getByText('Google API Key 未配置，无法启动实时语音会话。')).toBeInTheDocument();
     });
 
-    it('blocks text sending when a realtime voice model is selected', () => {
+    it('keeps text input but blocks text sending for realtime models', () => {
         render(
             <ChatPage
                 chat={createChatController({
@@ -47,8 +47,11 @@ describe('ChatPage', () => {
             />
         );
 
-        expect(screen.getByText(/当前是实时语音模型/)).toBeInTheDocument();
+        expect(screen.getByPlaceholderText(/随便说点什么/)).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: '语音转写' })).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: '实时通话' })).toBeInTheDocument();
         expect(screen.getByRole('button', { name: '发送' })).toBeDisabled();
+        expect(screen.getByText(/实时语音\/实时翻译模型/)).toBeInTheDocument();
     });
 
     it('shows memory badges for realtime voice turns', () => {
@@ -73,5 +76,40 @@ describe('ChatPage', () => {
         expect(screen.getByText('✓ 已记忆')).toBeInTheDocument();
         expect(screen.getByText(/🧠 回忆了 1 条/)).toBeInTheDocument();
         expect(screen.getByText('来源：本地待同步 1 条，云端 0 条')).toBeInTheDocument();
+    });
+
+    it('shows live translate controls and bilingual streaming labels for Gemini Live Translate', () => {
+        render(
+            <ChatPage
+                chat={createChatController({
+                    chatProvider: 'Google',
+                    chatModel: 'gemini-3.5-live-translate-preview'
+                })}
+                voiceChat={createVoiceChatController({
+                    voiceChatModel: 'gemini-3.5-live-translate-preview',
+                    voiceChatVoiceLabel: 'Puck',
+                    voiceChatLiveTranslate: true,
+                    voiceChatTargetLanguageCode: 'zh-Hans',
+                    voiceChatTargetLanguageLabel: '中文（简体）/ Chinese (Simplified) (zh-Hans)',
+                    voiceChatTargetLanguageOptions: [
+                        { value: 'en', label: 'English (en)' },
+                        { value: 'zh-Hans', label: '中文（简体）(zh-Hans)' }
+                    ],
+                    voiceChatRecording: true,
+                    voiceChatConnected: true,
+                    voiceChatTranscript: 'Hello everyone',
+                    voiceChatReply: '大家好'
+                })}
+                errorRuntimeContext={{}}
+            />
+        );
+
+        expect(screen.getByTitle('翻译目标语言')).toBeInTheDocument();
+        expect(screen.getByTitle('当前音色：Puck')).toBeInTheDocument();
+        expect(screen.getByText('同语回放')).toBeInTheDocument();
+        expect(screen.getByText('原文实时转写')).toBeInTheDocument();
+        expect(screen.getByText('译文：中文（简体）/ Chinese (Simplified) (zh-Hans)')).toBeInTheDocument();
+        expect(screen.queryByPlaceholderText(/随便说点什么/)).not.toBeInTheDocument();
+        expect(document.querySelector('.vsComposer.liveActive')).toBeInTheDocument();
     });
 });

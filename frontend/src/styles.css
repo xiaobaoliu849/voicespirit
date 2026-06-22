@@ -501,7 +501,7 @@ textarea {
 
 .vsHistorySection {
   margin-top: auto;
-  padding: 18px 10px 14px;
+  padding: 10px 10px 12px;
   border-top: 1px solid color-mix(in oklab, var(--accent) 8%, var(--line));
   transition:
     opacity var(--sidebar-transition),
@@ -525,27 +525,28 @@ textarea {
 }
 
 .vsHistoryHead {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  margin: 0 8px 10px;
-  min-height: auto;
+  display: none;
 }
 
 .vsHistoryClearBtn {
-  border: 0;
-  background: transparent;
+  width: 28px;
+  height: 28px;
+  border: 1px solid transparent;
+  background: color-mix(in oklab, var(--bg-card) 58%, transparent);
   color: var(--text-soft);
   cursor: pointer;
-  padding: 5px 8px;
-  font-size: 11px;
-  white-space: nowrap;
-  border-radius: 999px;
+  padding: 0;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  justify-self: end;
+  margin: 0 2px -2px 0;
 }
 
 .vsHistoryClearBtn:hover {
   color: var(--brand-dark);
   background: color-mix(in oklab, var(--accent-soft) 65%, var(--bg-card));
+  border-color: color-mix(in oklab, var(--accent) 12%, var(--line));
 }
 
 .vsHistoryList {
@@ -563,7 +564,7 @@ textarea {
 .vsHistoryItem {
   border: 0;
   border-radius: 14px;
-  padding: 11px 12px;
+  padding: 10px 11px;
   text-align: left;
   background: color-mix(in oklab, var(--bg-card) 62%, transparent);
   color: var(--sidebar-text);
@@ -621,7 +622,7 @@ textarea {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 150px;
+  max-width: 172px;
   transition: opacity 0.25s ease, max-width 0.3s ease;
   opacity: 1;
 }
@@ -870,10 +871,14 @@ button:focus-visible {
   min-height: 100%;
   height: 100%;
   display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr) auto;
   background:
     radial-gradient(circle at top center, color-mix(in oklab, var(--accent-soft) 34%, transparent) 0%, transparent 30%),
     linear-gradient(180deg, var(--bg-primary) 0, color-mix(in oklab, var(--bg-secondary) 84%, var(--accent-soft)) 100%);
+}
+
+.vsChatWorkspace:has(.vsChatBody.liveActive) {
+  grid-template-rows: minmax(0, 1fr) auto;
 }
 
 .vsTopbar {
@@ -1287,6 +1292,11 @@ button:focus-visible {
   padding: 36px clamp(24px, 7vw, 112px) 28px;
 }
 
+.vsChatBody.liveActive {
+  padding-top: clamp(22px, 4vh, 48px);
+  padding-bottom: 18px;
+}
+
 .vsChatBody.empty {
   display: flex;
   align-items: flex-start;
@@ -1301,7 +1311,7 @@ button:focus-visible {
   width: min(860px, 100%);
   margin: 0 auto;
   display: grid;
-  gap: 14px;
+  gap: 20px;
 }
 
 .vsBubbleMeta {
@@ -1341,8 +1351,7 @@ button:focus-visible {
 /* ── Streaming Bubbles UI ── */
 .bubble.live {
   border: 1px dashed var(--primary-color) !important;
-  opacity: 0.95;
-  animation: vsFadePulse 2s infinite ease-in-out;
+  background: color-mix(in oklab, var(--accent-soft) 18%, var(--bg-card));
 }
 
 .vsStreamingIndicator {
@@ -1354,21 +1363,6 @@ button:focus-visible {
   padding: 1px 6px;
   border-radius: 4px;
 }
-
-@keyframes vsFadePulse {
-  0% {
-    opacity: 0.7;
-  }
-
-  50% {
-    opacity: 1;
-  }
-
-  100% {
-    opacity: 0.7;
-  }
-}
-
 
 /* ═══ Empty state: centered like Claude / Gemini ═══ */
 .vsChatCentered {
@@ -1495,6 +1489,11 @@ button:focus-visible {
   position: relative;
 }
 
+.vsComposerWrap.liveActive {
+  width: min(880px, calc(100% - 40px));
+  margin-bottom: 10px;
+}
+
 .vsComposer {
   border: 1px solid color-mix(in oklab, var(--accent) 12%, var(--line));
   border-radius: 26px;
@@ -1506,6 +1505,17 @@ button:focus-visible {
   flex-direction: column;
   gap: 16px;
   transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.vsComposer.liveActive {
+  border-radius: 20px;
+  padding: 12px 14px;
+  gap: 10px;
+  background: color-mix(in oklab, var(--bg-card) 94%, var(--accent-soft));
+}
+
+.vsComposer.liveActive:focus-within {
+  box-shadow: var(--shadow-md);
 }
 
 .vsComposer:focus-within {
@@ -1540,21 +1550,35 @@ button:focus-visible {
 }
 
 .vsComposerToolbar {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  justify-content: space-between;
+  gap: 12px;
+}
+
+.vsComposer.liveActive .vsComposerToolbar {
+  gap: 10px;
 }
 
 .vsComposerToolbarLeft {
   display: flex;
   align-items: center;
-  gap: 12px;
+  flex-wrap: nowrap;
+  gap: 8px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.vsComposer.liveActive .vsComposerToolbarLeft {
+  flex-wrap: wrap;
+  overflow: visible;
 }
 
 .vsComposerToolbarRight {
   display: flex;
   align-items: center;
   gap: 8px;
+  flex: 0 0 auto;
 }
 
 .vsToolbarBtn {
@@ -1594,11 +1618,12 @@ button:focus-visible {
   background-image: url("data:image/svg+xml,%3Csvg width='10' height='6' viewBox='0 0 10 6' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1L5 5L9 1' stroke='%23888' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: right 10px center;
-  min-width: 160px;
-  max-width: 380px;
+  min-width: 0;
+  max-width: none;
+  height: 34px;
+  overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  overflow: hidden;
 }
 
 .vsComposerPillSelect:hover {
@@ -1610,6 +1635,75 @@ button:focus-visible {
 .vsComposerPillSelect:disabled {
   opacity: 0.6;
   cursor: not-allowed;
+}
+
+.vsComposerVoiceSelect {
+  flex: 0 1 126px;
+  width: 126px;
+}
+
+.vsComposerModelSelect {
+  flex: 1 1 178px;
+  max-width: 210px;
+}
+
+.vsComposerLanguageSelect {
+  flex: 1 1 168px;
+  max-width: 220px;
+}
+
+.vsComposerToggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--bg-card);
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  flex: 0 0 auto;
+}
+
+.vsComposerToggle input {
+  width: 14px;
+  height: 14px;
+  accent-color: var(--brand);
+}
+
+.vsComposerToggle:has(input:disabled) {
+  opacity: 0.6;
+}
+
+.vsLiveTranslateSettings {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 12px;
+}
+
+@media (max-width: 760px) {
+  .vsComposerToolbar {
+    grid-template-columns: 1fr;
+  }
+
+  .vsComposerToolbarLeft {
+    flex-wrap: wrap;
+    overflow: visible;
+  }
+
+  .vsComposerToolbarRight {
+    justify-content: flex-end;
+  }
+
+  .vsComposerModelSelect,
+  .vsComposerLanguageSelect {
+    flex: 1 1 160px;
+    max-width: none;
+  }
 }
 
 /* Voice-First Primary Action Button */
@@ -1643,6 +1737,39 @@ button:focus-visible {
   animation: pulse-red 2s infinite cubic-bezier(0.66, 0, 0, 1);
 }
 
+.vsComposerCallBtn {
+  width: 44px;
+  height: 44px;
+  border-radius: 22px;
+  border: none;
+  background: linear-gradient(135deg, var(--brand), var(--brand-dark));
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: var(--shadow-sm);
+  padding: 0;
+}
+
+.vsComposerCallBtn:hover {
+  transform: scale(1.05);
+  box-shadow: var(--shadow-md);
+}
+
+.vsComposerCallBtn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.vsComposerCallBtn.recording {
+  background: #ef4444;
+  box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7);
+  animation: pulse-red 2s infinite cubic-bezier(0.66, 0, 0, 1);
+}
+
 @keyframes pulse-red {
   to {
     box-shadow: 0 0 0 12px rgba(239, 68, 68, 0);
@@ -1652,12 +1779,17 @@ button:focus-visible {
 .vsLiveSessionBanner {
   background: var(--brand-soft);
   border-radius: 12px;
-  padding: 12px 16px;
-  margin-top: 12px;
+  padding: 8px 12px;
+  margin-top: 0;
   display: flex;
   align-items: center;
   gap: 12px;
   border: 1px dashed var(--brand);
+}
+
+.vsComposer.liveActive .vsLiveSessionBanner {
+  order: 2;
+  border-radius: 14px;
 }
 
 .vsToolbarBtn.recording {
@@ -6284,6 +6416,319 @@ button.danger:focus-visible {
   font-size: 14px;
   color: var(--brand-dark);
   font-weight: 600;
+}
+
+/* ── Agent Progress Panel ── */
+.vsAgentProgress {
+  background: var(--bg-card);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 16px 20px;
+  margin-bottom: 16px;
+}
+
+.vsAgentProgressHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+
+.vsAgentProgressTitle {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  margin: 0;
+}
+
+.vsAgentStatusBadge {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 10px;
+  border-radius: 999px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  border: 1px solid var(--line);
+}
+.vsAgentStatus-running {
+  background: var(--brand-soft);
+  color: var(--brand-dark);
+  border-color: var(--brand);
+}
+.vsAgentStatus-draft_ready,
+.vsAgentStatus-completed {
+  background: color-mix(in oklab, var(--brand) 15%, white);
+  color: var(--brand-dark);
+  border-color: var(--brand);
+}
+.vsAgentStatus-failed {
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  border-color: var(--accent);
+}
+
+.vsAgentStepList {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.vsAgentStepItem {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 8px 4px;
+  border-radius: 6px;
+  transition: background 0.15s;
+}
+.vsAgentStep-running {
+  background: color-mix(in oklab, var(--brand-soft) 50%, transparent);
+}
+.vsAgentStep-failed {
+  background: color-mix(in oklab, var(--accent-soft) 50%, transparent);
+}
+
+.vsAgentStepIcon {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  margin-top: 1px;
+}
+.vsAgentStepDone {
+  color: var(--brand);
+  background: var(--brand-soft);
+}
+.vsAgentStepActive {
+  color: var(--brand);
+}
+.vsAgentStepFailed {
+  color: var(--accent-strong);
+  background: var(--accent-soft);
+}
+.vsAgentStepPending {
+  color: var(--text-soft);
+}
+
+.vsAgentStepSpinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--brand);
+  border-top-color: transparent;
+  border-radius: 50%;
+}
+
+.vsAgentStepInfo {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.vsAgentStepName {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+}
+.vsAgentStep-pending .vsAgentStepName {
+  color: var(--text-soft);
+}
+
+.vsAgentStepDuration {
+  font-size: 11px;
+  color: var(--text-soft);
+}
+
+.vsAgentStepError {
+  font-size: 12px;
+  color: var(--accent-strong);
+  width: 100%;
+  margin-top: 2px;
+}
+
+.vsAgentRetryBar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+.vsAgentRetryMsg {
+  flex: 1;
+  font-size: 12px;
+  color: var(--accent-strong);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── Agent Sources Panel ── */
+.vsAgentSourcesPanel {
+  background: var(--bg-card);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 16px 20px;
+}
+
+.vsAgentSourcesTitle {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  margin: 0 0 12px;
+}
+
+.vsAgentSourceList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.vsAgentSourceCard {
+  background: var(--bg-secondary);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px 14px;
+}
+
+.vsAgentSourceCardHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+
+.vsAgentSourceTypeBadge {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--brand-soft);
+  color: var(--brand-dark);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.vsAgentSourceTitle {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.vsAgentSourceScore {
+  font-size: 11px;
+  color: var(--text-soft);
+  margin-left: auto;
+}
+
+.vsAgentSourceSnippet {
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.vsAgentSourceUri {
+  font-size: 12px;
+  color: var(--brand);
+  margin: 0;
+  word-break: break-all;
+}
+
+.vsAgentSourceToggle {
+  background: none;
+  border: none;
+  color: var(--brand);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 4px 0 0;
+  text-decoration: underline;
+}
+
+/* ── Agent Run History ── */
+.vsLibraryTabs {
+  display: flex;
+  gap: 8px;
+  padding: 0 24px 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.vsAgentHistoryList {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 0;
+}
+
+.vsAgentHistoryToolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 8px;
+}
+
+.vsAgentHistoryItem {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 16px;
+  background: var(--bg-card);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.vsAgentHistoryItem:hover {
+  border-color: var(--brand);
+  box-shadow: var(--shadow-sm);
+}
+
+.vsAgentHistoryItemHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.vsAgentHistoryTopic {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.vsAgentHistoryMeta {
+  display: flex;
+  gap: 12px;
+  font-size: 11px;
+  color: var(--text-soft);
+}
+
+.vsAgentHistoryError {
+  font-size: 12px;
+  color: var(--accent-strong);
+  margin: 4px 0 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .vsPodcastStepperTabs {

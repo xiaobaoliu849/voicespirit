@@ -43,14 +43,20 @@ class FakeGainNode extends FakeAudioNode {
 }
 
 class FakeAudioContext {
+  static processors: FakeProcessorNode[] = [];
   state = "running";
   currentTime = 0;
+  sampleRate = 48000;
   destination = {};
 
   resume = vi.fn(async () => undefined);
   close = vi.fn(async () => undefined);
   createMediaStreamSource = vi.fn(() => new FakeAudioNode());
-  createScriptProcessor = vi.fn(() => new FakeProcessorNode());
+  createScriptProcessor = vi.fn(() => {
+    const processor = new FakeProcessorNode();
+    FakeAudioContext.processors.push(processor);
+    return processor;
+  });
   createGain = vi.fn(() => new FakeGainNode());
 }
 
@@ -64,7 +70,7 @@ class FakeWebSocket {
   binaryType = "";
   sent: Array<string | ArrayBuffer> = [];
   onopen: (() => void) | null = null;
-  onclose: (() => void) | null = null;
+  onclose: ((event: CloseEvent) => void) | null = null;
   onerror: (() => void) | null = null;
   onmessage: ((event: { data: string | ArrayBuffer }) => void) | null = null;
 
@@ -89,15 +95,16 @@ class FakeWebSocket {
     this.onmessage?.({ data: JSON.stringify(payload) });
   }
 
-  emitClose() {
+  emitClose(code = 1000, reason = "") {
     this.readyState = FakeWebSocket.CLOSED;
-    this.onclose?.();
+    this.onclose?.({ code, reason } as CloseEvent);
   }
 }
 
 describe("useVoiceChat", () => {
   beforeEach(() => {
     FakeWebSocket.instances = [];
+    FakeAudioContext.processors = [];
     localStorage.clear();
     configureEverMemRuntime({
       enabled: true,
@@ -134,6 +141,59 @@ describe("useVoiceChat", () => {
     ensureEverMemConversationGroupIdMock.mockReset();
     vi.clearAllMocks();
     vi.restoreAllMocks();
+  });
+
+  it("waits for session_open before streaming microphone audio", async () => {
+    const formatErrorMessage = createFormatErrorMessageStub();
+    ensureEverMemConversationGroupIdMock.mockResolvedValue("voice-group-audio-gate");
+    const { result } = renderHook(() =>
+      useVoiceChat({
+        formatErrorMessage,
+        providerOptions: ["Google"],
+        preferredProvider: "Google",
+        preferredModel: "gemini-3.1-flash-live-preview",
+        providerModelCatalog: {
+          Google: {
+            defaultModel: "gemini-3.1-flash-live-preview",
+            availableModels: ["gemini-3.1-flash-live-preview"],
+          },
+        },
+      })
+    );
+
+    await act(async () => {
+      await result.current.onToggleRecording();
+    });
+
+    const socket = FakeWebSocket.instances[0];
+    act(() => {
+      socket.emitOpen();
+    });
+    const processor = FakeAudioContext.processors[0];
+    expect(processor).toBeDefined();
+
+    const audioPayloads = () => socket.sent.filter((item) => typeof item !== "string");
+    const beforeAudioPayloadCount = audioPayloads().length;
+    act(() => {
+      processor.onaudioprocess?.({
+        inputBuffer: { getChannelData: () => new Float32Array([0.1, -0.1, 0.05]) },
+      });
+    });
+    expect(audioPayloads()).toHaveLength(beforeAudioPayloadCount);
+
+    act(() => {
+      socket.emitMessage({
+        type: "session_open",
+        provider: "Google",
+        model: "gemini-3.1-flash-live-preview",
+        voice: "Puck",
+      });
+      processor.onaudioprocess?.({
+        inputBuffer: { getChannelData: () => new Float32Array([0.1, -0.1, 0.05]) },
+      });
+    });
+
+    expect(audioPayloads().length).toBeGreaterThan(beforeAudioPayloadCount);
   });
 
   it("ignores stale websocket close events after a new realtime session starts", async () => {
@@ -327,6 +387,308 @@ describe("useVoiceChat", () => {
     expect(result.current.voiceChatModelOptions).toEqual(["qwen3-omni-flash-realtime-2025-12-01"]);
   });
 
+  it("keeps configured DashScope realtime models outside the built-in defaults", () => {
+    const formatErrorMessage = createFormatErrorMessageStub();
+
+    const { result } = renderHook(() =>
+      useVoiceChat({
+        formatErrorMessage,
+        providerOptions: ["DashScope"],
+        preferredProvider: "DashScope",
+        preferredModel: "qwen3.5-omni-plus-realtime-2026-03-15",
+        providerModelCatalog: {
+          DashScope: {
+            defaultModel: "qwen3.5-omni-plus-realtime-2026-03-15",
+            availableModels: ["qwen3.5-omni-plus-realtime-2026-03-15"],
+          },
+        },
+      })
+    );
+
+    expect(result.current.voiceChatModel).toBe("qwen3.5-omni-plus-realtime-2026-03-15");
+    expect(result.current.voiceChatModelOptions).toContain("qwen3.5-omni-plus-realtime-2026-03-15");
+  });
+
+  it("adds Live Translate target language parameters to the websocket URL", async () => {
+    const formatErrorMessage = createFormatErrorMessageStub();
+    ensureEverMemConversationGroupIdMock.mockResolvedValue("voice-group-live-translate");
+
+    const { result } = renderHook(() =>
+      useVoiceChat({
+        formatErrorMessage,
+        providerOptions: ["Google"],
+        preferredProvider: "Google",
+        preferredModel: "gemini-3.5-live-translate-preview",
+        providerModelCatalog: {
+          Google: {
+            defaultModel: "gemini-3.5-live-translate-preview",
+            availableModels: ["gemini-3.5-live-translate-preview"],
+          },
+        },
+      })
+    );
+
+    act(() => {
+      result.current.onTargetLanguageCodeChange("zh-Hans");
+      result.current.onEchoTargetLanguageChange(false);
+    });
+
+    await act(async () => {
+      await result.current.onToggleRecording();
+    });
+
+    const socketUrl = new URL(FakeWebSocket.instances[0].url);
+    expect(socketUrl.searchParams.get("provider")).toBe("Google");
+    expect(socketUrl.searchParams.get("model")).toBe("gemini-3.5-live-translate-preview");
+    expect(socketUrl.searchParams.get("target_language_code")).toBe("zh-Hans");
+    expect(socketUrl.searchParams.get("echo_target_language")).toBe("false");
+  });
+
+  it("exposes the full Google Live Translate target language list", () => {
+    const formatErrorMessage = createFormatErrorMessageStub();
+
+    const { result } = renderHook(() =>
+      useVoiceChat({
+        formatErrorMessage,
+        providerOptions: ["Google"],
+        preferredProvider: "Google",
+        preferredModel: "gemini-3.5-live-translate-preview",
+        providerModelCatalog: {
+          Google: {
+            defaultModel: "gemini-3.5-live-translate-preview",
+            availableModels: ["gemini-3.5-live-translate-preview"],
+          },
+        },
+      })
+    );
+
+    const values = result.current.voiceChatTargetLanguageOptions.map((item) => item.value);
+    expect(values.length).toBeGreaterThanOrEqual(70);
+    expect(values).toEqual(expect.arrayContaining(["af", "en", "ja", "ko", "pl", "pt-PT", "zh-Hans", "zh-Hant", "zu"]));
+  });
+
+  it("uses Chinese-friendly Live Translate language labels", () => {
+    const formatErrorMessage = createFormatErrorMessageStub();
+
+    const { result } = renderHook(() =>
+      useVoiceChat({
+        formatErrorMessage,
+        providerOptions: ["Google"],
+        preferredProvider: "Google",
+        preferredModel: "gemini-3.5-live-translate-preview",
+        providerModelCatalog: {
+          Google: {
+            defaultModel: "gemini-3.5-live-translate-preview",
+            availableModels: ["gemini-3.5-live-translate-preview"],
+          },
+        },
+        language: "zh-CN",
+      })
+    );
+
+    expect(result.current.voiceChatTargetLanguageOptions[0].value).toBe("zh-Hans");
+    expect(result.current.voiceChatTargetLanguageOptions.find((item) => item.value === "ja")?.label).toContain("日语");
+  });
+
+  it("commits completed Live Translate pairs when a new source segment starts", async () => {
+    const formatErrorMessage = createFormatErrorMessageStub();
+    ensureEverMemConversationGroupIdMock.mockResolvedValue("voice-group-live-translate");
+
+    const { result } = renderHook(() =>
+      useVoiceChat({
+        formatErrorMessage,
+        providerOptions: ["Google"],
+        preferredProvider: "Google",
+        preferredModel: "gemini-3.5-live-translate-preview",
+        providerModelCatalog: {
+          Google: {
+            defaultModel: "gemini-3.5-live-translate-preview",
+            availableModels: ["gemini-3.5-live-translate-preview"],
+          },
+        },
+      })
+    );
+
+    await act(async () => {
+      await result.current.onToggleRecording();
+    });
+
+    const socket = FakeWebSocket.instances[0];
+    act(() => {
+      socket.emitOpen();
+      socket.emitMessage({
+        type: "session_open",
+        provider: "Google",
+        model: "gemini-3.5-live-translate-preview",
+        voice: "Puck",
+        mode: "live_translate",
+        target_language_code: "zh-Hans",
+        echo_target_language: true,
+      });
+      socket.emitMessage({ type: "user_transcript", text: "あ、もしもし。" });
+      socket.emitMessage({ type: "assistant_text", text: "喂，你好。" });
+      socket.emitMessage({ type: "user_transcript", text: "今何時ですか？" });
+    });
+
+    expect(result.current.sessionSummary).toEqual([
+      { role: "user", content: "あ、もしもし。", memorySaved: false },
+      {
+        role: "assistant",
+        content: "喂，你好。",
+        memoriesUsed: undefined,
+        memorySourceSummary: undefined,
+        memoryRetrievalAttempted: false,
+      },
+    ]);
+    expect(result.current.voiceChatTranscript).toBe("今何時ですか？");
+    expect(result.current.voiceChatReply).toBe("");
+  });
+
+  it("coalesces short Latin Live Translate fragments into one active turn", async () => {
+    const formatErrorMessage = createFormatErrorMessageStub();
+    ensureEverMemConversationGroupIdMock.mockResolvedValue("voice-group-live-translate");
+
+    const { result } = renderHook(() =>
+      useVoiceChat({
+        formatErrorMessage,
+        providerOptions: ["Google"],
+        preferredProvider: "Google",
+        preferredModel: "gemini-3.5-live-translate-preview",
+        providerModelCatalog: {
+          Google: {
+            defaultModel: "gemini-3.5-live-translate-preview",
+            availableModels: ["gemini-3.5-live-translate-preview"],
+          },
+        },
+      })
+    );
+
+    await act(async () => {
+      await result.current.onToggleRecording();
+    });
+
+    const socket = FakeWebSocket.instances[0];
+    act(() => {
+      socket.emitOpen();
+      socket.emitMessage({
+        type: "session_open",
+        provider: "Google",
+        model: "gemini-3.5-live-translate-preview",
+        voice: "Puck",
+        mode: "live_translate",
+        target_language_code: "ja",
+        echo_target_language: true,
+      });
+      socket.emitMessage({ type: "user_transcript", text: "Um, do you know" });
+      socket.emitMessage({ type: "assistant_text", text: "あの、" });
+      socket.emitMessage({ type: "user_transcript", text: "the" });
+      socket.emitMessage({ type: "assistant_text", text: "ご存知ですか？" });
+      socket.emitMessage({ type: "user_transcript", text: "Longcha?" });
+      socket.emitMessage({ type: "assistant_text", text: "ロンチャを。" });
+    });
+
+    expect(result.current.sessionSummary).toEqual([]);
+    expect(result.current.voiceChatTranscript).toBe("Um, do you know the Longcha?");
+    expect(result.current.voiceChatReply).toBe("あの、ご存知ですか？ロンチャを。");
+  });
+
+  it("exposes the first active Live Translate pair for sidebar archiving before turn completion", async () => {
+    const formatErrorMessage = createFormatErrorMessageStub();
+    ensureEverMemConversationGroupIdMock.mockResolvedValue("voice-group-first-live");
+
+    const { result } = renderHook(() =>
+      useVoiceChat({
+        formatErrorMessage,
+        providerOptions: ["Google"],
+        preferredProvider: "Google",
+        preferredModel: "gemini-3.5-live-translate-preview",
+        providerModelCatalog: {
+          Google: {
+            defaultModel: "gemini-3.5-live-translate-preview",
+            availableModels: ["gemini-3.5-live-translate-preview"],
+          },
+        },
+      })
+    );
+
+    await act(async () => {
+      await result.current.onToggleRecording();
+    });
+
+    const socket = FakeWebSocket.instances[0];
+    act(() => {
+      socket.emitOpen();
+      socket.emitMessage({
+        type: "session_open",
+        provider: "Google",
+        model: "gemini-3.5-live-translate-preview",
+        voice: "Puck",
+        mode: "live_translate",
+        target_language_code: "zh-Hans",
+        echo_target_language: true,
+      });
+      socket.emitMessage({ type: "user_transcript", text: "Hello, can you hear me?" });
+      socket.emitMessage({ type: "assistant_text", text: "你好，听得到。" });
+    });
+
+    expect(result.current.sessionSummary).toEqual([]);
+    expect(result.current.voiceChatArchiveMessages).toEqual([
+      { role: "user", content: "Hello, can you hear me?", memorySaved: false },
+      {
+        role: "assistant",
+        content: "你好，听得到。",
+        memoriesUsed: undefined,
+        memorySourceSummary: undefined,
+        memoryRetrievalAttempted: false,
+      },
+    ]);
+  });
+
+  it("keeps the full voice session history instead of truncating older turns", async () => {
+    const formatErrorMessage = createFormatErrorMessageStub();
+    ensureEverMemConversationGroupIdMock.mockResolvedValue("voice-group-full-history");
+
+    const { result } = renderHook(() =>
+      useVoiceChat({
+        formatErrorMessage,
+        providerOptions: ["DashScope"],
+        preferredProvider: "DashScope",
+        preferredModel: "qwen3-omni-flash-realtime-2025-12-01",
+        providerModelCatalog: {
+          DashScope: {
+            defaultModel: "qwen3-omni-flash-realtime-2025-12-01",
+            availableModels: ["qwen3-omni-flash-realtime-2025-12-01"],
+          },
+        },
+      })
+    );
+
+    await act(async () => {
+      await result.current.onToggleRecording();
+    });
+
+    const socket = FakeWebSocket.instances[0];
+    act(() => {
+      socket.emitOpen();
+      socket.emitMessage({
+        type: "session_open",
+        provider: "DashScope",
+        model: "qwen3-omni-flash-realtime-2025-12-01",
+        voice: "Cherry",
+        mode: "voice_chat",
+      });
+      for (let i = 1; i <= 8; i += 1) {
+        socket.emitMessage({ type: "user_transcript", text: `第 ${i} 轮用户` });
+        socket.emitMessage({ type: "assistant_text", text: `第 ${i} 轮助手` });
+        socket.emitMessage({ type: "turn_complete" });
+      }
+    });
+
+    expect(result.current.voiceChatMessages).toHaveLength(16);
+    expect(result.current.sessionSummary).toHaveLength(16);
+    expect(result.current.sessionSummary[0]).toMatchObject({ role: "user", content: "第 1 轮用户" });
+  });
+
   it("tracks voice agent tool progress and grounded search sources", async () => {
     const formatErrorMessage = createFormatErrorMessageStub();
     ensureEverMemConversationGroupIdMock.mockResolvedValue("voice-group-001");
@@ -349,14 +711,15 @@ describe("useVoiceChat", () => {
     await act(async () => {
       await result.current.onToggleRecording();
     });
-    const socket = FakeWebSocket.instances[0];
+
+    const toolSocket = FakeWebSocket.instances[0];
     act(() => {
-      socket.emitOpen();
-      socket.emitMessage({
+      toolSocket.emitOpen();
+      toolSocket.emitMessage({
         type: "user_transcript",
         text: "帮我搜索 AI voice agent 的资料",
       });
-      socket.emitMessage({
+      toolSocket.emitMessage({
         type: "tool_call_started",
         tool_name: "search_web",
         turn_id: "voice-tool-1",
@@ -370,7 +733,7 @@ describe("useVoiceChat", () => {
     expect(result.current.voiceChatAgentSources).toEqual([]);
 
     act(() => {
-      socket.emitMessage({
+      toolSocket.emitMessage({
         type: "response_gated",
         provider: "DashScope",
         tool_name: "search_web",
@@ -385,7 +748,7 @@ describe("useVoiceChat", () => {
     expect(result.current.voiceChatStatus).toBe("正在等待搜索工具结果…");
 
     act(() => {
-      socket.emitMessage({
+      toolSocket.emitMessage({
         type: "agent_result",
         turn_id: "voice-tool-1",
         query: "AI voice agent",
@@ -416,7 +779,7 @@ describe("useVoiceChat", () => {
     ]);
 
     act(() => {
-      socket.emitMessage({
+      toolSocket.emitMessage({
         type: "tool_context_injected",
         provider: "DashScope",
         tool_name: "search_web",
@@ -432,7 +795,7 @@ describe("useVoiceChat", () => {
     expect(result.current.voiceChatStatus).toBe("正在基于搜索结果语音回答…");
 
     act(() => {
-      socket.emitMessage({ type: "turn_complete" });
+      toolSocket.emitMessage({ type: "turn_complete" });
     });
 
     expect(result.current.voiceChatMessages).toHaveLength(2);

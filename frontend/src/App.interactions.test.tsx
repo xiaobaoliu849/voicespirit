@@ -285,7 +285,7 @@ describe("App interactions", () => {
     fireEvent.click(screen.getByRole("button", { name: "新建对话" }));
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "清除全部" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "清除全部对话" })).toBeInTheDocument();
       expect(screen.getByText(/请帮我起草一封语气专业但不生硬的项目进度更新/)).toBeInTheDocument();
     });
 
@@ -293,6 +293,26 @@ describe("App interactions", () => {
 
     await waitFor(() => {
       expect(screen.getByText("这是助手的回复。")).toBeInTheDocument();
+    });
+  });
+
+  it("automatically saves the active conversation into the sidebar history", async () => {
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "写一封邮件" }));
+    fireEvent.click(screen.getByRole("button", { name: "发送" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("这是助手的回复。")).toBeInTheDocument();
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "清除全部对话" })).toBeInTheDocument();
+      expect(
+        Array.from(document.querySelectorAll(".vsHistoryText")).some((item) =>
+          item.textContent?.includes("请帮我起草一封语气专业但不生硬的项目进度更新")
+        )
+      ).toBe(true);
     });
   });
 

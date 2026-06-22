@@ -39,7 +39,14 @@ type AudioContextWindow = Window & {
 const GOOGLE_PROVIDER = "Google";
 const DASHSCOPE_PROVIDER = "DashScope";
 const DEFAULT_GOOGLE_MODEL = "gemini-2.5-flash-native-audio-preview-12-2025";
+const GOOGLE_FLASH_LIVE_MODEL = "gemini-3.1-flash-live-preview";
+const GOOGLE_LIVE_TRANSLATE_MODEL = "gemini-3.5-live-translate-preview";
 const DEFAULT_DASHSCOPE_MODEL = "qwen3-omni-flash-realtime-2025-12-01";
+const SUPPORTED_GOOGLE_REALTIME_MODEL_PATTERNS = [
+  "native-audio",
+  "live",
+  "realtime",
+];
 
 const GOOGLE_REALTIME_VOICES = [
   "Puck",
@@ -53,6 +60,106 @@ const GOOGLE_REALTIME_VOICES = [
   "Fenrir",
   "Sadachbia",
 ].map((name) => ({ value: name, label: name }));
+
+const LIVE_TRANSLATE_LANGUAGE_PRIORITY = [
+  "zh-Hans",
+  "zh-Hant",
+  "en",
+  "ja",
+  "ko",
+  "fr",
+  "de",
+  "es",
+  "pt-BR",
+  "ru",
+  "it",
+  "ar",
+  "th",
+  "vi",
+  "id",
+];
+
+const LIVE_TRANSLATE_TARGET_LANGUAGES = [
+  { value: "af", label: "Afrikaans" },
+  { value: "ak", label: "Akan" },
+  { value: "sq", label: "Albanian" },
+  { value: "am", label: "Amharic" },
+  { value: "ar", label: "Arabic" },
+  { value: "hy", label: "Armenian" },
+  { value: "az", label: "Azerbaijani" },
+  { value: "eu", label: "Basque" },
+  { value: "be", label: "Belarusian" },
+  { value: "bn", label: "Bengali" },
+  { value: "bg", label: "Bulgarian" },
+  { value: "my", label: "Burmese (Myanmar)" },
+  { value: "ca", label: "Catalan" },
+  { value: "zh-Hans", label: "Chinese (Simplified)" },
+  { value: "zh-Hant", label: "Chinese (Traditional)" },
+  { value: "hr", label: "Croatian" },
+  { value: "cs", label: "Czech" },
+  { value: "da", label: "Danish" },
+  { value: "nl", label: "Dutch" },
+  { value: "en", label: "English" },
+  { value: "et", label: "Estonian" },
+  { value: "fil", label: "Filipino" },
+  { value: "fi", label: "Finnish" },
+  { value: "fr", label: "French" },
+  { value: "gl", label: "Galician" },
+  { value: "ka", label: "Georgian" },
+  { value: "de", label: "German" },
+  { value: "el", label: "Greek" },
+  { value: "gu", label: "Gujarati" },
+  { value: "ha", label: "Hausa" },
+  { value: "he", label: "Hebrew" },
+  { value: "hi", label: "Hindi" },
+  { value: "hu", label: "Hungarian" },
+  { value: "is", label: "Icelandic" },
+  { value: "id", label: "Indonesian" },
+  { value: "it", label: "Italian" },
+  { value: "ja", label: "Japanese" },
+  { value: "jv", label: "Javanese" },
+  { value: "kn", label: "Kannada" },
+  { value: "kk", label: "Kazakh" },
+  { value: "km", label: "Khmer" },
+  { value: "rw", label: "Kinyarwanda" },
+  { value: "ko", label: "Korean" },
+  { value: "lo", label: "Lao" },
+  { value: "lv", label: "Latvian" },
+  { value: "lt", label: "Lithuanian" },
+  { value: "mk", label: "Macedonian" },
+  { value: "ms", label: "Malay" },
+  { value: "ml", label: "Malayalam" },
+  { value: "mr", label: "Marathi" },
+  { value: "mn", label: "Mongolian" },
+  { value: "ne", label: "Nepali" },
+  { value: "no", label: "Norwegian" },
+  { value: "nb", label: "Norwegian Bokmal" },
+  { value: "fa", label: "Persian" },
+  { value: "pl", label: "Polish" },
+  { value: "pt-BR", label: "Portuguese (Brazil)" },
+  { value: "pt-PT", label: "Portuguese (Portugal)" },
+  { value: "pa", label: "Punjabi" },
+  { value: "ro", label: "Romanian" },
+  { value: "ru", label: "Russian" },
+  { value: "sr", label: "Serbian" },
+  { value: "sd", label: "Sindhi" },
+  { value: "si", label: "Sinhala" },
+  { value: "sk", label: "Slovak" },
+  { value: "sl", label: "Slovenian" },
+  { value: "es", label: "Spanish" },
+  { value: "su", label: "Sundanese" },
+  { value: "sw", label: "Swahili" },
+  { value: "sv", label: "Swedish" },
+  { value: "ta", label: "Tamil" },
+  { value: "te", label: "Telugu" },
+  { value: "th", label: "Thai" },
+  { value: "tr", label: "Turkish" },
+  { value: "uk", label: "Ukrainian" },
+  { value: "ur", label: "Urdu" },
+  { value: "uz", label: "Uzbek" },
+  { value: "vi", label: "Vietnamese" },
+  { value: "zu", label: "Zulu" },
+];
 
 const DASHSCOPE_REALTIME_VOICES = [
   { value: "Cherry", label: "Cherry (Female)" },
@@ -68,6 +175,62 @@ const DASHSCOPE_REALTIME_VOICES = [
   { value: "Bale", label: "Bale (Male)" },
   { value: "Gale", label: "Gale (Male)" },
 ];
+
+function formatVoiceOptionLabel(label: string, language: UiLanguage): string {
+  if (language === "en-US") {
+    return label;
+  }
+  return label
+    .replace(" (Female)", " · 女声")
+    .replace(" (Male)", " · 男声");
+}
+
+function formatRealtimeVoiceOptions(
+  provider: string,
+  language: UiLanguage
+): Array<{ value: string; label: string }> {
+  const options = provider === DASHSCOPE_PROVIDER ? DASHSCOPE_REALTIME_VOICES : GOOGLE_REALTIME_VOICES;
+  return options.map((item) => ({
+    value: item.value,
+    label: formatVoiceOptionLabel(item.label, language),
+  }));
+}
+
+function getDisplayLanguageName(code: string, fallback: string, language: UiLanguage): string {
+  try {
+    const displayNames = new Intl.DisplayNames([language], { type: "language" });
+    const name = displayNames.of(code);
+    if (name) {
+      return name;
+    }
+  } catch {
+    // Intl.DisplayNames is not available in every embedded WebView/test runtime.
+  }
+  return fallback;
+}
+
+function formatLiveTranslateLanguageOptions(language: UiLanguage): Array<{ value: string; label: string }> {
+  const priority = new Map(LIVE_TRANSLATE_LANGUAGE_PRIORITY.map((code, index) => [code, index]));
+  return [...LIVE_TRANSLATE_TARGET_LANGUAGES]
+    .sort((left, right) => {
+      const leftRank = priority.get(left.value) ?? Number.MAX_SAFE_INTEGER;
+      const rightRank = priority.get(right.value) ?? Number.MAX_SAFE_INTEGER;
+      if (leftRank !== rightRank) {
+        return leftRank - rightRank;
+      }
+      return left.label.localeCompare(right.label);
+    })
+    .map((item) => {
+      if (language === "en-US") {
+        return { ...item, label: `${item.label} (${item.value})` };
+      }
+      const zhName = getDisplayLanguageName(item.value, item.label, "zh-CN");
+      return {
+        ...item,
+        label: `${zhName} / ${item.label} (${item.value})`,
+      };
+    });
+}
 
 function resolveRealtimeProvider(preferredProvider: string | undefined, providerOptions: string[]): string {
   if (preferredProvider && (preferredProvider === GOOGLE_PROVIDER || preferredProvider === DASHSCOPE_PROVIDER) && providerOptions.includes(preferredProvider)) {
@@ -93,16 +256,17 @@ function isRealtimeVoiceModel(provider: string, model: string): boolean {
     return false;
   }
   if (normalizedProvider === DASHSCOPE_PROVIDER.toLowerCase()) {
-    return normalizedModel.includes("realtime");
+    return normalizedModel.includes("realtime") || normalizedModel.includes("livetranslate");
   }
   if (normalizedProvider === GOOGLE_PROVIDER.toLowerCase()) {
-    return (
-      normalizedModel.includes("native-audio") ||
-      normalizedModel.includes("live") ||
-      normalizedModel.includes("realtime")
-    );
+    return SUPPORTED_GOOGLE_REALTIME_MODEL_PATTERNS.some((item) => normalizedModel.includes(item));
   }
   return normalizedModel.includes("realtime");
+}
+
+function isLiveTranslateModel(provider: string, model: string): boolean {
+  return provider.trim().toLowerCase() === GOOGLE_PROVIDER.toLowerCase()
+    && model.trim().toLowerCase().includes("live-translate");
 }
 
 function resolveRealtimeFallbackModel(provider: string): string {
@@ -135,7 +299,10 @@ function resolveRealtimeModelOptions(
   const fallbackModel = (isPreferredValid && isRealtimeVoiceModel(provider, preferredDefault))
     ? preferredDefault
     : resolveRealtimeFallbackModel(provider);
-  const ordered = fallbackModel ? [fallbackModel, ...realtimeModels] : realtimeModels;
+  const googleBuiltIns = provider === GOOGLE_PROVIDER
+    ? [DEFAULT_GOOGLE_MODEL, GOOGLE_FLASH_LIVE_MODEL, GOOGLE_LIVE_TRANSLATE_MODEL]
+    : [];
+  const ordered = fallbackModel ? [fallbackModel, ...googleBuiltIns, ...realtimeModels] : [...googleBuiltIns, ...realtimeModels];
   return [...new Set(ordered.filter(Boolean))];
 }
 
@@ -206,7 +373,63 @@ function mergeAssistantText(previous: string, incoming: string): string {
   if (previous.endsWith(next)) {
     return previous;
   }
-  return `${previous}${next}`;
+  return appendStreamingText(previous, next);
+}
+
+function containsLatinText(value: string): boolean {
+  return /[A-Za-z]/.test(value);
+}
+
+function appendStreamingText(previous: string, incoming: string): string {
+  const before = previous.trim();
+  const next = incoming.trim();
+  if (!before) {
+    return next;
+  }
+  if (!next) {
+    return before;
+  }
+  if (containsLatinText(before) || containsLatinText(next)) {
+    return `${before} ${next}`.replace(/\s+([,.!?;:])/g, "$1");
+  }
+  return `${before}${next}`;
+}
+
+function endsWithSentencePunctuation(value: string): boolean {
+  return /[.!?。！？]\s*$/.test(value.trim());
+}
+
+function countLatinWords(value: string): number {
+  return (value.match(/[A-Za-z0-9]+(?:['-][A-Za-z0-9]+)?/g) || []).length;
+}
+
+function shouldCoalesceLiveTranslateSegment(previousSource: string, nextSource: string): boolean {
+  const before = previousSource.trim();
+  const next = nextSource.trim();
+  if (!before || !next) {
+    return false;
+  }
+  if (isTranscriptContinuation(before, next)) {
+    return true;
+  }
+  const latinBefore = containsLatinText(before);
+  const latinNext = containsLatinText(next);
+  if (!latinBefore && !latinNext) {
+    return false;
+  }
+  if (!endsWithSentencePunctuation(before)) {
+    return true;
+  }
+  return countLatinWords(next) <= 3 && next.length <= 20;
+}
+
+function isTranscriptContinuation(previous: string, incoming: string): boolean {
+  const before = previous.trim();
+  const next = incoming.trim();
+  if (!before || !next) {
+    return true;
+  }
+  return next.startsWith(before) || before.startsWith(next);
 }
 
 function formatElapsedMs(value: number | undefined): string {
@@ -263,8 +486,8 @@ function normalizeVoiceCaptureError(
 
   if (name === "NotAllowedError" || lowerMessage.includes("permission denied")) {
     return t(
-      "麦克风权限被拒绝。请允许当前应用访问麦克风后重试。",
-      "Microphone access was denied. Allow microphone access for this app and try again."
+      "麦克风权限被拒绝。请允许当前页面/桌面壳访问麦克风后重试：浏览器中打开地址栏左侧站点权限，允许 http://127.0.0.1 的麦克风；桌面版请在 Windows 麦克风隐私里允许 Python/VoiceSpirit/WebView，并可通过菜单「系统 -> 重置桌面缓存并重启」清掉之前的拒绝记录。注意：打开 Codex 的麦克风权限不会授权 VoiceSpirit。",
+      "Microphone access was denied. Allow microphone access for the current page/desktop shell and try again: in a browser, open the site permissions beside the address bar and allow microphone access for http://127.0.0.1; in the desktop app, allow Python/VoiceSpirit/WebView in Windows microphone privacy settings, and use System -> Reset Cache to clear a previously denied WebView permission. Enabling microphone access for Codex does not grant it to VoiceSpirit."
     );
   }
 
@@ -297,6 +520,8 @@ export default function useVoiceChat({
   const [voiceChatVoice, setVoiceChatVoice] = useState(
     initialProvider === DASHSCOPE_PROVIDER ? "Cherry" : "Puck"
   );
+  const [voiceChatTargetLanguageCode, setVoiceChatTargetLanguageCode] = useState("en");
+  const [voiceChatEchoTargetLanguage, setVoiceChatEchoTargetLanguage] = useState(true);
   const [voiceChatBusy, setVoiceChatBusy] = useState(false);
   const [voiceChatRecording, setVoiceChatRecording] = useState(false);
   const [voiceChatSupported, setVoiceChatSupported] = useState(true);
@@ -327,6 +552,7 @@ export default function useVoiceChat({
   const muteGainRef = useRef<GainNode | null>(null);
   const playingSourcesRef = useRef<AudioBufferSourceNode[]>([]);
   const nextPlaybackTimeRef = useRef(0);
+  const audioInputReadyRef = useRef(false);
   const currentUserTurnRef = useRef("");
   const currentAssistantTurnRef = useRef("");
   const currentMemoriesRetrievedRef = useRef(0);
@@ -340,6 +566,19 @@ export default function useVoiceChat({
   const sessionEpochRef = useRef(0);
 
   const voiceChatModelOptions = resolveRealtimeModelOptions(voiceChatProvider, providerModelCatalog);
+  const voiceChatLiveTranslate = isLiveTranslateModel(voiceChatProvider, voiceChatModel);
+  const voiceChatVoiceOptions = useMemo(
+    () => formatRealtimeVoiceOptions(voiceChatProvider, language),
+    [language, voiceChatProvider]
+  );
+  const voiceChatTargetLanguageOptions = useMemo(
+    () => formatLiveTranslateLanguageOptions(language),
+    [language]
+  );
+  const voiceChatVoiceLabel = voiceChatVoiceOptions.find((item) => item.value === voiceChatVoice)?.label || voiceChatVoice;
+  const voiceChatTargetLanguageLabel =
+    voiceChatTargetLanguageOptions.find((item) => item.value === voiceChatTargetLanguageCode)?.label ||
+    voiceChatTargetLanguageCode;
 
   useEffect(() => {
     const preferredProviderChanged = lastPreferredProviderRef.current !== preferredProvider;
@@ -374,7 +613,7 @@ export default function useVoiceChat({
     }
 
     const defaultModel = resolveDefaultModel(voiceChatProvider, providerModelCatalog);
-    const availableModels = providerModelCatalog[voiceChatProvider]?.availableModels || [];
+    const availableModels = resolveRealtimeModelOptions(voiceChatProvider, providerModelCatalog);
     const currentModelValid =
       availableModels.length === 0 ||
       !voiceChatModel.trim() ||
@@ -426,6 +665,7 @@ export default function useVoiceChat({
   function stopSessionResources() {
     const ws = websocketRef.current;
     websocketRef.current = null;
+    audioInputReadyRef.current = false;
     if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
       try {
         ws.close();
@@ -508,7 +748,7 @@ export default function useVoiceChat({
           toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
         });
       }
-      return next.slice(-12);
+      return next;
     });
     currentUserTurnRef.current = "";
     currentAssistantTurnRef.current = "";
@@ -601,6 +841,9 @@ export default function useVoiceChat({
     if (context.state === "suspended") {
       await context.resume();
     }
+    if (nextPlaybackTimeRef.current < context.currentTime) {
+      nextPlaybackTimeRef.current = context.currentTime + 0.08;
+    }
 
     const pcm = decodeBase64Pcm(base64Audio);
     if (!pcm.length) {
@@ -616,7 +859,7 @@ export default function useVoiceChat({
     const source = context.createBufferSource();
     source.buffer = buffer;
     source.connect(context.destination);
-    const startAt = Math.max(context.currentTime + 0.02, nextPlaybackTimeRef.current);
+    const startAt = Math.max(context.currentTime + 0.04, nextPlaybackTimeRef.current);
     source.start(startAt);
     nextPlaybackTimeRef.current = startAt + buffer.duration;
     playingSourcesRef.current.push(source);
@@ -631,6 +874,7 @@ export default function useVoiceChat({
         setVoiceChatConnected(true);
         setVoiceChatRecording(true);
         setVoiceChatBusy(false);
+        audioInputReadyRef.current = true;
         setVoiceChatStatus(t(`实时会话已连接：${event.model}`, `Realtime session connected: ${event.model}`));
         return;
       case "memory_config":
@@ -646,6 +890,19 @@ export default function useVoiceChat({
         }
         return;
       case "user_transcript":
+        if (
+          voiceChatLiveTranslate &&
+          currentAssistantTurnRef.current.trim() &&
+          !isTranscriptContinuation(currentUserTurnRef.current, event.text)
+        ) {
+          if (shouldCoalesceLiveTranslateSegment(currentUserTurnRef.current, event.text)) {
+            currentUserTurnRef.current = appendStreamingText(currentUserTurnRef.current, event.text);
+            setVoiceChatTranscript(currentUserTurnRef.current);
+            setVoiceChatStatus(t("正在整理实时译文…", "Refining the live translation…"));
+            return;
+          }
+          commitCompletedTurn();
+        }
         currentUserTurnRef.current = event.text;
         currentMemorySavedRef.current = false;
         currentMemoryRetrieveAttemptedRef.current = false;
@@ -871,7 +1128,13 @@ export default function useVoiceChat({
           return;
         }
       case "error":
-        setVoiceChatError(event.message);
+        setVoiceChatError(
+          event.message ||
+          t(
+            `实时语音后端返回错误。建议先选择 DashScope / ${DEFAULT_DASHSCOPE_MODEL} 重试。`,
+            `The realtime voice backend returned an error. Try DashScope / ${DEFAULT_DASHSCOPE_MODEL} first.`
+          )
+        );
         setVoiceChatStatus(t("实时语音会话出错", "Realtime voice session failed"));
         stopSessionResources();
         return;
@@ -939,16 +1202,19 @@ export default function useVoiceChat({
       audioContextRef.current = audioContext;
       await audioContext.resume();
 
-      const ws = new WebSocket(
-        buildVoiceChatWebSocketUrl({
-          provider: voiceChatProvider,
-          model: voiceChatModel.trim() || undefined,
-          voice: voiceChatVoice,
-        })
-      );
+      const wsUrl = buildVoiceChatWebSocketUrl({
+        provider: voiceChatProvider,
+        model: voiceChatModel.trim() || undefined,
+        voice: voiceChatVoice,
+        targetLanguageCode: voiceChatLiveTranslate ? voiceChatTargetLanguageCode : undefined,
+        echoTargetLanguage: voiceChatLiveTranslate ? voiceChatEchoTargetLanguage : undefined,
+      });
+      const ws = new WebSocket(wsUrl);
       const memoryConfig = buildVoiceChatSessionConfig(memoryGroupId || undefined);
       ws.binaryType = "arraybuffer";
       websocketRef.current = ws;
+      audioInputReadyRef.current = false;
+      nextPlaybackTimeRef.current = audioContext.currentTime + 0.12;
 
       ws.onmessage = (message) => {
         if (sessionEpochRef.current !== sessionEpoch) {
@@ -968,15 +1234,27 @@ export default function useVoiceChat({
         if (sessionEpochRef.current !== sessionEpoch) {
           return;
         }
-        setVoiceChatError(t("实时语音连接失败。", "Realtime voice connection failed."));
+        setVoiceChatError(
+          t(
+            `实时语音连接失败。请确认后端正在运行，并且模型支持实时语音：${voiceChatProvider} / ${voiceChatModel || "默认模型"}。WebSocket: ${wsUrl}`,
+            `Realtime voice connection failed. Confirm the backend is running and the model supports realtime voice: ${voiceChatProvider} / ${voiceChatModel || "default model"}. WebSocket: ${wsUrl}`
+          )
+        );
         setVoiceChatStatus(t("实时语音连接失败", "Realtime voice connection failed"));
       };
 
-      ws.onclose = () => {
+      ws.onclose = (event) => {
         if (sessionEpochRef.current !== sessionEpoch) {
           return;
         }
+        const wasConnected = voiceChatConnected;
         stopSessionResources();
+        if (!wasConnected && event.code !== 1000) {
+          setVoiceChatError((prev) => prev || t(
+            `实时语音连接已关闭（code=${event.code}${event.reason ? `, reason=${event.reason}` : ""}）。建议先选择 DashScope / ${DEFAULT_DASHSCOPE_MODEL} 重试。`,
+            `Realtime voice connection closed (code=${event.code}${event.reason ? `, reason=${event.reason}` : ""}). Try DashScope / ${DEFAULT_DASHSCOPE_MODEL} first.`
+          ));
+        }
         setVoiceChatStatus((prev) => (
           prev.includes(t("出错", "failed"))
             ? prev
@@ -998,6 +1276,9 @@ export default function useVoiceChat({
 
         processor.onaudioprocess = (audioEvent) => {
           if (sessionEpochRef.current !== sessionEpoch || ws.readyState !== WebSocket.OPEN) {
+            return;
+          }
+          if (!audioInputReadyRef.current) {
             return;
           }
           const input = audioEvent.inputBuffer.getChannelData(0);
@@ -1050,7 +1331,33 @@ export default function useVoiceChat({
     await startSession();
   }
 
-  const sessionSummary = useMemo(() => voiceChatMessages.slice(-6), [voiceChatMessages]);
+  const sessionSummary = useMemo(() => voiceChatMessages, [voiceChatMessages]);
+  const voiceChatArchiveMessages = useMemo(() => {
+    const currentUser = voiceChatTranscript.trim();
+    const currentAssistant = voiceChatReply.trim();
+    if (!currentUser && !currentAssistant) {
+      return voiceChatMessages;
+    }
+    const next = [...voiceChatMessages];
+    if (currentUser) {
+      next.push({ role: "user" as const, content: currentUser, memorySaved: currentMemorySavedRef.current });
+    }
+    if (currentAssistant) {
+      next.push({
+        role: "assistant" as const,
+        content: currentAssistant,
+        memoriesUsed: currentMemoriesRetrievedRef.current > 0 ? currentMemoriesRetrievedRef.current : undefined,
+        memorySourceSummary: buildMemorySourceSummary({
+          attempted: currentMemoryRetrieveAttemptedRef.current,
+          total: currentMemoriesRetrievedRef.current,
+          localPendingCount: currentLocalPendingCountRef.current,
+          cloudCount: currentCloudCountRef.current,
+        }) || undefined,
+        memoryRetrievalAttempted: currentMemoryRetrieveAttemptedRef.current,
+      });
+    }
+    return next;
+  }, [voiceChatMessages, voiceChatTranscript, voiceChatReply]);
 
   function replaceSession(messages: ChatMessage[], memoryGroupId = "") {
     const normalizedGroupId = (memoryGroupId || "").trim();
@@ -1093,7 +1400,13 @@ export default function useVoiceChat({
     voiceChatModel,
     voiceChatModelOptions,
     voiceChatVoice,
-    voiceChatVoiceOptions: voiceChatProvider === DASHSCOPE_PROVIDER ? DASHSCOPE_REALTIME_VOICES : GOOGLE_REALTIME_VOICES,
+    voiceChatVoiceLabel,
+    voiceChatVoiceOptions,
+    voiceChatLiveTranslate,
+    voiceChatTargetLanguageCode,
+    voiceChatTargetLanguageLabel,
+    voiceChatTargetLanguageOptions,
+    voiceChatEchoTargetLanguage,
     voiceChatBusy,
     voiceChatRecording,
     voiceChatConnected,
@@ -1104,6 +1417,7 @@ export default function useVoiceChat({
     voiceChatReply,
     voiceChatMemoriesRetrieved,
     voiceChatMessages,
+    voiceChatArchiveMessages,
     sessionSummary,
     onToggleRecording,
     onProviderChange: (provider: string) => {
@@ -1112,6 +1426,8 @@ export default function useVoiceChat({
     },
     onModelChange: setVoiceChatModel,
     onVoiceChange: setVoiceChatVoice,
+    onTargetLanguageCodeChange: setVoiceChatTargetLanguageCode,
+    onEchoTargetLanguageChange: setVoiceChatEchoTargetLanguage,
     onResetSession: () => {
       markNewSessionEpoch();
       stopSessionResources();

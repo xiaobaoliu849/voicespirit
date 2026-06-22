@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   getChatQuickActions,
   type QuickAction
@@ -26,6 +26,9 @@ const MicIcon = () => (
 const StopIcon = () => (
   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="14" height="14" x="5" y="5" rx="2"></rect></svg>
 );
+const PhoneIcon = () => (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.78 19.78 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.78 19.78 0 0 1 2.12 4.18 2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.12.9.33 1.77.62 2.6a2 2 0 0 1-.45 2.11L8.09 9.62a16 16 0 0 0 6.29 6.29l1.19-1.19a2 2 0 0 1 2.11-.45c.83.29 1.7.5 2.6.62A2 2 0 0 1 22 16.92Z"></path></svg>
+);
 const SendIcon = () => (
   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3.714 3.048a.498.498 0 0 0-.683.627l2.843 7.627a2 2 0 0 1 0 1.396l-2.842 7.627a.498.498 0 0 0 .682.627l18.168-8.215a.5.5 0 0 0 0-.904z"></path><line x1="6" x2="11" y1="12" y2="12"></line></svg>
 );
@@ -40,7 +43,7 @@ function isVoiceRealtimeModel(provider: string, model: string): boolean {
     return false;
   }
   if (normalizedProvider === "dashscope") {
-    return normalizedModel.includes("realtime");
+    return normalizedModel.includes("realtime") || normalizedModel.includes("livetranslate");
   }
   if (normalizedProvider === "google") {
     return (
@@ -52,21 +55,106 @@ function isVoiceRealtimeModel(provider: string, model: string): boolean {
   return normalizedModel.includes("realtime");
 }
 
+type SpeechRecognitionResultLike = {
+  readonly isFinal: boolean;
+  readonly 0: { readonly transcript: string };
+};
+
+type SpeechRecognitionEventLike = Event & {
+  readonly resultIndex: number;
+  readonly results: ArrayLike<SpeechRecognitionResultLike>;
+};
+
+type SpeechRecognitionLike = {
+  lang: string;
+  interimResults: boolean;
+  continuous: boolean;
+  onresult: ((event: SpeechRecognitionEventLike) => void) | null;
+  onerror: ((event: { error?: string }) => void) | null;
+  onend: (() => void) | null;
+  start: () => void;
+  stop: () => void;
+};
+
+type SpeechRecognitionWindow = Window & {
+  SpeechRecognition?: new () => SpeechRecognitionLike;
+  webkitSpeechRecognition?: new () => SpeechRecognitionLike;
+};
+
 /* ── Composer sub-component (shared between empty & chat modes) ── */
 function Composer({
   chat,
   voiceChat,
-  textChatBlockedReason,
 }: {
   chat: UseChatResult;
   voiceChat: UseVoiceChatResult;
-  textChatBlockedReason: string;
 }) {
   const { t } = useI18n();
-  const textChatBlocked = Boolean(textChatBlockedReason);
   const isVoiceActive = voiceChat.voiceChatRecording || voiceChat.voiceChatConnected;
   const hasInput = chat.chatInput.trim().length > 0;
   const isRealtime = isVoiceRealtimeModel(chat.chatProvider, chat.chatModel);
+  const isLiveTranslate = voiceChat.voiceChatLiveTranslate;
+  const textChatBlockedReason = isRealtime
+    ? t(
+      "当前是实时语音/实时翻译模型。请点击实时通话按钮开始语音会话，或切换到普通文本模型后再发送文字。",
+      "The current model is realtime voice/live translation only. Start a realtime call, or switch to a text model before sending."
+    )
+    : "";
+  const [dictating, setDictating] = useState(false);
+  const [dictationError, setDictationError] = useState("");
+  const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
+
+  function appendDictationText(text: string) {
+    const clean = text.trim();
+    if (!clean) {
+      return;
+    }
+    const current = chat.chatInput.trimEnd();
+    chat.onInputChange(current ? `${current} ${clean}` : clean);
+  }
+
+  function toggleDictation() {
+    if (dictating) {
+      recognitionRef.current?.stop();
+      setDictating(false);
+      return;
+    }
+    const speechWindow = window as SpeechRecognitionWindow;
+    const SpeechRecognitionCtor = speechWindow.SpeechRecognition || speechWindow.webkitSpeechRecognition;
+    if (!SpeechRecognitionCtor) {
+      setDictationError(t(
+        "当前桌面壳不支持语音转文字。请在 Edge/Chrome 网页版使用麦克风转写，或直接点击实时通话按钮。",
+        "Speech-to-text dictation is not supported in this shell. Use Edge/Chrome in the browser, or start a realtime call."
+      ));
+      return;
+    }
+    const recognition = new SpeechRecognitionCtor();
+    recognition.lang = "zh-CN";
+    recognition.interimResults = false;
+    recognition.continuous = false;
+    recognition.onresult = (event) => {
+      let finalText = "";
+      for (let i = event.resultIndex; i < event.results.length; i += 1) {
+        const result = event.results[i];
+        if (result.isFinal) {
+          finalText += result[0]?.transcript || "";
+        }
+      }
+      appendDictationText(finalText);
+    };
+    recognition.onerror = (event) => {
+      setDictationError(t(
+        `语音转文字失败：${event.error || "未知错误"}`,
+        `Speech-to-text failed: ${event.error || "Unknown error"}`
+      ));
+      setDictating(false);
+    };
+    recognition.onend = () => setDictating(false);
+    recognitionRef.current = recognition;
+    setDictationError("");
+    setDictating(true);
+    recognition.start();
+  }
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [parsingFiles, setParsingFiles] = useState<string[]>([]);
@@ -113,7 +201,7 @@ function Composer({
   };
 
   return (
-    <div className="vsComposer">
+    <div className={`vsComposer ${isVoiceActive ? "liveActive" : ""}`}>
       {!isVoiceActive ? (
         <>
           <textarea
@@ -122,9 +210,8 @@ function Composer({
             onChange={(e) => chat.onInputChange(e.target.value)}
             placeholder={t("输入聊天内容，或者点击右下角麦克风开始语音通话...", "Type to chat, or click the microphone in the bottom right to start a voice call...")}
             onKeyDown={chat.onComposerKeyDown}
-            disabled={textChatBlocked}
           />
-          {textChatBlocked ? <div className="vsComposerInlineHint">{textChatBlockedReason}</div> : null}
+          {dictationError ? <div className="vsComposerInlineHint">{dictationError}</div> : null}
         </>
       ) : (
         <div className="vsLiveSessionBanner">
@@ -181,59 +268,102 @@ function Composer({
           
           {/* Alma-style inline dropdowns */}
           <select
-            className="vsComposerPillSelect"
-            value={chat.chatModel}
-            onChange={(e) => chat.onModelChange(e.target.value)}
+            className="vsComposerPillSelect vsComposerModelSelect"
+            value={chat.chatModelChoiceValue || chat.chatModel}
+            onChange={(e) => chat.onModelChoiceChange(e.target.value)}
             title={t("切换模型", "Switch model")}
           >
-            {chat.chatModelOptions.map((item) => (
-              <option key={item} value={item}>{item}</option>
+            {chat.chatModelChoices.map((item) => (
+              <option key={item.value} value={item.value}>{item.label}</option>
             ))}
-            {!chat.chatModelOptions.includes(chat.chatModel) && chat.chatModel && (
+            {!chat.chatModelChoices.some((item) => item.value === chat.chatModelChoiceValue) && chat.chatModel && (
               <option value={chat.chatModel}>{chat.chatModel}</option>
             )}
           </select>
 
           {isRealtime && (
             <select
-              className="vsComposerPillSelect"
+              className="vsComposerPillSelect vsComposerVoiceSelect"
               value={voiceChat.voiceChatVoice}
               onChange={(e) => voiceChat.onVoiceChange(e.target.value)}
               disabled={isVoiceActive}
-              title={t("切换音色", "Switch voice")}
+              title={t(`当前音色：${voiceChat.voiceChatVoiceLabel}`, `Current voice: ${voiceChat.voiceChatVoiceLabel}`)}
             >
               {voiceChat.voiceChatVoiceOptions.map((item) => (
                 <option key={item.value} value={item.value}>{item.label}</option>
               ))}
             </select>
           )}
+
+          {isRealtime && isLiveTranslate && (
+            <>
+              <select
+                className="vsComposerPillSelect vsComposerLanguageSelect"
+                value={voiceChat.voiceChatTargetLanguageCode}
+                onChange={(e) => voiceChat.onTargetLanguageCodeChange(e.target.value)}
+                disabled={isVoiceActive}
+                title={t("翻译目标语言", "Translation target language")}
+              >
+                {voiceChat.voiceChatTargetLanguageOptions.map((item) => (
+                  <option key={item.value} value={item.value}>{item.label}</option>
+                ))}
+              </select>
+              <label className="vsComposerToggle" title={t("输入已经是目标语言时也朗读出来", "Echo speech that is already in the target language")}>
+                <input
+                  type="checkbox"
+                  checked={voiceChat.voiceChatEchoTargetLanguage}
+                  onChange={(e) => voiceChat.onEchoTargetLanguageChange(e.target.checked)}
+                  disabled={isVoiceActive}
+                />
+                <span>{t("同语回放", "Echo")}</span>
+              </label>
+            </>
+          )}
         </div>
 
         <div className="vsComposerToolbarRight">
+          <button
+            type="button"
+            className={`vsToolbarBtn ${dictating ? "recording" : ""}`}
+            aria-label={dictating ? t("停止语音转写", "Stop dictation") : t("语音转写", "Dictate")}
+            onClick={toggleDictation}
+            disabled={isVoiceActive || chat.chatBusy}
+            title={dictating ? t("停止语音转写", "Stop dictation") : t("语音转写到输入框", "Dictate into the input")}
+          >
+            <MicIcon />
+          </button>
+
+          <button
+            type="button"
+            className={`vsComposerCallBtn ${isVoiceActive ? "recording" : ""}`}
+            aria-label={isVoiceActive ? t("结束实时通话", "End realtime call") : t("实时通话", "Realtime call")}
+            onClick={() => void voiceChat.onToggleRecording()}
+            disabled={!voiceChat.voiceChatSupported || voiceChat.voiceChatBusy}
+            title={isVoiceActive ? t("结束实时通话", "End realtime call") : (
+              isLiveTranslate
+                ? t(`实时翻译：${voiceChat.voiceChatProvider} / ${voiceChat.voiceChatModel}`, `Live translate: ${voiceChat.voiceChatProvider} / ${voiceChat.voiceChatModel}`)
+                : t(`实时通话：${voiceChat.voiceChatProvider} / ${voiceChat.voiceChatModel}`, `Realtime call: ${voiceChat.voiceChatProvider} / ${voiceChat.voiceChatModel}`)
+            )}
+          >
+            {isVoiceActive ? <StopIcon /> : <PhoneIcon />}
+          </button>
+
           {hasInput && !isVoiceActive ? (
             <button
               type="submit"
               className="vsSendBtn"
-              disabled={chat.chatBusy || textChatBlocked}
+              disabled={chat.chatBusy || Boolean(textChatBlockedReason)}
               aria-label={t("发送", "Send")}
-              title={textChatBlocked ? textChatBlockedReason : t("发送", "Send")}
+              title={textChatBlockedReason || t("发送", "Send")}
             >
               {chat.chatBusy ? <SpinnerIcon /> : <SendIcon />}
             </button>
           ) : (
-            <button
-              type="button"
-              className={`vsComposerVoiceBtn ${isVoiceActive ? "recording" : ""}`}
-              aria-label={t("语音聊天", "Voice chat")}
-              onClick={() => void voiceChat.onToggleRecording()}
-              disabled={!voiceChat.voiceChatSupported || voiceChat.voiceChatBusy}
-              title={isVoiceActive ? t("结束通话", "End session") : t("开始语音聊天", "Start voice chat")}
-            >
-              {isVoiceActive ? <StopIcon /> : <MicIcon />}
-            </button>
+            null
           )}
         </div>
       </div>
+      {textChatBlockedReason ? <div className="vsComposerInlineHint">{textChatBlockedReason}</div> : null}
     </div>
   );
 }
@@ -243,22 +373,36 @@ export default function ChatPage({ chat, voiceChat, errorRuntimeContext }: Props
   const quickActions: QuickAction[] = getChatQuickActions(t);
   const combinedMessages = [...chat.chatMessages, ...voiceChat.sessionSummary];
   const isEmpty = !combinedMessages.length;
-  const textChatBlockedReason = isVoiceRealtimeModel(chat.chatProvider, chat.chatModel)
-    ? t(
-      "当前是实时语音模型。请点击麦克风开始对话，或切换到普通文本模型后再发送文字。",
-      "The current model is a realtime voice model. Use the microphone to start, or switch to a standard text model before sending."
-    )
-    : "";
-  
-  // Use a variable to track if we should show the welcome/empty state
-  // We hide it if there's an active voice session even if message list is empty
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const shouldStickToBottomRef = useRef(true);
+
   const showWelcome = isEmpty && !voiceChat.voiceChatRecording && !voiceChat.voiceChatConnected;
   const isVoiceActive = voiceChat.voiceChatRecording || voiceChat.voiceChatConnected;
+
+  useEffect(() => {
+    const el = bodyRef.current;
+    if (el && shouldStickToBottomRef.current) {
+      el.scrollTop = el.scrollHeight;
+    }
+  }, [combinedMessages.length, voiceChat.voiceChatTranscript, voiceChat.voiceChatReply]);
+
+  function handleBodyScroll() {
+    const el = bodyRef.current;
+    if (!el) {
+      return;
+    }
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    shouldStickToBottomRef.current = distanceFromBottom < 96;
+  }
 
   return (
     <section className="vsChatWorkspace">
       {/* ── Body ── */}
-      <div className={`vsChatBody ${showWelcome ? "empty" : ""}`}>
+      <div
+        ref={bodyRef}
+        className={`vsChatBody ${showWelcome ? "empty" : ""} ${isVoiceActive ? "liveActive" : ""}`}
+        onScroll={handleBodyScroll}
+      >
         {showWelcome ? (
           /* ═══ EMPTY STATE: centered like Claude/Gemini ═══ */
           <div className="vsChatCentered">
@@ -276,7 +420,6 @@ export default function ChatPage({ chat, voiceChat, errorRuntimeContext }: Props
               <Composer
                 chat={chat}
                 voiceChat={voiceChat}
-                textChatBlockedReason={textChatBlockedReason}
               />
             </form>
 
@@ -369,7 +512,7 @@ export default function ChatPage({ chat, voiceChat, errorRuntimeContext }: Props
             {isVoiceActive && voiceChat.voiceChatTranscript && (
               <div className="bubble user live">
                 <div className="vsBubbleMeta">
-                  <span className="vsStreamingIndicator">{t("(实时输入)", "(live input)")}</span>
+                  <span className="vsStreamingIndicator">{voiceChat.voiceChatLiveTranslate ? t("原文实时转写", "Live source transcript") : t("(实时输入)", "(live input)")}</span>
                 </div>
                 <p>{voiceChat.voiceChatTranscript}</p>
               </div>
@@ -377,7 +520,7 @@ export default function ChatPage({ chat, voiceChat, errorRuntimeContext }: Props
             {isVoiceActive && voiceChat.voiceChatReply && (
               <div className="bubble assistant live">
                 <div className="vsBubbleMeta">
-                  <span className="vsStreamingIndicator">{t("(正在回复)", "(replying)")}</span>
+                  <span className="vsStreamingIndicator">{voiceChat.voiceChatLiveTranslate ? t(`译文：${voiceChat.voiceChatTargetLanguageLabel}`, `Translation: ${voiceChat.voiceChatTargetLanguageLabel}`) : t("(正在回复)", "(replying)")}</span>
                 </div>
                 <p>{voiceChat.voiceChatReply}</p>
               </div>
@@ -388,16 +531,17 @@ export default function ChatPage({ chat, voiceChat, errorRuntimeContext }: Props
 
       {/* ── Bottom composer (visible when not in welcome mode or when voice active) ── */}
       {(!showWelcome || isVoiceActive) && (
-        <div className="vsComposerWrap">
+        <div className={`vsComposerWrap ${isVoiceActive ? "liveActive" : ""}`}>
           <form onSubmit={chat.onSubmit}>
             <Composer
               chat={chat}
               voiceChat={voiceChat}
-              textChatBlockedReason={textChatBlockedReason}
             />
           </form>
 
-          <p className="vsChatDisclaimer">{t("AI 生成内容可能存在误差，请按需核对关键信息。", "AI-generated content may contain mistakes. Verify important details when needed.")}</p>
+          {!isVoiceActive ? (
+            <p className="vsChatDisclaimer">{t("AI 生成内容可能存在误差，请按需核对关键信息。", "AI-generated content may contain mistakes. Verify important details when needed.")}</p>
+          ) : null}
           <ErrorNotice
             message={chat.chatError}
             scope="chat"

@@ -131,6 +131,34 @@ function areArchiveEntriesEquivalent(
   );
 }
 
+function areArchiveEntriesSameConversationContent(
+  left: ConversationArchiveEntry | null,
+  right: ConversationArchiveEntry | null
+): boolean {
+  if (!left || !right) {
+    return false;
+  }
+  return (
+    areMessageListsEqual(left.chatMessages, right.chatMessages) &&
+    areMessageListsEqual(left.voiceMessages, right.voiceMessages)
+  );
+}
+
+function normalizeConversationHistory(entries: ConversationArchiveEntry[]): ConversationArchiveEntry[] {
+  const normalized: ConversationArchiveEntry[] = [];
+  for (const entry of entries) {
+    const hasDuplicate = normalized.some((item) => (
+      item.content === entry.content ||
+      areArchiveEntriesEquivalent(item, entry) ||
+      areArchiveEntriesSameConversationContent(item, entry)
+    ));
+    if (!hasDuplicate) {
+      normalized.push(entry);
+    }
+  }
+  return normalized.slice(0, MAX_CONVERSATION_HISTORY);
+}
+
 function resolveVoiceCenterTab(activeTab: ActiveTab): "tts" | "design" | "clone" | "transcribe" {
   switch (activeTab) {
     case "voice_design":
@@ -152,7 +180,7 @@ export default function App() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [authRuntime, setAuthRuntime] = useState<AuthRuntimeConfig>(() => getAuthRuntimeConfig());
   const [conversationHistory, setConversationHistory] = useState<ConversationArchiveEntry[]>(
-    () => loadConversationHistory()
+    () => normalizeConversationHistory(loadConversationHistory())
   );
   const currentArchiveBaselineRef = useRef<ConversationArchiveEntry | null>(null);
   const isDesktopEmbedded =
@@ -176,7 +204,8 @@ export default function App() {
     formatErrorMessage,
     providerOptions: settings.providerOptions,
     providerModelCatalog: settings.providerModelCatalog,
-    preferredProvider: settings.settingsProvider,
+    preferredProvider: chat.chatProvider,
+    preferredModel: chat.chatModel,
     language: uiLanguage,
   });
   const audioOverview = useAudioOverview({ voices: tts.voices, formatErrorMessage, language: uiLanguage });
@@ -189,6 +218,7 @@ export default function App() {
 
   const translate = useTranslate({ formatErrorMessage, language: uiLanguage });
   const workspaceClassName = `vsWorkspaceViewportInner is-${activeTab.replace(/_/g, "-")}`;
+  const normalizedConversationHistory = normalizeConversationHistory(conversationHistory);
   const shouldShowVoiceCenter =
     activeTab === "voice_center" ||
     activeTab === "tts" ||
@@ -237,14 +267,23 @@ export default function App() {
       if (baseline && areArchiveEntriesEquivalent(entry, baseline)) {
         return prev;
       }
-      const duplicate = prev.find((item) => areArchiveEntriesEquivalent(item, entry));
+      const duplicate = prev.find((item) => (
+        areArchiveEntriesEquivalent(item, entry) ||
+        areArchiveEntriesSameConversationContent(item, entry) ||
+        item.content === entry.content
+      ));
       const nextEntry = baseline
         ? { ...entry, id: baseline.id }
         : duplicate
           ? { ...entry, id: duplicate.id }
           : entry;
-      const filtered = prev.filter((item) => item.id !== nextEntry.id);
-      const next = [nextEntry, ...filtered].slice(0, MAX_CONVERSATION_HISTORY);
+      const filtered = prev.filter((item) => (
+        item.id !== nextEntry.id &&
+        !areArchiveEntriesEquivalent(item, nextEntry) &&
+        !areArchiveEntriesSameConversationContent(item, nextEntry) &&
+        item.content !== nextEntry.content
+      ));
+      const next = normalizeConversationHistory([nextEntry, ...filtered]);
       saveConversationHistory(next);
       currentArchiveBaselineRef.current = nextEntry;
       return next;
@@ -255,13 +294,23 @@ export default function App() {
     pushConversationHistory(
       buildConversationHistoryEntry({
         chatMessages: chat.chatMessages,
-        voiceMessages: voiceChat.voiceChatMessages,
+        voiceMessages: voiceChat.voiceChatArchiveMessages,
         chatGroupId: chat.chatMemoryGroupId,
         voiceGroupId: voiceChat.voiceChatMemoryGroupId,
         language: uiLanguage,
       })
     );
   }
+
+  useEffect(() => {
+    archiveActiveConversation();
+  }, [
+    chat.chatMessages,
+    voiceChat.voiceChatArchiveMessages,
+    chat.chatMemoryGroupId,
+    voiceChat.voiceChatMemoryGroupId,
+    uiLanguage,
+  ]);
 
   function handleNewChatSession() {
     archiveActiveConversation();
@@ -272,7 +321,7 @@ export default function App() {
   }
 
   function handleHistorySelect(id: string) {
-    const target = conversationHistory.find((item) => item.id === id);
+    const target = normalizedConversationHistory.find((item) => item.id === id);
     if (!target) {
       return;
     }
@@ -322,7 +371,7 @@ export default function App() {
           activeTab={activeTab}
           authLabel={authLabel}
           authReady={authReady}
-          chatHistoryItems={conversationHistory.map((item) => ({
+          chatHistoryItems={normalizedConversationHistory.map((item) => ({
             id: item.id,
             content: item.content,
           }))}

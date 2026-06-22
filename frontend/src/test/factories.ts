@@ -22,6 +22,8 @@ export function createChatController(
     chatProviderOptions: ["Google", "DashScope"],
     chatModel: "",
     chatModelOptions: [],
+    chatModelChoices: [],
+    chatModelChoiceValue: "",
     chatInput: "",
     chatMessages: [],
     chatBusy: false,
@@ -31,6 +33,7 @@ export function createChatController(
     onSubmit: vi.fn(),
     onProviderChange: vi.fn(),
     onModelChange: vi.fn(),
+    onModelChoiceChange: vi.fn(),
     onInputChange: vi.fn(),
     onQuickAction: vi.fn(),
     onComposerKeyDown: vi.fn(),
@@ -109,7 +112,13 @@ export function createVoiceChatController(
     voiceChatModel: "gemini-2.5-flash-native-audio-preview-12-2025",
     voiceChatModelOptions: ["gemini-2.5-flash-native-audio-preview-12-2025"],
     voiceChatVoice: "Puck",
+    voiceChatVoiceLabel: "Puck",
     voiceChatVoiceOptions: [{ value: "Puck", label: "Puck" }],
+    voiceChatLiveTranslate: false,
+    voiceChatTargetLanguageCode: "en",
+    voiceChatTargetLanguageLabel: "English (en)",
+    voiceChatTargetLanguageOptions: [{ value: "en", label: "English (en)" }],
+    voiceChatEchoTargetLanguage: true,
     voiceChatBusy: false,
     voiceChatRecording: false,
     voiceChatConnected: false,
@@ -127,11 +136,14 @@ export function createVoiceChatController(
     voiceChatAgentRunMeta: "",
     voiceChatMemoryGroupId: "",
     voiceChatMessages: [],
+    voiceChatArchiveMessages: [],
     sessionSummary: [],
     onToggleRecording: vi.fn(),
     onProviderChange: vi.fn(),
     onModelChange: vi.fn(),
     onVoiceChange: vi.fn(),
+    onTargetLanguageCodeChange: vi.fn(),
+    onEchoTargetLanguageChange: vi.fn(),
     onResetSession: vi.fn(),
     replaceSession: vi.fn(),
     ...overrides
@@ -416,6 +428,8 @@ export function createAudioOverviewController(
     audioAgentEvents: [],
     audioAgentErrorMessage: "",
     audioAgentCanRetry: false,
+    agentRunHistory: [],
+    agentRunHistoryBusy: false,
     audioOverviewScriptLines: [
       { role: "A", text: "第一段内容" },
       { role: "B", text: "第二段内容" }
@@ -468,6 +482,8 @@ export function createAudioOverviewController(
     onLoadPodcast: vi.fn(),
     onDeletePodcastById: vi.fn(),
     onRetryAgentRun: vi.fn(),
+    onLoadAgentRunHistory: vi.fn(),
+    onOpenAgentRun: vi.fn(),
     ...overrides
   };
 }

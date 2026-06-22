@@ -51,6 +51,7 @@ except Exception as e:
 
 
 DEFAULT_GOOGLE_REALTIME_MODEL = "gemini-2.5-flash-native-audio-preview-12-2025"
+GOOGLE_LIVE_TRANSLATE_MODEL = "gemini-3.5-live-translate-preview"
 DEFAULT_GOOGLE_REALTIME_VOICE = "Puck"
 DEFAULT_DASHSCOPE_REALTIME_MODEL = "qwen3-omni-flash-realtime-2025-12-01"
 DEFAULT_DASHSCOPE_REALTIME_VOICE = "Cherry"
@@ -60,6 +61,19 @@ BASE_REALTIME_INSTRUCTIONS = (
     "When the user asks you to search, look up, retrieve, or verify current information, briefly acknowledge "
     "that you are checking sources and wait for external tool context before giving a factual answer."
 )
+
+
+def _is_google_live_translate_model(model: str | None) -> bool:
+    return "live-translate" in str(model or "").strip().lower()
+
+
+def _is_google_public_rest_base_url(base_url: str | None) -> bool:
+    normalized = str(base_url or "").strip().rstrip("/").lower()
+    return normalized in {
+        "https://generativelanguage.googleapis.com",
+        "https://generativelanguage.googleapis.com/v1",
+        "https://generativelanguage.googleapis.com/v1beta",
+    }
 
 
 def _resolve_pending_cache_path() -> Path:
@@ -1166,6 +1180,8 @@ class RealtimeVoiceService:
         resolved_model = provider_settings["model"].strip() or DEFAULT_GOOGLE_REALTIME_MODEL
         api_key = provider_settings["api_key"].strip()
         base_url = provider_settings["base_url"].strip()
+        if _is_google_public_rest_base_url(base_url):
+            base_url = ""
         if not api_key:
             raise RuntimeError("Google API Key 未配置，无法启动实时语音会话。")
         if genai is None or types is None:
@@ -1204,9 +1220,18 @@ class RealtimeVoiceService:
             value = getattr(server_content, attr_name)
             if not value:
                 continue
-            if hasattr(value, "text") and getattr(value, "text", ""):
-                return str(value.text).strip()
-            return str(value).strip()
+            if isinstance(value, str):
+                return value.strip()
+            if isinstance(value, dict):
+                text = value.get("text")
+                if isinstance(text, str) and text.strip():
+                    return text.strip()
+                continue
+            if hasattr(value, "text"):
+                text = getattr(value, "text", None)
+                if isinstance(text, str) and text.strip():
+                    return text.strip()
+                continue
         return ""
 
     @staticmethod
@@ -1232,6 +1257,19 @@ class RealtimeVoiceService:
             ),
         )
 
+    @staticmethod
+    def _build_live_translate_config(target_language_code: str, echo_target_language: bool):
+        target = (target_language_code or "en").strip() or "en"
+        return types.LiveConnectConfig(
+            response_modalities=["AUDIO"],
+            input_audio_transcription=types.AudioTranscriptionConfig(),
+            output_audio_transcription=types.AudioTranscriptionConfig(),
+            translation_config=types.TranslationConfig(
+                target_language_code=target,
+                echo_target_language=bool(echo_target_language),
+            ),
+        )
+
     async def _client_to_google_loop(
         self,
         websocket: WebSocket,
@@ -1239,6 +1277,7 @@ class RealtimeVoiceService:
         memory_session: RealtimeMemorySession,
         tool_session: VoiceAgentToolSession,
         recorder: VoiceAgentSessionRecorder | None = None,
+        is_live_translate: bool = False,
     ) -> None:
         while True:
             message = await websocket.receive()
@@ -1265,6 +1304,13 @@ class RealtimeVoiceService:
                     )
                     continue
                 if command_type == "text_input":
+                    if is_live_translate:
+                        await self._send_event(
+                            websocket,
+                            "error",
+                            message="Gemini Live Translate 仅支持实时音频输入，不支持文本输入。",
+                        )
+                        continue
                     content = str(payload.get("text", "")).strip()
                     if content:
                         await session.send(input=content, end_of_turn=True)
@@ -1298,6 +1344,7 @@ class RealtimeVoiceService:
         memory_session: RealtimeMemorySession,
         tool_session: VoiceAgentToolSession,
         recorder: VoiceAgentSessionRecorder | None = None,
+        is_live_translate: bool = False,
     ) -> None:
         pending_prefill_context = ""
         gated_tool_turn_id = ""
@@ -1323,10 +1370,11 @@ class RealtimeVoiceService:
 
                 response_text = getattr(response, "text", None)
                 if response_text:
-                    if not gated_tool_turn_id:
+                    if not gated_tool_turn_id and not is_live_translate:
                         memory_session.note_assistant_text(str(response_text))
                         if recorder is not None:
                             await recorder.note_assistant_text(str(response_text))
+                    if not gated_tool_turn_id:
                         await self._send_event(websocket, "assistant_text", text=str(response_text))
 
                 server_content = getattr(response, "server_content", None)
@@ -1342,78 +1390,82 @@ class RealtimeVoiceService:
                     ("input_transcription", "input_audio_transcription", "transcription"),
                 )
                 if user_text:
-                    memory_session.note_user_transcript(user_text)
-                    if recorder is not None:
-                        await recorder.note_user_transcript(user_text)
-                    retrieval = await memory_session.retrieve_memory_context()
-                    memory_context = str(retrieval.get("context", ""))
-                    memory_count = int(retrieval.get("memories_retrieved", 0))
-                    local_pending_count = int(retrieval.get("local_pending_count", 0))
-                    cloud_count = int(retrieval.get("cloud_count", 0))
-                    if retrieval.get("attempted"):
-                        await self._send_event(
-                            websocket,
-                            "memory_context",
-                            memories_retrieved=memory_count,
-                            local_pending_count=local_pending_count,
-                            cloud_count=cloud_count,
-                            attempted=True,
-                        )
-                    if memory_context:
-                        logger.info(
-                            "voice_memory_inject provider=Google scope=%s count=%s local_pending=%s cloud=%s",
-                            memory_session._config.memory_scope,
-                            memory_count,
-                            local_pending_count,
-                            cloud_count,
-                        )
-                        pending_prefill_context = memory_context
+                    if not is_live_translate:
+                        memory_session.note_user_transcript(user_text)
+                        if recorder is not None:
+                            await recorder.note_user_transcript(user_text)
+                        retrieval = await memory_session.retrieve_memory_context()
+                        memory_context = str(retrieval.get("context", ""))
+                        memory_count = int(retrieval.get("memories_retrieved", 0))
+                        local_pending_count = int(retrieval.get("local_pending_count", 0))
+                        cloud_count = int(retrieval.get("cloud_count", 0))
+                        if retrieval.get("attempted"):
+                            await self._send_event(
+                                websocket,
+                                "memory_context",
+                                memories_retrieved=memory_count,
+                                local_pending_count=local_pending_count,
+                                cloud_count=cloud_count,
+                                attempted=True,
+                            )
+                        if memory_context:
+                            logger.info(
+                                "voice_memory_inject provider=Google scope=%s count=%s local_pending=%s cloud=%s",
+                                memory_session._config.memory_scope,
+                                memory_count,
+                                local_pending_count,
+                                cloud_count,
+                            )
+                            pending_prefill_context = memory_context
                     await self._send_event(websocket, "user_transcript", text=user_text)
-                    async def on_google_tool_result(result: dict[str, Any]) -> None:
-                        nonlocal gated_tool_turn_id
-                        gated_tool_turn_id = ""
-                        await self._apply_google_tool_result(websocket, session, result, recorder)
+                    if not is_live_translate:
+                        async def on_google_tool_result(result: dict[str, Any]) -> None:
+                            nonlocal gated_tool_turn_id
+                            gated_tool_turn_id = ""
+                            await self._apply_google_tool_result(websocket, session, result, recorder)
 
-                    tool_request = VoiceAgentToolService.extract_tool_request(user_text)
-                    tool_turn_id = await tool_session.handle_user_transcript(
-                        user_text,
-                        send_event=send_tool_event,
-                        on_result=on_google_tool_result,
-                    )
-                    if tool_turn_id:
-                        gated_tool_turn_id = tool_turn_id
-                        await self._send_response_gated(
-                            websocket,
-                            provider="Google",
-                            tool_name=tool_request.tool_name if tool_request else "voice_tool",
-                            query=tool_request.query if tool_request else "",
-                            turn_id=tool_turn_id,
-                            recorder=recorder,
+                        tool_request = VoiceAgentToolService.extract_tool_request(user_text)
+                        tool_turn_id = await tool_session.handle_user_transcript(
+                            user_text,
+                            send_event=send_tool_event,
+                            on_result=on_google_tool_result,
                         )
+                        if tool_turn_id:
+                            gated_tool_turn_id = tool_turn_id
+                            await self._send_response_gated(
+                                websocket,
+                                provider="Google",
+                                tool_name=tool_request.tool_name if tool_request else "voice_tool",
+                                query=tool_request.query if tool_request else "",
+                                turn_id=tool_turn_id,
+                                recorder=recorder,
+                            )
 
                 assistant_transcript = self._extract_transcript_text(
                     server_content,
                     ("output_transcription", "output_audio_transcription"),
                 )
                 if assistant_transcript:
-                    if not gated_tool_turn_id:
+                    if not gated_tool_turn_id and not is_live_translate:
                         memory_session.note_assistant_text(assistant_transcript)
                         if recorder is not None:
                             await recorder.note_assistant_text(assistant_transcript)
+                    if not gated_tool_turn_id:
                         await self._send_event(websocket, "assistant_text", text=assistant_transcript)
 
                 if getattr(server_content, "turn_complete", False):
-                    memory_result = await memory_session.flush_turn()
-                    await self._send_event(
-                        websocket,
-                        "memory_write",
-                        attempted_count=int(memory_result.get("attempted_count", 0)),
-                        saved_count=int(memory_result.get("saved_count", 0)),
-                        failed_count=int(memory_result.get("failed_count", 0)),
-                        local_pending_count=int(memory_result.get("local_pending_count", 0)),
-                        reason=str(memory_result.get("reason", "")),
-                    )
-                    if pending_prefill_context:
+                    if not is_live_translate:
+                        memory_result = await memory_session.flush_turn()
+                        await self._send_event(
+                            websocket,
+                            "memory_write",
+                            attempted_count=int(memory_result.get("attempted_count", 0)),
+                            saved_count=int(memory_result.get("saved_count", 0)),
+                            failed_count=int(memory_result.get("failed_count", 0)),
+                            local_pending_count=int(memory_result.get("local_pending_count", 0)),
+                            reason=str(memory_result.get("reason", "")),
+                        )
+                    if pending_prefill_context and not is_live_translate:
                         await self._apply_google_memory_prefill(session, pending_prefill_context)
                         pending_prefill_context = ""
                     if not gated_tool_turn_id:
@@ -1610,6 +1662,8 @@ class RealtimeVoiceService:
         *,
         model: str | None = None,
         voice: str = DEFAULT_GOOGLE_REALTIME_VOICE,
+        target_language_code: str = "en",
+        echo_target_language: bool = True,
     ) -> None:
         settings = self._resolve_google_settings(model)
         memory_session = RealtimeMemorySession()
@@ -1624,7 +1678,12 @@ class RealtimeVoiceService:
             http_options["base_url"] = settings["base_url"]
 
         client = genai.Client(api_key=settings["api_key"], http_options=http_options)
-        live_config = self._build_live_config(voice)
+        is_live_translate = _is_google_live_translate_model(settings["model"])
+        live_config = (
+            self._build_live_translate_config(target_language_code, echo_target_language)
+            if is_live_translate
+            else self._build_live_config(voice)
+        )
 
         try:
             async with client.aio.live.connect(model=settings["model"], config=live_config) as session:
@@ -1635,12 +1694,29 @@ class RealtimeVoiceService:
                     model=settings["model"],
                     voice=voice,
                     session_id=recorder.session_id if recorder is not None else "",
+                    mode="live_translate" if is_live_translate else "realtime_chat",
+                    target_language_code=target_language_code if is_live_translate else "",
+                    echo_target_language=echo_target_language if is_live_translate else False,
                 )
                 send_task = asyncio.create_task(
-                    self._client_to_google_loop(websocket, session, memory_session, tool_session, recorder)
+                    self._client_to_google_loop(
+                        websocket,
+                        session,
+                        memory_session,
+                        tool_session,
+                        recorder,
+                        is_live_translate,
+                    )
                 )
                 receive_task = asyncio.create_task(
-                    self._google_to_client_loop(websocket, session, memory_session, tool_session, recorder)
+                    self._google_to_client_loop(
+                        websocket,
+                        session,
+                        memory_session,
+                        tool_session,
+                        recorder,
+                        is_live_translate,
+                    )
                 )
                 done, pending = await asyncio.wait(
                     {send_task, receive_task},
