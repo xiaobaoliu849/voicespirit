@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import base64
 import json
 import mimetypes
@@ -60,6 +61,9 @@ DEEPGRAM_DEFAULT_MODEL = "nova-3"
 # OpenAI Whisper ASR
 OPENAI_WHISPER_URL = "https://api.openai.com/v1/audio/transcriptions"
 OPENAI_WHISPER_MODEL = "whisper-1"
+
+# AssemblyAI ASR
+ASSEMBLYAI_BASE_URL = "https://api.assemblyai.com"
 SUPPORTED_AUDIO_SUFFIXES = {
     ".wav",
     ".mp3",
@@ -121,6 +125,11 @@ class TranscriptionService:
         self.config.reload()
         api_keys = self.config.get_all().get("api_keys", {})
         return str(api_keys.get("openai_api_key", "")).strip()
+
+    def _assemblyai_key(self) -> str:
+        self.config.reload()
+        api_keys = self.config.get_all().get("api_keys", {})
+        return str(api_keys.get("assemblyai_api_key", "")).strip()
 
     def _mimo_chat_url(self) -> str:
         base_url = self.config.get_provider_settings("Xiaomi").get("base_url", "").strip()
@@ -362,11 +371,16 @@ class TranscriptionService:
                 return await self._transcribe_with_openai_asr(
                     path, api_key, self._mimo_chat_url(), MIMO_ASR_MODEL, "MiMo"
                 )
+            elif provider == "assemblyai":
+                api_key = self._assemblyai_key()
+                if not api_key:
+                    raise ValueError("AssemblyAI API key not configured.")
+                return await self._transcribe_with_assemblyai(path, api_key)
             else:
                 raise ValueError(f"Unsupported ASR provider: {provider}")
 
         # Auto-select: try providers in priority order
-        # Deepgram and OpenAI Whisper support word-level timestamps
+        # Deepgram, OpenAI Whisper, and AssemblyAI support word-level timestamps
         deepgram_key = self._deepgram_key()
         if deepgram_key:
             return await self._transcribe_with_deepgram(path, deepgram_key)
@@ -374,6 +388,10 @@ class TranscriptionService:
         openai_key = self._openai_key()
         if openai_key:
             return await self._transcribe_with_openai_whisper(path, openai_key)
+
+        assemblyai_key = self._assemblyai_key()
+        if assemblyai_key:
+            return await self._transcribe_with_assemblyai(path, assemblyai_key)
 
         # MiMo and DashScope don't support word-level timestamps
         xiaomi_key = self._xiaomi_key()
@@ -388,7 +406,7 @@ class TranscriptionService:
                 path, dashscope_key, QWEN_COMPATIBLE_CHAT_URL, QWEN_ASR_SYNC_MODEL, "Qwen"
             )
 
-        raise ValueError("No ASR API key configured. Set deepgram_api_key, openai_api_key, xiaomi_api_key, or dashscope_api_key.")
+        raise ValueError("No ASR API key configured. Set deepgram_api_key, openai_api_key, assemblyai_api_key, xiaomi_api_key, or dashscope_api_key.")
 
     async def _transcribe_with_openai_asr(
         self, path: Path, api_key: str, url: str, model: str, provider_name: str
@@ -614,6 +632,105 @@ class TranscriptionService:
         duration = response_json.get("duration")
         if isinstance(duration, (int, float)) and duration > 0:
             duration_seconds = float(duration)
+
+        return {
+            "text": transcript,
+            "duration_seconds": duration_seconds,
+            "words": words if words else None,
+        }
+
+    async def _transcribe_with_assemblyai(self, path: Path, api_key: str) -> dict:
+        """Transcribe with AssemblyAI API. Supports word-level timestamps, speaker diarization, and auto-highlights."""
+        audio_bytes = path.read_bytes()
+        extension = path.suffix.lower().lstrip(".")
+        if extension == "mp3":
+            content_type = "audio/mpeg"
+        elif extension == "m4a":
+            content_type = "audio/mp4"
+        else:
+            content_type = f"audio/{extension}"
+
+        headers = {
+            "Authorization": api_key,
+        }
+
+        # Step 1: Upload audio file
+        async with httpx.AsyncClient(timeout=180.0) as client:
+            upload_response = await client.post(
+                f"{ASSEMBLYAI_BASE_URL}/v2/upload",
+                headers={
+                    "Authorization": api_key,
+                    "Content-Type": content_type,
+                },
+                content=audio_bytes,
+            )
+            upload_response.raise_for_status()
+            upload_url = upload_response.json().get("upload_url")
+            if not upload_url:
+                raise RuntimeError(f"AssemblyAI upload failed: no upload_url returned")
+
+            # Step 2: Submit transcription request
+            transcript_payload = {
+                "audio_url": upload_url,
+                "punctuate": True,
+                "format_text": True,
+                "language_detection": True,
+                "word_boost": [],
+                "boost_param": "default",
+            }
+            submit_response = await client.post(
+                f"{ASSEMBLYAI_BASE_URL}/v2/transcript",
+                headers={**headers, "Content-Type": "application/json"},
+                json=transcript_payload,
+            )
+            submit_response.raise_for_status()
+            transcript_id = submit_response.json().get("id")
+            if not transcript_id:
+                raise RuntimeError(f"AssemblyAI submission failed: no transcript ID returned")
+
+            # Step 3: Poll until completed
+            max_polls = 120  # 120 * 3s = 6 min max
+            for _ in range(max_polls):
+                await asyncio.sleep(3)
+                poll_response = await client.get(
+                    f"{ASSEMBLYAI_BASE_URL}/v2/transcript/{transcript_id}",
+                    headers=headers,
+                )
+                poll_response.raise_for_status()
+                result = poll_response.json()
+                status = result.get("status", "")
+                if status == "completed":
+                    break
+                if status == "error":
+                    error_msg = result.get("error", "Unknown error")
+                    raise RuntimeError(f"AssemblyAI transcription failed: {error_msg}")
+            else:
+                raise RuntimeError("AssemblyAI transcription timed out after 6 minutes")
+
+        # Step 4: Extract results
+        transcript = result.get("text", "")
+        if not transcript:
+            raise RuntimeError(f"AssemblyAI returned empty transcript")
+
+        # Extract word-level timestamps
+        words_raw = result.get("words", [])
+        words = []
+        for w in words_raw:
+            word_text = w.get("text", "")
+            start = w.get("start")
+            end = w.get("end")
+            if word_text and start is not None and end is not None:
+                words.append({
+                    "text": word_text,
+                    "start": float(start) / 1000.0,  # AssemblyAI returns ms
+                    "end": float(end) / 1000.0,
+                })
+
+        # Extract duration
+        duration_seconds = None
+        audio_duration = result.get("audio_duration")
+        if isinstance(audio_duration, (int, float)) and audio_duration > 0:
+            duration_seconds = float(audio_duration)
 
         return {
             "text": transcript,

@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 from services.realtime_voice_service import (
     DEFAULT_DASHSCOPE_REALTIME_VOICE,
     DEFAULT_GOOGLE_REALTIME_VOICE,
+    DEFAULT_OPENAI_REALTIME_VOICE,
     RealtimeVoiceService,
 )
 from services.voice_agent_session_repository import VoiceAgentSessionRepository
@@ -99,11 +100,13 @@ async def voice_chat_ws(
     provider: str = "Google",
     model: str | None = None,
     voice: str | None = None,
+    target_language_code: str = "en",
+    echo_target_language: bool = True,
 ) -> None:
     await websocket.accept()
 
     selected_provider = (provider or "Google").strip()
-    if selected_provider not in {"Google", "DashScope"}:
+    if selected_provider not in {"Google", "DashScope", "OpenAI"}:
         await websocket.send_json(
             {
                 "type": "error",
@@ -121,11 +124,19 @@ async def voice_chat_ws(
                 model=model,
                 voice=(voice or DEFAULT_DASHSCOPE_REALTIME_VOICE).strip(),
             )
+        elif selected_provider == "OpenAI":
+            await voice_chat_service.stream_openai_session(
+                websocket,
+                model=model,
+                voice=(voice or DEFAULT_OPENAI_REALTIME_VOICE).strip(),
+            )
         else:
             await voice_chat_service.stream_google_session(
                 websocket,
                 model=model,
                 voice=(voice or DEFAULT_GOOGLE_REALTIME_VOICE).strip(),
+                target_language_code=(target_language_code or "en").strip(),
+                echo_target_language=bool(echo_target_language),
             )
     except Exception as exc:
         await websocket.send_json({"type": "error", "message": str(exc)})

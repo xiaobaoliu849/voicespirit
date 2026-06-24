@@ -17,6 +17,8 @@ type Props = {
   clone: VoiceCloneController;
   errorRuntimeContext: ErrorRuntimeContext;
   onSendToChat?: (text: string) => void;
+  voiceProvider?: "qwen" | "xiaomi";
+  onVoiceProviderChange?: (provider: "qwen" | "xiaomi") => void;
 };
 
 export default function VoiceCenterPage({
@@ -25,7 +27,9 @@ export default function VoiceCenterPage({
   design,
   clone,
   errorRuntimeContext,
-  onSendToChat
+  onSendToChat,
+  voiceProvider = "qwen",
+  onVoiceProviderChange,
 }: Props) {
   const { t } = useI18n();
   const [activeTab, setActiveTab] = useState<VoiceCenterSubTab>(initialSubTab);
@@ -65,10 +69,10 @@ export default function VoiceCenterPage({
              <div className="vsVoiceSubContent"><TtsPage tts={tts} errorRuntimeContext={errorRuntimeContext} /></div>
           )}
           {activeTab === "design" && (
-             <div className="vsVoiceSubContent"><VoiceDesignPage design={design} errorRuntimeContext={errorRuntimeContext} /></div>
+             <div className="vsVoiceSubContent"><VoiceDesignPage design={design} errorRuntimeContext={errorRuntimeContext} voiceProvider={voiceProvider} onVoiceProviderChange={onVoiceProviderChange} /></div>
           )}
           {activeTab === "clone" && (
-             <div className="vsVoiceSubContent"><VoiceClonePage clone={clone} errorRuntimeContext={errorRuntimeContext} /></div>
+             <div className="vsVoiceSubContent"><VoiceClonePage clone={clone} errorRuntimeContext={errorRuntimeContext} voiceProvider={voiceProvider} onVoiceProviderChange={onVoiceProviderChange} /></div>
           )}
           {activeTab === "transcribe" && (
              <div className="vsVoiceSubContent"><TranscriptionPage onSendToChat={onSendToChat} /></div>

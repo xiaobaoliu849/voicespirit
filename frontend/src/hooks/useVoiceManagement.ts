@@ -14,6 +14,7 @@ type Options = {
   formatErrorMessage: FormatErrorMessage;
   language?: UiLanguage;
   dashscopeApiKeyConfigured?: boolean;
+  xiaomiApiKeyConfigured?: boolean;
 };
 
 const CLONE_ACCEPTED_TYPES = [
@@ -42,7 +43,9 @@ export default function useVoiceManagement({
   formatErrorMessage,
   language = "zh-CN",
   dashscopeApiKeyConfigured = false,
+  xiaomiApiKeyConfigured = false,
 }: Options) {
+  const [voiceProvider, setVoiceProvider] = useState<"qwen" | "xiaomi">("qwen");
   const t = createInlineTranslator(language);
   const designPromptPresets = [
     {
@@ -96,11 +99,17 @@ export default function useVoiceManagement({
   const [cloneInfo, setCloneInfo] = useState("");
   const [cloneVoices, setCloneVoices] = useState<CustomVoice[]>([]);
 
-  function setMissingDashScopeKeyError(voiceType: VoiceType) {
-    const message = t(
-      "请先在设置中配置 DashScope API Key，再使用音色设计/克隆。",
-      "Configure the DashScope API Key in Settings before using voice design/clone."
-    );
+  function setMissingKeyError(voiceType: VoiceType) {
+    const isXiaomi = voiceProvider === "xiaomi";
+    const message = isXiaomi
+      ? t(
+          "请先在设置中配置小米 API Key，再使用音色设计/克隆。",
+          "Configure the Xiaomi API Key in Settings before using voice design/clone."
+        )
+      : t(
+          "请先在设置中配置 DashScope API Key，再使用音色设计/克隆。",
+          "Configure the DashScope API Key in Settings before using voice design/clone."
+        );
     if (voiceType === "voice_design") {
       setDesignError(message);
     } else {
@@ -108,10 +117,14 @@ export default function useVoiceManagement({
     }
   }
 
+  function isCurrentProviderKeyConfigured(): boolean {
+    return voiceProvider === "xiaomi" ? xiaomiApiKeyConfigured : dashscopeApiKeyConfigured;
+  }
+
   async function refreshCustomVoices(voiceType: VoiceType, options: { silentIfMissingKey?: boolean } = {}) {
-    if (!dashscopeApiKeyConfigured) {
+    if (!isCurrentProviderKeyConfigured()) {
       if (!options.silentIfMissingKey) {
-        setMissingDashScopeKeyError(voiceType);
+        setMissingKeyError(voiceType);
       }
       return;
     }
@@ -146,7 +159,7 @@ export default function useVoiceManagement({
   useEffect(() => {
     void refreshCustomVoices("voice_design", { silentIfMissingKey: true });
     void refreshCustomVoices("voice_clone", { silentIfMissingKey: true });
-  }, [dashscopeApiKeyConfigured]);
+  }, [dashscopeApiKeyConfigured, xiaomiApiKeyConfigured, voiceProvider]);
 
   async function onDesignSubmit(event: FormEvent) {
     event.preventDefault();
@@ -164,8 +177,8 @@ export default function useVoiceManagement({
       setDesignError(t("请填写足够长的试听文本，方便判断音色效果。", "Enter a longer preview text so the voice quality can be judged."));
       return;
     }
-    if (!dashscopeApiKeyConfigured) {
-      setMissingDashScopeKeyError("voice_design");
+    if (!isCurrentProviderKeyConfigured()) {
+      setMissingKeyError("voice_design");
       return;
     }
     setDesignBusy(true);
@@ -174,9 +187,10 @@ export default function useVoiceManagement({
         voice_prompt: designPrompt.trim(),
         preview_text: designPreviewText.trim(),
         preferred_name: designName.trim(),
-        language: designLanguage.trim() || "zh"
+        language: designLanguage.trim() || "zh",
+        provider: voiceProvider,
       });
-      setDesignInfo(t(`已创建音色：${result.voice}`, `Created voice: ${result.voice}`));
+      setDesignInfo(t(`已创建音色：${result.voice ?? "未知"}`, `Created voice: ${result.voice ?? "unknown"}`));
       const previewAudioData = result.preview_audio_data || "";
       setDesignPreviewAudio(
         previewAudioData ? `data:audio/wav;base64,${previewAudioData}` : ""
@@ -201,17 +215,18 @@ export default function useVoiceManagement({
       setCloneError(t("请先 choose an audio file first.", "Choose an audio file first."));
       return;
     }
-    if (!dashscopeApiKeyConfigured) {
-      setMissingDashScopeKeyError("voice_clone");
+    if (!isCurrentProviderKeyConfigured()) {
+      setMissingKeyError("voice_clone");
       return;
     }
     setCloneBusy(true);
     try {
       const result = await createVoiceClone({
         preferred_name: cloneName.trim(),
-        audio_file: cloneAudioFile
+        audio_file: cloneAudioFile,
+        provider: voiceProvider,
       });
-      setCloneInfo(t(`已创建音色：${result.voice}`, `Created voice: ${result.voice}`));
+      setCloneInfo(t(`已创建音色：${result.voice ?? "未知"}`, `Created voice: ${result.voice ?? "unknown"}`));
       await refreshCustomVoices("voice_clone");
     } catch (err) {
       setCloneError(formatErrorMessage(err, t("创建克隆音色失败。", "Failed to create the cloned voice.")));
@@ -280,6 +295,8 @@ export default function useVoiceManagement({
     : "";
 
   return {
+    voiceProvider,
+    setVoiceProvider,
     design: {
       designPrompt,
       designPreviewText,

@@ -193,15 +193,17 @@ export type VoiceDesignRequest = {
   preview_text: string;
   preferred_name: string;
   language?: string;
+  provider?: string;
 };
 
 export type VoiceCreateResponse = {
-  voice: string;
+  voice?: string;
   type: VoiceType;
-  target_model: string;
-  preferred_name: string;
+  target_model?: string;
+  preferred_name?: string;
   language?: string;
   preview_audio_data?: string;
+  provider?: string;
 };
 
 export type SettingsModelValue =
@@ -472,7 +474,16 @@ export type TranscriptionJobListResponse = {
 };
 
 export type VoiceChatServerEvent =
-  | { type: "session_open"; provider: string; model: string; voice: string; session_id?: string }
+  | {
+      type: "session_open";
+      provider: string;
+      model: string;
+      voice: string;
+      session_id?: string;
+      mode?: "realtime_chat" | "live_translate";
+      target_language_code?: string;
+      echo_target_language?: boolean;
+    }
   | { type: "memory_config"; enabled: boolean; scope: string; group_id?: string }
   | {
       type: "memory_context";
@@ -940,6 +951,8 @@ export function buildVoiceChatWebSocketUrl(params: {
   provider?: string;
   model?: string;
   voice?: string;
+  targetLanguageCode?: string;
+  echoTargetLanguage?: boolean;
 }): string {
   const httpUrl = new URL(API_BASE_URL);
   const protocol = httpUrl.protocol === "https:" ? "wss:" : "ws:";
@@ -952,6 +965,12 @@ export function buildVoiceChatWebSocketUrl(params: {
   }
   if (params.voice) {
     wsUrl.searchParams.set("voice", params.voice);
+  }
+  if (params.targetLanguageCode) {
+    wsUrl.searchParams.set("target_language_code", params.targetLanguageCode);
+  }
+  if (typeof params.echoTargetLanguage === "boolean") {
+    wsUrl.searchParams.set("echo_target_language", String(params.echoTargetLanguage));
   }
   return wsUrl.toString();
 }
@@ -1408,10 +1427,14 @@ export async function createVoiceDesign(
 export async function createVoiceClone(params: {
   preferred_name: string;
   audio_file: File;
+  provider?: string;
 }): Promise<VoiceCreateResponse> {
   const formData = new FormData();
   formData.append("preferred_name", params.preferred_name);
   formData.append("audio_file", params.audio_file);
+  if (params.provider) {
+    formData.append("provider", params.provider);
+  }
 
   const response = await apiFetch(`${API_BASE_URL}/api/voices/clone`, {
     method: "POST",

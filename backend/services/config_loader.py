@@ -2,8 +2,22 @@ from __future__ import annotations
 
 import copy
 import json
+import os
 from pathlib import Path
 from typing import Any
+
+
+def get_data_dir() -> Path:
+    """Return the application data directory for VoiceSpirit."""
+    app_name = "VoiceSpirit"
+    if os.name == "nt":
+        base = Path(os.environ.get("APPDATA", str(Path.cwd())))
+    else:
+        xdg = os.environ.get("XDG_DATA_HOME")
+        base = Path(xdg) if xdg else Path.home() / ".local" / "share"
+    data_dir = base / app_name
+    data_dir.mkdir(parents=True, exist_ok=True)
+    return data_dir
 
 PROVIDER_KEY_MAP = {
     "DeepSeek": "deepseek_api_key",
@@ -17,6 +31,7 @@ PROVIDER_KEY_MAP = {
     "ElevenLabs": "elevenlabs_api_key",
     "Ollama": "ollama_api_key",
     "Deepgram": "deepgram_api_key",
+    "AssemblyAI": "assemblyai_api_key",
 }
 
 DEFAULT_BASE_URLS = {
@@ -30,6 +45,7 @@ DEFAULT_BASE_URLS = {
     "ElevenLabs": "https://api.elevenlabs.io/v1",
     "Ollama": "http://localhost:11434/v1",
     "Deepgram": "https://api.deepgram.com/v1",
+    "AssemblyAI": "https://api.assemblyai.com",
 }
 
 

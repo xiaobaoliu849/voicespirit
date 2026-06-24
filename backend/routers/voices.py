@@ -6,11 +6,13 @@ from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
 from pydantic import BaseModel, Field
 
 from services.qwen_voice_service import QwenVoiceService
+from services.xiaomi_voice_service import XiaomiVoiceService
 
 VoiceType = Literal["voice_design", "voice_clone"]
 
 router = APIRouter()
-voice_service = QwenVoiceService()
+qwen_voice_service = QwenVoiceService()
+xiaomi_voice_service = XiaomiVoiceService()
 
 
 class VoiceDesignRequest(BaseModel):
@@ -18,15 +20,17 @@ class VoiceDesignRequest(BaseModel):
     preview_text: str = Field(..., min_length=1, max_length=1200)
     preferred_name: str = Field(..., min_length=1, max_length=80)
     language: str = Field(default="zh", min_length=1, max_length=20)
+    provider: str = Field(default="qwen", min_length=1, max_length=20)
 
 
 class VoiceCreateResponse(BaseModel):
-    voice: str
+    voice: str | None = None
     type: VoiceType
-    target_model: str
-    preferred_name: str
+    target_model: str | None = None
+    preferred_name: str | None = None
     language: str | None = None
     preview_audio_data: str | None = None
+    provider: str | None = None
 
 
 class VoiceListResponse(BaseModel):
@@ -63,13 +67,23 @@ class StructuredErrorResponse(BaseModel):
     },
 )
 async def create_voice_design(payload: VoiceDesignRequest) -> VoiceCreateResponse:
+    provider = (payload.provider or "qwen").strip().lower()
     try:
-        result = await voice_service.create_voice_design(
-            voice_prompt=payload.voice_prompt,
-            preview_text=payload.preview_text,
-            preferred_name=payload.preferred_name,
-            language=payload.language,
-        )
+        if provider == "xiaomi" or provider == "mimo":
+            result = await xiaomi_voice_service.create_voice_design(
+                voice_prompt=payload.voice_prompt,
+                preview_text=payload.preview_text,
+                language=payload.language,
+            )
+            result["provider"] = "xiaomi"
+        else:
+            result = await qwen_voice_service.create_voice_design(
+                voice_prompt=payload.voice_prompt,
+                preview_text=payload.preview_text,
+                preferred_name=payload.preferred_name,
+                language=payload.language,
+            )
+            result["provider"] = "qwen"
     except ValueError as exc:
         raise HTTPException(
             status_code=400,
@@ -106,6 +120,7 @@ async def create_voice_design(payload: VoiceDesignRequest) -> VoiceCreateRespons
 async def create_voice_clone(
     preferred_name: str = Form(..., min_length=1, max_length=80),
     audio_file: UploadFile = File(...),
+    provider: str = Form(default="qwen"),
 ) -> VoiceCreateResponse:
     if not audio_file.filename:
         raise HTTPException(
@@ -128,12 +143,22 @@ async def create_voice_clone(
             },
         )
 
+    provider = (provider or "qwen").strip().lower()
     try:
-        result = await voice_service.create_voice_clone(
-            audio_bytes=data,
-            mime_type=audio_file.content_type or "",
-            preferred_name=preferred_name,
-        )
+        if provider == "xiaomi" or provider == "mimo":
+            result = await xiaomi_voice_service.create_voice_clone(
+                audio_bytes=data,
+                mime_type=audio_file.content_type or "",
+            )
+            result["provider"] = "xiaomi"
+            result["preferred_name"] = preferred_name
+        else:
+            result = await qwen_voice_service.create_voice_clone(
+                audio_bytes=data,
+                mime_type=audio_file.content_type or "",
+                preferred_name=preferred_name,
+            )
+            result["provider"] = "qwen"
     except ValueError as exc:
         raise HTTPException(
             status_code=400,
@@ -169,13 +194,19 @@ async def list_voices(
     voice_type: VoiceType = Query(default="voice_design"),
     page_index: int = Query(default=0, ge=0),
     page_size: int = Query(default=100, ge=1, le=200),
+    provider: str = Query(default="qwen"),
 ) -> VoiceListResponse:
+    provider = (provider or "qwen").strip().lower()
     try:
-        result = await voice_service.list_voices(
-            voice_type=voice_type,
-            page_index=page_index,
-            page_size=page_size,
-        )
+        if provider == "xiaomi" or provider == "mimo":
+            # Xiaomi doesn't have persistent voice management
+            return VoiceListResponse(voice_type=voice_type, count=0, voices=[])
+        else:
+            result = await qwen_voice_service.list_voices(
+                voice_type=voice_type,
+                page_index=page_index,
+                page_size=page_size,
+            )
     except ValueError as exc:
         raise HTTPException(
             status_code=400,
@@ -212,9 +243,14 @@ async def list_voices(
 async def delete_voice(
     voice_name: str,
     voice_type: VoiceType = Query(default="voice_design"),
+    provider: str = Query(default="qwen"),
 ) -> VoiceDeleteResponse:
+    provider = (provider or "qwen").strip().lower()
     try:
-        result = await voice_service.delete_voice(voice_name=voice_name, voice_type=voice_type)
+        if provider == "xiaomi" or provider == "mimo":
+            raise ValueError("Xiaomi does not support persistent voice deletion. Voices are generated on-the-fly.")
+        else:
+            result = await qwen_voice_service.delete_voice(voice_name=voice_name, voice_type=voice_type)
     except ValueError as exc:
         raise HTTPException(
             status_code=400,

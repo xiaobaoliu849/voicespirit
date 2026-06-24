@@ -11,6 +11,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+import websockets
 from fastapi import WebSocket, WebSocketDisconnect
 
 print(f"DEBUG: Realtime service using Python: {sys.executable}")
@@ -55,6 +56,9 @@ GOOGLE_LIVE_TRANSLATE_MODEL = "gemini-3.5-live-translate-preview"
 DEFAULT_GOOGLE_REALTIME_VOICE = "Puck"
 DEFAULT_DASHSCOPE_REALTIME_MODEL = "qwen3-omni-flash-realtime-2025-12-01"
 DEFAULT_DASHSCOPE_REALTIME_VOICE = "Cherry"
+DEFAULT_OPENAI_REALTIME_MODEL = "gpt-realtime-2"
+DEFAULT_OPENAI_REALTIME_VOICE = "alloy"
+OPENAI_REALTIME_VOICES = ("alloy", "ash", "ballad", "coral", "echo", "sage", "shimmer", "verse")
 BASE_REALTIME_INSTRUCTIONS = (
     "You are a helpful, friendly, and intelligent AI assistant. "
     "Respond naturally and conversationally in the same language the user speaks. "
@@ -1655,6 +1659,361 @@ class RealtimeVoiceService:
             await websocket.send_json(event)
             if event_type == "error":
                 break
+
+    # ── OpenAI Realtime ──────────────────────────────────────────────
+
+    def _resolve_openai_settings(self, model: str | None) -> dict[str, str]:
+        provider_settings = self.config.get_provider_settings("OpenAI", model)
+        resolved_model = provider_settings["model"].strip() or DEFAULT_OPENAI_REALTIME_MODEL
+        api_key = provider_settings["api_key"].strip()
+        if not api_key:
+            raise RuntimeError("OpenAI API Key 未配置，无法启动实时语音会话。")
+        return {
+            "api_key": api_key,
+            "model": resolved_model,
+        }
+
+    async def _apply_openai_tool_result(
+        self,
+        openai_ws: Any,
+        result: dict[str, Any],
+        recorder: VoiceAgentSessionRecorder | None = None,
+    ) -> None:
+        prompt = VoiceAgentToolService.build_model_context_prompt(result)
+        if not prompt.strip():
+            return
+        payload = {
+            "provider": "OpenAI",
+            "tool_name": str(result.get("tool_name", "search_web") or "search_web"),
+            "query": str(result.get("query", "")),
+            "turn_id": str(result.get("turn_id", "")),
+            "source_count": int(result.get("source_count", 0) or 0),
+            "elapsed_ms": int(result.get("elapsed_ms", 0) or 0),
+        }
+        if recorder is not None:
+            await recorder.record_tool_event("tool_context_injected", payload)
+        await openai_ws.send(json.dumps({
+            "type": "conversation.item.create",
+            "item": {
+                "type": "message",
+                "role": "user",
+                "content": [{"type": "input_text", "text": prompt}],
+            },
+        }))
+        await openai_ws.send(json.dumps({"type": "response.create"}))
+
+    async def _client_to_openai_loop(
+        self,
+        websocket: WebSocket,
+        openai_ws: Any,
+        memory_session: RealtimeMemorySession,
+        tool_session: VoiceAgentToolSession,
+        recorder: VoiceAgentSessionRecorder | None = None,
+    ) -> None:
+        while True:
+            message = await websocket.receive()
+            message_type = message.get("type")
+            if message_type == "websocket.disconnect":
+                break
+
+            text_data = message.get("text")
+            if text_data:
+                try:
+                    payload = json.loads(text_data)
+                except Exception:
+                    await self._send_event(websocket, "error", message="无效的实时语音消息。")
+                    continue
+                command_type = str(payload.get("type", "")).strip()
+                if command_type == "config":
+                    memory_session.configure(payload.get("memory"))
+                    await self._send_event(
+                        websocket,
+                        "memory_config",
+                        enabled=bool(memory_session._config.get_service()),
+                        scope=memory_session._config.memory_scope,
+                        group_id=memory_session._config.group_id,
+                    )
+                    continue
+                if command_type == "text_input":
+                    content = str(payload.get("text", "")).strip()
+                    if content:
+                        await openai_ws.send(json.dumps({
+                            "type": "conversation.item.create",
+                            "item": {
+                                "type": "message",
+                                "role": "user",
+                                "content": [{"type": "input_text", "text": content}],
+                            },
+                        }))
+                        await openai_ws.send(json.dumps({"type": "response.create"}))
+                    continue
+                if command_type == "ping":
+                    await self._send_event(websocket, "pong")
+                    continue
+                if command_type == "stop":
+                    async def send_stop_tool_event(event_type: str, payload: dict[str, Any]) -> None:
+                        if recorder is not None:
+                            await recorder.record_tool_event(event_type, payload)
+                        await self._send_event(websocket, event_type, **payload)
+
+                    await tool_session.cancel(
+                        send_event=send_stop_tool_event,
+                        reason="session_stopped",
+                    )
+                    break
+                continue
+
+            audio_bytes = message.get("bytes")
+            if audio_bytes:
+                await openai_ws.send(json.dumps({
+                    "type": "input_audio_buffer.append",
+                    "audio": base64.b64encode(audio_bytes).decode("ascii"),
+                }))
+
+    async def _openai_to_client_loop(
+        self,
+        websocket: WebSocket,
+        openai_ws: Any,
+        memory_session: RealtimeMemorySession,
+        tool_session: VoiceAgentToolSession,
+        recorder: VoiceAgentSessionRecorder | None = None,
+    ) -> None:
+        async def send_tool_event(event_type: str, payload: dict[str, Any]) -> None:
+            if recorder is not None:
+                await recorder.record_tool_event(event_type, payload)
+            await self._send_event(websocket, event_type, **payload)
+
+        gated_tool_turn_id = ""
+        pending_prefill_context = ""
+
+        async for raw_message in openai_ws:
+            try:
+                event = json.loads(raw_message) if isinstance(raw_message, str) else json.loads(str(raw_message))
+            except Exception:
+                continue
+
+            event_type = str(event.get("type", "")).strip()
+
+            # Session created
+            if event_type == "session.created":
+                session_info = event.get("session", {})
+                await self._send_event(
+                    websocket,
+                    "session_open",
+                    provider="OpenAI",
+                    model=session_info.get("model", ""),
+                    voice=session_info.get("voice", DEFAULT_OPENAI_REALTIME_VOICE),
+                    session_id=event.get("session", {}).get("id", ""),
+                )
+                continue
+
+            # Session updated confirmation
+            if event_type == "session.updated":
+                continue
+
+            # Input audio transcription completed (user speech)
+            if event_type == "conversation.item.input_audio_transcription.completed":
+                user_text = str(event.get("transcript", "")).strip()
+                if user_text:
+                    memory_session.note_user_transcript(user_text)
+                    if recorder is not None:
+                        await recorder.note_user_transcript(user_text)
+                    retrieval = await memory_session.retrieve_memory_context()
+                    memory_context = str(retrieval.get("context", ""))
+                    memory_count = int(retrieval.get("memories_retrieved", 0))
+                    local_pending_count = int(retrieval.get("local_pending_count", 0))
+                    cloud_count = int(retrieval.get("cloud_count", 0))
+                    if retrieval.get("attempted"):
+                        await self._send_event(
+                            websocket,
+                            "memory_context",
+                            memories_retrieved=memory_count,
+                            local_pending_count=local_pending_count,
+                            cloud_count=cloud_count,
+                            attempted=True,
+                        )
+                    if memory_context:
+                        logger.info(
+                            "voice_memory_inject provider=OpenAI scope=%s count=%s local_pending=%s cloud=%s",
+                            memory_session._config.memory_scope,
+                            memory_count,
+                            local_pending_count,
+                            cloud_count,
+                        )
+                        pending_prefill_context = memory_context
+                    await self._send_event(websocket, "user_transcript", text=user_text)
+                    # Tool detection
+                    async def on_openai_tool_result(result: dict[str, Any]) -> None:
+                        nonlocal gated_tool_turn_id
+                        gated_tool_turn_id = ""
+                        await self._apply_openai_tool_result(openai_ws, result, recorder)
+
+                    tool_request = VoiceAgentToolService.extract_tool_request(user_text)
+                    tool_turn_id = await tool_session.handle_user_transcript(
+                        user_text,
+                        send_event=send_tool_event,
+                        on_result=on_openai_tool_result,
+                    )
+                    if tool_turn_id:
+                        gated_tool_turn_id = tool_turn_id
+                        await self._send_response_gated(
+                            websocket,
+                            provider="OpenAI",
+                            tool_name=tool_request.tool_name if tool_request else "voice_tool",
+                            query=tool_request.query if tool_request else "",
+                            turn_id=tool_turn_id,
+                            recorder=recorder,
+                        )
+                continue
+
+            # Speech started (VAD detected user speaking → interruption)
+            if event_type == "input_audio_buffer.speech_started":
+                await tool_session.cancel(send_event=send_tool_event, reason="interrupted")
+                await self._send_event(websocket, "interrupted")
+                continue
+
+            # Assistant audio delta
+            if event_type == "response.audio.delta":
+                audio_b64 = event.get("delta", "")
+                if audio_b64 and not gated_tool_turn_id:
+                    await self._send_event(
+                        websocket,
+                        "assistant_audio",
+                        audio=audio_b64,
+                        encoding="pcm_s16le",
+                        sample_rate=24000,
+                    )
+                continue
+
+            # Assistant audio transcript delta
+            if event_type == "response.audio_transcript.delta":
+                text_delta = event.get("delta", "")
+                if text_delta and not gated_tool_turn_id:
+                    memory_session.note_assistant_text(text_delta)
+                    if recorder is not None:
+                        await recorder.note_assistant_text(text_delta)
+                    await self._send_event(websocket, "assistant_text", text=str(text_delta))
+                continue
+
+            # Response done (turn complete)
+            if event_type == "response.done":
+                if pending_prefill_context:
+                    # Inject memory context as a hidden user message
+                    await openai_ws.send(json.dumps({
+                        "type": "conversation.item.create",
+                        "item": {
+                            "type": "message",
+                            "role": "user",
+                            "content": [{
+                                "type": "input_text",
+                                "text": (
+                                    "Context note for personalization only. These long-term memories may help with "
+                                    "the user's next turn. Use them only when relevant, and do not mention this note.\n"
+                                    f"{pending_prefill_context}"
+                                ),
+                            }],
+                        },
+                    }))
+                    pending_prefill_context = ""
+                memory_result = await memory_session.flush_turn()
+                if recorder is not None and not gated_tool_turn_id:
+                    await recorder.complete_turn(memory_result)
+                await self._send_event(
+                    websocket,
+                    "memory_write",
+                    attempted_count=int(memory_result.get("attempted_count", 0)),
+                    saved_count=int(memory_result.get("saved_count", 0)),
+                    failed_count=int(memory_result.get("failed_count", 0)),
+                    local_pending_count=int(memory_result.get("local_pending_count", 0)),
+                    reason=str(memory_result.get("reason", "")),
+                )
+                if not gated_tool_turn_id:
+                    await self._send_event(websocket, "turn_complete")
+                continue
+
+            # Error events
+            if event_type == "error":
+                error_msg = event.get("error", {}).get("message", "") or str(event.get("message", ""))
+                await self._send_event(websocket, "error", message=f"OpenAI Realtime: {error_msg}")
+                break
+
+    async def stream_openai_session(
+        self,
+        websocket: WebSocket,
+        *,
+        model: str | None = None,
+        voice: str = DEFAULT_OPENAI_REALTIME_VOICE,
+    ) -> None:
+        settings = self._resolve_openai_settings(model)
+        memory_session = RealtimeMemorySession()
+        tool_session = VoiceAgentToolSession()
+        recorder = await self._create_voice_session_recorder(
+            provider="OpenAI",
+            model=settings["model"],
+            voice=voice,
+        )
+
+        ws_url = f"wss://api.openai.com/v1/realtime?model={settings['model']}"
+        extra_headers = {
+            "Authorization": f"Bearer {settings['api_key']}",
+        }
+
+        try:
+            async with websockets.connect(
+                ws_url,
+                additional_headers=extra_headers,
+                max_size=2**24,
+            ) as openai_ws:
+                # Configure session
+                await openai_ws.send(json.dumps({
+                    "type": "session.update",
+                    "session": {
+                        "type": "realtime",
+                        "modalities": ["text", "audio"],
+                        "voice": voice,
+                        "input_audio_format": "pcm16",
+                        "output_audio_format": "pcm16",
+                        "input_audio_transcription": {"model": "whisper-1"},
+                        "turn_detection": {
+                            "type": "server_vad",
+                            "threshold": 0.5,
+                            "prefix_padding_ms": 300,
+                            "silence_duration_ms": 500,
+                        },
+                        "instructions": self._build_realtime_instructions(),
+                    },
+                }))
+
+                send_task = asyncio.create_task(
+                    self._client_to_openai_loop(websocket, openai_ws, memory_session, tool_session, recorder)
+                )
+                receive_task = asyncio.create_task(
+                    self._openai_to_client_loop(websocket, openai_ws, memory_session, tool_session, recorder)
+                )
+                done, pending = await asyncio.wait(
+                    {send_task, receive_task},
+                    return_when=asyncio.FIRST_EXCEPTION,
+                )
+                for task in pending:
+                    task.cancel()
+                for task in done:
+                    task.result()
+        except WebSocketDisconnect:
+            return
+        except Exception as e:
+            print(f"DEBUG: OpenAI Realtime Session Error: {type(e).__name__}: {e}")
+            import traceback
+            traceback.print_exc()
+            await self._send_event(websocket, "error", message=f"OpenAI 实时会话启动失败: {str(e)}")
+            return
+        finally:
+            memory_result = await memory_session.flush_turn()
+            if recorder is not None:
+                await recorder.complete_turn(memory_result)
+            await memory_session.drain()
+            await tool_session.drain()
+            if recorder is not None:
+                await recorder.finish()
 
     async def stream_google_session(
         self,

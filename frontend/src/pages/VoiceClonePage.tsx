@@ -8,9 +8,11 @@ import type { ErrorRuntimeContext } from "../types/ui";
 type Props = {
   clone: VoiceCloneController;
   errorRuntimeContext: ErrorRuntimeContext;
+  voiceProvider?: "qwen" | "xiaomi";
+  onVoiceProviderChange?: (provider: "qwen" | "xiaomi") => void;
 };
 
-export default function VoiceClonePage({ clone, errorRuntimeContext }: Props) {
+export default function VoiceClonePage({ clone, errorRuntimeContext, voiceProvider = "qwen", onVoiceProviderChange }: Props) {
   const { t } = useI18n();
   const [viewMode, setViewMode] = useState<"library" | "workspace">("library");
   const [searchQuery, setSearchQuery] = useState("");
@@ -107,6 +109,19 @@ export default function VoiceClonePage({ clone, errorRuntimeContext }: Props) {
               <p style={{ margin: "0 0 8px 0", color: "var(--muted)", fontSize: "14px" }}>
                 {t("通过上传音频样板复刻特定人声。", "Recreate a specific voice from an uploaded audio sample.")}
               </p>
+
+              <label className="vsField">
+                <span className="vsFieldLabel">{t("引擎供应商", "Engine Provider")}</span>
+                <select
+                  className="vsInput"
+                  value={voiceProvider}
+                  onChange={(e) => onVoiceProviderChange?.(e.target.value as "qwen" | "xiaomi")}
+                  style={{ height: "40px", fontSize: "14px" }}
+                >
+                  <option value="qwen">{t("阿里 DashScope (Qwen)", "Alibaba DashScope (Qwen)")}</option>
+                  <option value="xiaomi">{t("小米 MiMo", "Xiaomi MiMo")}</option>
+                </select>
+              </label>
 
               <label className="vsField">
                 <span className="vsFieldLabel">{t("新音色命名", "New voice name")}</span>

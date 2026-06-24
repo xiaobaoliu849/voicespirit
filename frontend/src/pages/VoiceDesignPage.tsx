@@ -8,9 +8,11 @@ import type { ErrorRuntimeContext } from "../types/ui";
 type Props = {
   design: VoiceDesignController;
   errorRuntimeContext: ErrorRuntimeContext;
+  voiceProvider?: "qwen" | "xiaomi";
+  onVoiceProviderChange?: (provider: "qwen" | "xiaomi") => void;
 };
 
-export default function VoiceDesignPage({ design, errorRuntimeContext }: Props) {
+export default function VoiceDesignPage({ design, errorRuntimeContext, voiceProvider = "qwen", onVoiceProviderChange }: Props) {
   const { t } = useI18n();
   const [viewMode, setViewMode] = useState<"library" | "workspace">("library");
   const [searchQuery, setSearchQuery] = useState("");
@@ -110,6 +112,19 @@ export default function VoiceDesignPage({ design, errorRuntimeContext }: Props) 
               <p style={{ margin: "0 0 8px 0", color: "var(--muted)", fontSize: "14px" }}>
                 {t("通过自然语言描述，创造独一无二的专属音色。", "Create a unique custom voice from a natural-language description.")}
               </p>
+
+              <label className="vsField">
+                <span className="vsFieldLabel">{t("引擎供应商", "Engine Provider")}</span>
+                <select
+                  className="vsInput"
+                  value={voiceProvider}
+                  onChange={(e) => onVoiceProviderChange?.(e.target.value as "qwen" | "xiaomi")}
+                  style={{ height: "40px", fontSize: "14px" }}
+                >
+                  <option value="qwen">{t("阿里 DashScope (Qwen)", "Alibaba DashScope (Qwen)")}</option>
+                  <option value="xiaomi">{t("小米 MiMo", "Xiaomi MiMo")}</option>
+                </select>
+              </label>
 
               <div className="vsFormRow">
                 <label className="vsField">

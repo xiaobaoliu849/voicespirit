@@ -242,6 +242,11 @@ export default function useSettings({ formatErrorMessage }: Options) {
     return Boolean(trimOrEmpty(String(apiKeys.dashscope_api_key || "")));
   }, [settingsData]);
 
+  const xiaomiApiKeyConfigured = useMemo(() => {
+    const apiKeys = settingsData?.api_keys || {};
+    return Boolean(trimOrEmpty(String(apiKeys.xiaomi_api_key || "")));
+  }, [settingsData]);
+
   const providerModelCatalog = useMemo<ProviderModelCatalog>(() => {
     if (!settingsData) {
       return {};
@@ -852,6 +857,7 @@ export default function useSettings({ formatErrorMessage }: Options) {
     errorRuntimeContext,
     providerSection,
     dashscopeApiKeyConfigured,
+    xiaomiApiKeyConfigured,
     providerModelCatalog,
     memorySection,
     transcriptionSection,

@@ -133,6 +133,7 @@ export const NewTranscriptionModal: React.FC<Props> = ({
                 <option value="auto">{t("自动选择 (优先精确时间戳)", "Auto (prefer precise timestamps)")}</option>
                 <option value="deepgram">Deepgram (Nova-3)</option>
                 <option value="openai">OpenAI Whisper</option>
+                <option value="assemblyai">AssemblyAI</option>
                 <option value="xiaomi">{t("小米 MiMo", "Xiaomi MiMo")}</option>
                 <option value="dashscope">{t("阿里 DashScope Qwen", "Alibaba DashScope Qwen")}</option>
               </select>
@@ -144,8 +145,8 @@ export const NewTranscriptionModal: React.FC<Props> = ({
                 }}
               >
                 {t(
-                  "Deepgram 和 OpenAI Whisper 支持精确单词级时间戳，适合生成字幕。",
-                  "Deepgram and OpenAI Whisper support precise word-level timestamps, ideal for subtitle generation."
+                  "Deepgram、OpenAI Whisper 和 AssemblyAI 支持精确单词级时间戳，适合生成字幕。",
+                  "Deepgram, OpenAI Whisper, and AssemblyAI support precise word-level timestamps, ideal for subtitle generation."
                 )}
               </span>
             </div>

@@ -38,10 +38,12 @@ type AudioContextWindow = Window & {
 
 const GOOGLE_PROVIDER = "Google";
 const DASHSCOPE_PROVIDER = "DashScope";
+const OPENAI_PROVIDER = "OpenAI";
 const DEFAULT_GOOGLE_MODEL = "gemini-2.5-flash-native-audio-preview-12-2025";
 const GOOGLE_FLASH_LIVE_MODEL = "gemini-3.1-flash-live-preview";
 const GOOGLE_LIVE_TRANSLATE_MODEL = "gemini-3.5-live-translate-preview";
 const DEFAULT_DASHSCOPE_MODEL = "qwen3-omni-flash-realtime-2025-12-01";
+const DEFAULT_OPENAI_MODEL = "gpt-realtime-2";
 const SUPPORTED_GOOGLE_REALTIME_MODEL_PATTERNS = [
   "native-audio",
   "live",
@@ -161,6 +163,17 @@ const LIVE_TRANSLATE_TARGET_LANGUAGES = [
   { value: "zu", label: "Zulu" },
 ];
 
+const OPENAI_REALTIME_VOICES = [
+  { value: "alloy", label: "Alloy (Neutral)" },
+  { value: "ash", label: "Ash (Male)" },
+  { value: "ballad", label: "Ballad (Male)" },
+  { value: "coral", label: "Coral (Female)" },
+  { value: "echo", label: "Echo (Male)" },
+  { value: "sage", label: "Sage (Male)" },
+  { value: "shimmer", label: "Shimmer (Female)" },
+  { value: "verse", label: "Verse (Male)" },
+];
+
 const DASHSCOPE_REALTIME_VOICES = [
   { value: "Cherry", label: "Cherry (Female)" },
   { value: "Bella", label: "Bella (Female)" },
@@ -189,7 +202,14 @@ function formatRealtimeVoiceOptions(
   provider: string,
   language: UiLanguage
 ): Array<{ value: string; label: string }> {
-  const options = provider === DASHSCOPE_PROVIDER ? DASHSCOPE_REALTIME_VOICES : GOOGLE_REALTIME_VOICES;
+  let options: Array<{ value: string; label: string }>;
+  if (provider === DASHSCOPE_PROVIDER) {
+    options = DASHSCOPE_REALTIME_VOICES;
+  } else if (provider === OPENAI_PROVIDER) {
+    options = OPENAI_REALTIME_VOICES;
+  } else {
+    options = GOOGLE_REALTIME_VOICES;
+  }
   return options.map((item) => ({
     value: item.value,
     label: formatVoiceOptionLabel(item.label, language),
@@ -233,7 +253,8 @@ function formatLiveTranslateLanguageOptions(language: UiLanguage): Array<{ value
 }
 
 function resolveRealtimeProvider(preferredProvider: string | undefined, providerOptions: string[]): string {
-  if (preferredProvider && (preferredProvider === GOOGLE_PROVIDER || preferredProvider === DASHSCOPE_PROVIDER) && providerOptions.includes(preferredProvider)) {
+  const realtimeProviders = [GOOGLE_PROVIDER, DASHSCOPE_PROVIDER, OPENAI_PROVIDER];
+  if (preferredProvider && realtimeProviders.includes(preferredProvider) && providerOptions.includes(preferredProvider)) {
     return preferredProvider;
   }
   if (providerOptions.includes(DASHSCOPE_PROVIDER)) {
@@ -241,6 +262,9 @@ function resolveRealtimeProvider(preferredProvider: string | undefined, provider
   }
   if (providerOptions.includes(GOOGLE_PROVIDER)) {
     return GOOGLE_PROVIDER;
+  }
+  if (providerOptions.includes(OPENAI_PROVIDER)) {
+    return OPENAI_PROVIDER;
   }
   return providerOptions[0] || GOOGLE_PROVIDER;
 }
@@ -261,6 +285,9 @@ function isRealtimeVoiceModel(provider: string, model: string): boolean {
   if (normalizedProvider === GOOGLE_PROVIDER.toLowerCase()) {
     return SUPPORTED_GOOGLE_REALTIME_MODEL_PATTERNS.some((item) => normalizedModel.includes(item));
   }
+  if (normalizedProvider === OPENAI_PROVIDER.toLowerCase()) {
+    return normalizedModel.includes("realtime") || normalizedModel.includes("gpt-realtime");
+  }
   return normalizedModel.includes("realtime");
 }
 
@@ -275,6 +302,9 @@ function resolveRealtimeFallbackModel(provider: string): string {
   }
   if (provider === GOOGLE_PROVIDER) {
     return DEFAULT_GOOGLE_MODEL;
+  }
+  if (provider === OPENAI_PROVIDER) {
+    return DEFAULT_OPENAI_MODEL;
   }
   return "";
 }
@@ -302,7 +332,11 @@ function resolveRealtimeModelOptions(
   const googleBuiltIns = provider === GOOGLE_PROVIDER
     ? [DEFAULT_GOOGLE_MODEL, GOOGLE_FLASH_LIVE_MODEL, GOOGLE_LIVE_TRANSLATE_MODEL]
     : [];
-  const ordered = fallbackModel ? [fallbackModel, ...googleBuiltIns, ...realtimeModels] : [...googleBuiltIns, ...realtimeModels];
+  const openaiBuiltIns = provider === OPENAI_PROVIDER
+    ? [DEFAULT_OPENAI_MODEL]
+    : [];
+  const allBuiltIns = [...googleBuiltIns, ...openaiBuiltIns];
+  const ordered = fallbackModel ? [fallbackModel, ...allBuiltIns, ...realtimeModels] : [...allBuiltIns, ...realtimeModels];
   return [...new Set(ordered.filter(Boolean))];
 }
 
@@ -510,7 +544,7 @@ export default function useVoiceChat({
   language = "zh-CN",
 }: Options) {
   const t = createInlineTranslator(language);
-  const resolvedProviders = [GOOGLE_PROVIDER, DASHSCOPE_PROVIDER].filter(p => providerOptions.includes(p));
+  const resolvedProviders = [GOOGLE_PROVIDER, DASHSCOPE_PROVIDER, OPENAI_PROVIDER].filter(p => providerOptions.includes(p));
 
   const initialProvider = resolveRealtimeProvider(preferredProvider, resolvedProviders);
   const [voiceChatProvider, setVoiceChatProvider] = useState(initialProvider);
@@ -518,7 +552,9 @@ export default function useVoiceChat({
     resolveDefaultModel(initialProvider, providerModelCatalog)
   );
   const [voiceChatVoice, setVoiceChatVoice] = useState(
-    initialProvider === DASHSCOPE_PROVIDER ? "Cherry" : "Puck"
+    initialProvider === DASHSCOPE_PROVIDER ? "Cherry"
+      : initialProvider === OPENAI_PROVIDER ? "alloy"
+      : "Puck"
   );
   const [voiceChatTargetLanguageCode, setVoiceChatTargetLanguageCode] = useState("en");
   const [voiceChatEchoTargetLanguage, setVoiceChatEchoTargetLanguage] = useState(true);
@@ -634,6 +670,10 @@ export default function useVoiceChat({
     if (voiceChatProvider === DASHSCOPE_PROVIDER) {
       if (!DASHSCOPE_REALTIME_VOICES.some(v => v.value === voiceChatVoice)) {
         setVoiceChatVoice("Cherry");
+      }
+    } else if (voiceChatProvider === OPENAI_PROVIDER) {
+      if (!OPENAI_REALTIME_VOICES.some(v => v.value === voiceChatVoice)) {
+        setVoiceChatVoice("alloy");
       }
     } else if (voiceChatProvider === GOOGLE_PROVIDER) {
       if (!GOOGLE_REALTIME_VOICES.some(v => v.value === voiceChatVoice)) {

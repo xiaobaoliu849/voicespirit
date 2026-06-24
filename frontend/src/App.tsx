@@ -213,6 +213,7 @@ export default function App() {
     formatErrorMessage,
     language: uiLanguage,
     dashscopeApiKeyConfigured: settings.dashscopeApiKeyConfigured,
+    xiaomiApiKeyConfigured: settings.xiaomiApiKeyConfigured,
   });
   const { errorRuntimeContext } = settings;
 
@@ -408,6 +409,8 @@ export default function App() {
                       chat.injectMessage("assistant", text);
                       setActiveTab("chat");
                     }}
+                    voiceProvider={voiceManagement.voiceProvider}
+                    onVoiceProviderChange={voiceManagement.setVoiceProvider}
                   />
                 ) : null}
 
