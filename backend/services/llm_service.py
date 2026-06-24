@@ -25,7 +25,7 @@ except ImportError:
             from config_loader import BackendConfig # type: ignore
             from evermem_config import EverMemConfig # type: ignore
 
-SUPPORTED_PROVIDERS = {"DeepSeek", "OpenRouter", "SiliconFlow", "Groq", "DashScope", "Ollama"}
+SUPPORTED_PROVIDERS = {"DeepSeek", "OpenRouter", "SiliconFlow", "Groq", "DashScope", "Ollama", "Google"}
 
 
 class LLMService:
@@ -113,11 +113,11 @@ class LLMService:
 
     def _resolve_settings(self, provider: str, model: str | None) -> dict[str, str]:
         self.config.reload()
-        
+
         # Check if custom provider
         custom_providers = self.config.get_all().get("custom_providers", [])
         is_custom = any(p.get("id") == provider for p in custom_providers if isinstance(p, dict))
-        
+
         if provider not in SUPPORTED_PROVIDERS and not is_custom:
             raise ValueError(f"Unsupported provider: {provider}")
 
@@ -144,6 +144,222 @@ class LLMService:
             headers["X-Title"] = "VoiceSpirit"
         return headers
 
+    @staticmethod
+    def _build_google_headers(api_key: str) -> dict[str, str]:
+        return {
+            "x-goog-api-key": api_key,
+            "Content-Type": "application/json",
+        }
+
+    @staticmethod
+    def _build_interactions_input(
+        messages: list[dict[str, Any]],
+    ) -> tuple[str | list[dict[str, Any]], str | None]:
+        """Convert OpenAI-style messages to Interactions API input format.
+
+        Returns (input, system_instruction).
+        """
+        system_instruction: str | None = None
+        user_messages: list[dict[str, Any]] = []
+
+        for msg in messages:
+            role = msg.get("role", "")
+            content = msg.get("content", "")
+            if role == "system":
+                if isinstance(content, str):
+                    system_instruction = (system_instruction or "") + content
+                continue
+            if role == "user":
+                if isinstance(content, str):
+                    user_messages.append({"role": "user", "text": content})
+                elif isinstance(content, list):
+                    # Multimodal — flatten to text for now
+                    text_parts = [
+                        p.get("text", "") for p in content
+                        if isinstance(p, dict) and p.get("type") in ("text", "image_url")
+                    ]
+                    user_messages.append({"role": "user", "text": " ".join(text_parts)})
+            elif role == "assistant":
+                if isinstance(content, str):
+                    user_messages.append({"role": "model", "text": content})
+
+        if not user_messages:
+            raise ValueError("No user messages found.")
+
+        # Single user message — use plain string input
+        if len(user_messages) == 1 and user_messages[0]["role"] == "user":
+            return user_messages[0]["text"], system_instruction
+
+        # Multi-turn — build input array for stateless mode
+        input_items: list[dict[str, Any]] = []
+        for msg in user_messages:
+            if msg["role"] == "user":
+                input_items.append({
+                    "type": "user_input",
+                    "content": [{"type": "text", "text": msg["text"]}],
+                })
+            else:
+                # Model turn — include as prior context
+                input_items.append({
+                    "type": "model_output",
+                    "content": [{"type": "text", "text": msg["text"]}],
+                })
+        return input_items, system_instruction
+
+    @staticmethod
+    def _extract_interactions_reply(data: dict[str, Any]) -> str:
+        """Extract text reply from Interactions API response."""
+        # Try output_text convenience property first
+        output_text = data.get("output_text")
+        if isinstance(output_text, str) and output_text.strip():
+            return output_text.strip()
+
+        # Fall back to parsing steps
+        reply_parts: list[str] = []
+        for step in data.get("steps", []):
+            if step.get("type") == "model_output":
+                for content in step.get("content", []):
+                    if isinstance(content, dict) and content.get("type") == "text":
+                        text = content.get("text", "")
+                        if text:
+                            reply_parts.append(text)
+        return "\n".join(reply_parts).strip()
+
+    async def _chat_completion_google(
+        self,
+        *,
+        settings: dict[str, str],
+        messages: list[dict[str, Any]],
+        temperature: float = 0.7,
+        max_tokens: int = 1024,
+    ) -> dict[str, Any]:
+        """Non-streaming chat completion via Google Interactions API."""
+        url = f"{settings['base_url']}/interactions"
+        input_data, system_instruction = self._build_interactions_input(messages)
+
+        payload: dict[str, Any] = {
+            "model": settings["model"],
+            "input": input_data,
+            "store": False,
+        }
+        if system_instruction:
+            payload["system_instruction"] = system_instruction
+        if temperature is not None:
+            payload["generation_config"] = {"temperature": float(temperature)}
+
+        headers = self._build_google_headers(settings["api_key"])
+
+        try:
+            async with httpx.AsyncClient(timeout=90.0) as client:
+                response = await client.post(url, json=payload, headers=headers)
+            response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            detail = exc.response.text[:500] if exc.response is not None else str(exc)
+            raise RuntimeError(f"Google Interactions API error: {detail}") from exc
+        except httpx.HTTPError as exc:
+            raise RuntimeError(f"Network error: {exc}") from exc
+
+        from typing import cast
+        data = cast(dict[str, Any], response.json())
+        reply = self._extract_interactions_reply(data)
+        if not reply:
+            raise RuntimeError("Google Interactions API returned empty response.")
+
+        return {
+            "provider": "Google",
+            "model": settings["model"],
+            "reply": reply,
+            "raw": data,
+        }
+
+    async def _chat_completion_stream_google(
+        self,
+        *,
+        settings: dict[str, str],
+        messages: list[dict[str, Any]],
+        temperature: float = 0.7,
+        max_tokens: int = 1024,
+    ) -> AsyncGenerator[dict[str, Any], None]:
+        """Streaming chat completion via Google Interactions API (SSE)."""
+        url = f"{settings['base_url']}/interactions?alt=sse"
+        input_data, system_instruction = self._build_interactions_input(messages)
+
+        payload: dict[str, Any] = {
+            "model": settings["model"],
+            "input": input_data,
+            "store": False,
+            "stream": True,
+        }
+        if system_instruction:
+            payload["system_instruction"] = system_instruction
+        if temperature is not None:
+            payload["generation_config"] = {"temperature": float(temperature)}
+
+        headers = self._build_google_headers(settings["api_key"])
+
+        yield {"type": "meta", "provider": "Google", "model": settings["model"]}
+        chunks: list[str] = []
+
+        try:
+            timeout = httpx.Timeout(timeout=120.0, read=120.0)
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                async with client.stream("POST", url, json=payload, headers=headers) as response:
+                    response.raise_for_status()
+                    event_type = ""
+                    data_lines: list[str] = []
+                    async for raw_line in response.aiter_lines():
+                        line = raw_line.strip()
+                        if not line:
+                            # Empty line = end of SSE event, process buffered data
+                            if data_lines:
+                                data_str = "\n".join(data_lines)
+                                data_lines = []
+                                try:
+                                    data = json.loads(data_str)
+                                except json.JSONDecodeError:
+                                    event_type = ""
+                                    continue
+
+                                if event_type == "step.delta":
+                                    delta = data.get("delta", {})
+                                    if delta.get("type") == "text":
+                                        text = delta.get("text", "")
+                                        if text:
+                                            chunks.append(text)
+                                            yield {"type": "delta", "content": text}
+                                elif event_type == "interaction.completed":
+                                    break
+                                event_type = ""
+                            continue
+                        if line.startswith(":"):
+                            continue
+
+                        if line.startswith("event:"):
+                            event_type = line[6:].strip()
+                            continue
+
+                        if line.startswith("data:"):
+                            data_str = line[5:].strip()
+                            if data_str:
+                                data_lines.append(data_str)
+                            continue
+        except httpx.HTTPStatusError as exc:
+            detail = exc.response.text[:500] if exc.response is not None else str(exc)
+            raise RuntimeError(f"Google Interactions stream error: {detail}") from exc
+        except httpx.HTTPError as exc:
+            raise RuntimeError(f"Stream network error: {exc}") from exc
+
+        reply = "".join(chunks).strip()
+        if not reply:
+            raise RuntimeError("Google Interactions API returned empty stream response.")
+
+        yield {
+            "type": "done",
+            "provider": "Google",
+            "model": settings["model"],
+            "reply": reply,
+        }
+
     async def chat_completion(
         self,
         *,
@@ -161,6 +377,38 @@ class LLMService:
              settings["model"] = "qwen-max"
 
         normalized_messages = self._normalize_messages(messages)
+
+        # Route Google provider to Interactions API
+        if provider == "Google":
+            result = await self._chat_completion_google(
+                settings=settings,
+                messages=normalized_messages,
+                temperature=temperature,
+                max_tokens=max_tokens,
+            )
+            # EverMem logic for Google
+            evermem_config = EverMemConfig()
+            evermem_service = evermem_config.get_service() if use_memory else None
+            memory_retrieved_count = 0
+            memory_saved = False
+            if evermem_service:
+                last_user_msg = next((m["content"] for m in reversed(normalized_messages) if m["role"] == "user"), None)
+                if last_user_msg:
+                    import asyncio
+                    asyncio.create_task(evermem_service.add_memory(content=last_user_msg, user_id=evermem_config.memory_scope))
+                    memory_saved = True
+                    if not evermem_service.should_skip_memory(last_user_msg):
+                        try:
+                            memories = await evermem_service.search_memories(query=last_user_msg, user_id=evermem_config.memory_scope)
+                            if memories:
+                                memory_retrieved_count = len(memories)
+                        except Exception:
+                            pass
+                    if evermem_service and result["reply"]:
+                        asyncio.create_task(evermem_service.add_memory(content=result["reply"], user_id=evermem_config.memory_scope, sender_name="Assistant"))
+            result["memories_retrieved"] = memory_retrieved_count
+            result["memory_saved"] = memory_saved
+            return result
         
         # EverMem Logic for non-streaming
         evermem_config = EverMemConfig()
@@ -259,8 +507,103 @@ class LLMService:
         settings = self._resolve_settings(provider, model)
         if deep_thinking and provider == "DashScope" and settings["model"] != "qwen-max":
             settings["model"] = "qwen-max"
-            
+
         normalized_messages = self._normalize_messages(messages)
+
+        # Route Google provider to Interactions API
+        if provider == "Google":
+            # EverMem integration for Google streaming
+            evermem_config = EverMemConfig()
+            if request_headers:
+                evermem_config.update_from_headers(request_headers)
+            evermem_service = evermem_config.get_service() if use_memory else None
+            memory_scope = evermem_config.memory_scope
+            memory_group_id = evermem_config.group_id or None
+            memories_retrieved = 0
+            memory_saved = False
+
+            import asyncio
+            if evermem_service:
+                last_user_msg = next(
+                    (m["content"] for m in reversed(normalized_messages) if m["role"] == "user"),
+                    None,
+                )
+                if isinstance(last_user_msg, list):
+                    text_parts = [p.get("text", "") for p in last_user_msg if isinstance(p, dict) and p.get("type") == "text"]
+                    last_user_msg = " ".join(text_parts).strip()
+                if last_user_msg:
+                    asyncio.create_task(
+                        evermem_service.add_memory(
+                            content=last_user_msg,
+                            user_id=memory_scope,
+                            sender=memory_scope,
+                            sender_name="User",
+                            group_id=memory_group_id,
+                        )
+                    )
+                    memory_saved = True
+                    if not evermem_service.should_skip_memory(last_user_msg):
+                        try:
+                            memories = []
+                            if memory_group_id:
+                                memories = await evermem_service.search_memories(
+                                    query=last_user_msg,
+                                    user_id=memory_scope,
+                                    group_ids=[memory_group_id],
+                                    min_score=0.3,
+                                )
+                            if not memories:
+                                memories = await evermem_service.search_memories(
+                                    query=last_user_msg,
+                                    user_id=memory_scope,
+                                    min_score=0.3,
+                                )
+                            if isinstance(memories, list):
+                                memories_retrieved = len(memories)
+                                memory_context = "\n".join([m.get("content", "") for m in memories if isinstance(m, dict)])
+                                # Inject into system instruction
+                                sys_msg = next((m for m in normalized_messages if m["role"] == "system"), None)
+                                memory_injection = f"\n\n【相关记忆】\n{memory_context}"
+                                if sys_msg:
+                                    if isinstance(sys_msg["content"], str):
+                                        sys_msg["content"] += memory_injection
+                                else:
+                                    normalized_messages.insert(0, {"role": "system", "content": f"系统提示：请利用以下用户记忆完成对话。{memory_injection}"})
+                        except Exception as e:
+                            import logging
+                            logging.getLogger(__name__).error(f"Failed to retrieve memories: {e}")
+
+            async for event in self._chat_completion_stream_google(
+                settings=settings,
+                messages=normalized_messages,
+                temperature=temperature,
+                max_tokens=max_tokens,
+            ):
+                if event.get("type") == "done":
+                    reply = event.get("reply", "")
+                    if evermem_service and reply:
+                        async def save_refined(srv: Any):
+                            refined = await self.reason_about_text(reply, mode="memory")
+                            content_to_save = refined if refined else reply
+                            await srv.add_memory(
+                                content=content_to_save,
+                                user_id=memory_scope,
+                                sender=f"{memory_scope}_assistant",
+                                sender_name="Assistant",
+                                group_id=memory_group_id,
+                            )
+                        asyncio.create_task(save_refined(evermem_service))
+                    yield {
+                        "type": "done",
+                        "provider": "Google",
+                        "model": settings["model"],
+                        "reply": reply,
+                        "memories_retrieved": memories_retrieved,
+                        "memory_saved": memory_saved,
+                    }
+                else:
+                    yield event
+            return
         
         # EverMemOS integration
         evermem_config = EverMemConfig()
