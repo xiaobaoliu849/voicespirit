@@ -10,6 +10,7 @@ type Props = {
 
 export default function VoiceChatPage({ voiceChat, errorRuntimeContext }: Props) {
   const { t } = useI18n();
+  const selectedHistory = voiceChat.voiceAgentHistoryDetail;
   return (
     <section className="vsTtsWorkspace">
       <div className="vsTtsLayout">
@@ -93,7 +94,39 @@ export default function VoiceChatPage({ voiceChat, errorRuntimeContext }: Props)
                   </option>
                 ))}
               </select>
+              <p className="vsFieldHint">
+                {t(`当前音色：${voiceChat.voiceChatVoiceLabel}`, `Current voice: ${voiceChat.voiceChatVoiceLabel}`)}
+              </p>
             </div>
+
+            {voiceChat.voiceChatLiveTranslate ? (
+              <div className="vsLiveTranslateSettings">
+                <div className="vsField">
+                  <label className="vsFieldLabel">{t("翻译目标语言", "Translation target language")}</label>
+                  <select
+                    className="vsSelect"
+                    value={voiceChat.voiceChatTargetLanguageCode}
+                    onChange={(e) => voiceChat.onTargetLanguageCodeChange(e.target.value)}
+                    disabled={voiceChat.voiceChatBusy || voiceChat.voiceChatConnected}
+                  >
+                    {voiceChat.voiceChatTargetLanguageOptions.map((item) => (
+                      <option key={item.value} value={item.value}>
+                        {item.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <label className="vsComposerToggle" title={t("输入已经是目标语言时也朗读出来", "Echo speech that is already in the target language")}>
+                  <input
+                    type="checkbox"
+                    checked={voiceChat.voiceChatEchoTargetLanguage}
+                    onChange={(e) => voiceChat.onEchoTargetLanguageChange(e.target.checked)}
+                    disabled={voiceChat.voiceChatBusy || voiceChat.voiceChatConnected}
+                  />
+                  <span>{t("同语回放", "Echo target language")}</span>
+                </label>
+              </div>
+            ) : null}
 
             <div
               style={{
@@ -213,6 +246,116 @@ export default function VoiceChatPage({ voiceChat, errorRuntimeContext }: Props)
                 {t("清空本轮", "Clear session")}
               </button>
             </div>
+          </div>
+
+          <div className="vsCardSection border-top">
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+              <h3 className="vsCardSubTitle">{t("历史语音 Agent 会话", "Voice agent session history")}</h3>
+              <button
+                type="button"
+                className="vsBtnSecondary"
+                onClick={() => void voiceChat.onLoadVoiceAgentHistory()}
+                disabled={voiceChat.voiceAgentHistoryBusy}
+              >
+                {voiceChat.voiceAgentHistoryBusy ? t("加载中", "Loading") : t("刷新历史", "Refresh")}
+              </button>
+            </div>
+            {voiceChat.voiceAgentHistoryError ? (
+              <div className="vsVoiceMemoryNotice">{voiceChat.voiceAgentHistoryError}</div>
+            ) : null}
+            {voiceChat.voiceAgentHistorySessions.length > 0 ? (
+              <div style={{ display: "grid", gap: 8, marginTop: 12 }}>
+                {voiceChat.voiceAgentHistorySessions.map((session) => (
+                  <button
+                    key={session.id}
+                    type="button"
+                    className="vsBtnSecondary"
+                    onClick={() => void voiceChat.onOpenVoiceAgentSession(session.id)}
+                    disabled={voiceChat.voiceAgentHistoryBusy}
+                    style={{ justifyContent: "flex-start", textAlign: "left" }}
+                  >
+                    <span style={{ display: "grid", gap: 2 }}>
+                      <strong>{session.provider} · {session.status}</strong>
+                      <span className="vsFieldHint">
+                        {session.model || t("未记录模型", "Model not recorded")} · {session.started_at}
+                      </span>
+                    </span>
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <p className="vsFieldHint" style={{ marginTop: 12 }}>
+                {t("刷新后会显示后端已持久化的语音 Agent 会话。", "Refresh to show voice agent sessions persisted by the backend.")}
+              </p>
+            )}
+
+            {selectedHistory ? (
+              <div style={{ display: "grid", gap: 12, marginTop: 16 }}>
+                <div className="vsRealtimeContent" style={{ border: "1px solid var(--line)", borderRadius: 10, padding: 12, background: "white" }}>
+                  <div style={{ fontWeight: 700 }}>
+                    {t("已打开历史会话", "Opened history session")}: {selectedHistory.id}
+                  </div>
+                  <div className="vsFieldHint">
+                    {selectedHistory.provider} · {selectedHistory.model || t("未记录模型", "Model not recorded")} · {selectedHistory.voice || t("未记录音色", "Voice not recorded")}
+                  </div>
+                  <div className="vsFieldHint">
+                    {t(`轮次 ${selectedHistory.turns.length}，工具事件 ${selectedHistory.tool_events.length}`, `${selectedHistory.turns.length} turns, ${selectedHistory.tool_events.length} tool events`)}
+                  </div>
+                </div>
+
+                {selectedHistory.turns.length > 0 ? (
+                  <div className="vsField">
+                    <label className="vsFieldLabel">{t("历史轮次", "History turns")}</label>
+                    <div style={{ display: "grid", gap: 8 }}>
+                      {selectedHistory.turns.slice(0, 5).map((turn) => (
+                        <div
+                          key={turn.id}
+                          className="vsRealtimeContent"
+                          style={{ border: "1px solid var(--line)", borderRadius: 10, padding: 12, background: "white" }}
+                        >
+                          <div style={{ fontWeight: 700 }}>{turn.turn_id || t("未记录 turn_id", "turn_id not recorded")}</div>
+                          {turn.user_text ? <div>{t("用户", "User")}: {turn.user_text}</div> : null}
+                          {turn.assistant_text ? <div>{t("助手", "Assistant")}: {turn.assistant_text}</div> : null}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+
+                {selectedHistory.tool_events.length > 0 ? (
+                  <div className="vsField">
+                    <label className="vsFieldLabel">{t("历史工具事件", "History tool events")}</label>
+                    <div style={{ display: "grid", gap: 8 }}>
+                      {selectedHistory.tool_events.slice(0, 5).map((event) => (
+                        <div
+                          key={event.id}
+                          className="vsRealtimeContent"
+                          style={{ border: "1px solid var(--line)", borderRadius: 10, padding: 12, background: "white" }}
+                        >
+                          <div style={{ fontWeight: 700 }}>{event.event_type} · {event.tool_name || t("未记录工具", "Tool not recorded")}</div>
+                          {event.query ? <div className="vsFieldHint">{event.query}</div> : null}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+
+                <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                  <button type="button" className="vsBtnSecondary" onClick={voiceChat.onExportVoiceAgentSession}>
+                    {t("导出 JSON", "Export JSON")}
+                  </button>
+                </div>
+                {voiceChat.voiceAgentHistoryExportText ? (
+                  <textarea
+                    className="vsTextarea"
+                    value={voiceChat.voiceAgentHistoryExportText}
+                    readOnly
+                    rows={6}
+                    aria-label={t("历史会话 JSON 导出", "History session JSON export")}
+                  />
+                ) : null}
+              </div>
+            ) : null}
           </div>
         </div>
       </div>

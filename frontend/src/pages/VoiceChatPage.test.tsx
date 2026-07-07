@@ -1,5 +1,5 @@
-import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { fireEvent, render, screen } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
 
 import { createVoiceChatController } from "../test/factories";
 import VoiceChatPage from "./VoiceChatPage";
@@ -75,5 +75,86 @@ describe("VoiceChatPage", () => {
     expect(screen.getByText("工具来源")).toBeInTheDocument();
     expect(screen.getByText("Research source")).toBeInTheDocument();
     expect(screen.getByText("Fetched research content")).toBeInTheDocument();
+  });
+
+  it("shows persisted voice agent sessions and export controls", () => {
+    const onLoadVoiceAgentHistory = vi.fn();
+    const onOpenVoiceAgentSession = vi.fn();
+    const onExportVoiceAgentSession = vi.fn();
+
+    render(
+      <VoiceChatPage
+        voiceChat={createVoiceChatController({
+          voiceAgentHistorySessions: [
+            {
+              id: "voice-session-1",
+              provider: "DashScope",
+              model: "qwen3-omni-flash-realtime-2025-12-01",
+              voice: "Cherry",
+              status: "closed",
+              started_at: "2026-07-07 10:00:00",
+              ended_at: "2026-07-07 10:01:00",
+              meta: { transport: "websocket" },
+            },
+          ],
+          voiceAgentHistoryDetail: {
+            id: "voice-session-1",
+            provider: "DashScope",
+            model: "qwen3-omni-flash-realtime-2025-12-01",
+            voice: "Cherry",
+            status: "closed",
+            started_at: "2026-07-07 10:00:00",
+            ended_at: "2026-07-07 10:01:00",
+            meta: { transport: "websocket" },
+            turns: [
+              {
+                id: 1,
+                session_id: "voice-session-1",
+                turn_id: "voice-tool-1",
+                user_text: "帮我搜索 voice agent",
+                assistant_text: "已整理来源。",
+                memory_payload: {},
+                completed: true,
+                started_at: "2026-07-07 10:00:01",
+                completed_at: "2026-07-07 10:00:04",
+              },
+            ],
+            tool_events: [
+              {
+                id: 2,
+                session_id: "voice-session-1",
+                turn_id: "voice-tool-1",
+                event_type: "agent_result",
+                tool_name: "search_web",
+                query: "voice agent",
+                payload: { answer: "已整理来源。" },
+                created_at: "2026-07-07 10:00:03",
+              },
+            ],
+          },
+          voiceAgentHistoryExportText: "{\n  \"session\": \"voice-session-1\"\n}",
+          onLoadVoiceAgentHistory,
+          onOpenVoiceAgentSession,
+          onExportVoiceAgentSession,
+        })}
+        errorRuntimeContext={{}}
+      />
+    );
+
+    expect(screen.getByText("历史语音 Agent 会话")).toBeInTheDocument();
+    fireEvent.click(screen.getByText("刷新历史"));
+    expect(onLoadVoiceAgentHistory).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByText("DashScope · closed"));
+    expect(onOpenVoiceAgentSession).toHaveBeenCalledWith("voice-session-1");
+
+    expect(screen.getByText("已打开历史会话: voice-session-1")).toBeInTheDocument();
+    expect(screen.getByText("轮次 1，工具事件 1")).toBeInTheDocument();
+    expect(screen.getByText("用户: 帮我搜索 voice agent")).toBeInTheDocument();
+    expect(screen.getByText("agent_result · search_web")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("导出 JSON"));
+    expect(onExportVoiceAgentSession).toHaveBeenCalledTimes(1);
+    expect(screen.getByLabelText("历史会话 JSON 导出")).toHaveValue("{\n  \"session\": \"voice-session-1\"\n}");
   });
 });

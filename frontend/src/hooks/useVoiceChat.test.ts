@@ -1,8 +1,14 @@
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { ensureEverMemConversationGroupIdMock } = vi.hoisted(() => ({
+const {
+  ensureEverMemConversationGroupIdMock,
+  fetchVoiceAgentSessionMock,
+  listVoiceAgentSessionsMock,
+} = vi.hoisted(() => ({
   ensureEverMemConversationGroupIdMock: vi.fn(),
+  fetchVoiceAgentSessionMock: vi.fn(),
+  listVoiceAgentSessionsMock: vi.fn(),
 }));
 
 vi.mock("../api", async () => {
@@ -10,6 +16,8 @@ vi.mock("../api", async () => {
   return {
     ...actual,
     ensureEverMemConversationGroupId: ensureEverMemConversationGroupIdMock,
+    fetchVoiceAgentSession: fetchVoiceAgentSessionMock,
+    listVoiceAgentSessions: listVoiceAgentSessionsMock,
   };
 });
 
@@ -139,6 +147,8 @@ describe("useVoiceChat", () => {
 
   afterEach(() => {
     ensureEverMemConversationGroupIdMock.mockReset();
+    fetchVoiceAgentSessionMock.mockReset();
+    listVoiceAgentSessionsMock.mockReset();
     vi.clearAllMocks();
     vi.restoreAllMocks();
   });
@@ -836,5 +846,110 @@ describe("useVoiceChat", () => {
         }),
       ]),
     });
+  });
+
+  it("loads persisted voice agent sessions and exports the selected detail as JSON", async () => {
+    const formatErrorMessage = createFormatErrorMessageStub();
+    listVoiceAgentSessionsMock.mockResolvedValue({
+      count: 1,
+      sessions: [
+        {
+          id: "voice-session-1",
+          provider: "DashScope",
+          model: "qwen3-omni-flash-realtime-2025-12-01",
+          voice: "Cherry",
+          status: "closed",
+          started_at: "2026-07-07 10:00:00",
+          ended_at: "2026-07-07 10:01:00",
+          meta: { transport: "websocket" },
+        },
+      ],
+    });
+    fetchVoiceAgentSessionMock.mockResolvedValue({
+      id: "voice-session-1",
+      provider: "DashScope",
+      model: "qwen3-omni-flash-realtime-2025-12-01",
+      voice: "Cherry",
+      status: "closed",
+      started_at: "2026-07-07 10:00:00",
+      ended_at: "2026-07-07 10:01:00",
+      meta: { transport: "websocket" },
+      turns: [
+        {
+          id: 1,
+          session_id: "voice-session-1",
+          turn_id: "voice-tool-1",
+          user_text: "帮我搜索 voice agent",
+          assistant_text: "已整理来源。",
+          memory_payload: { saved_count: 1 },
+          completed: true,
+          started_at: "2026-07-07 10:00:01",
+          completed_at: "2026-07-07 10:00:04",
+        },
+      ],
+      tool_events: [
+        {
+          id: 2,
+          session_id: "voice-session-1",
+          turn_id: "voice-tool-1",
+          event_type: "agent_result",
+          tool_name: "search_web",
+          query: "voice agent",
+          payload: { answer: "已整理来源。" },
+          created_at: "2026-07-07 10:00:03",
+        },
+      ],
+    });
+
+    const { result } = renderHook(() =>
+      useVoiceChat({
+        formatErrorMessage,
+        providerOptions: ["DashScope"],
+        preferredProvider: "DashScope",
+        preferredModel: "qwen3-omni-flash-realtime-2025-12-01",
+        providerModelCatalog: {
+          DashScope: {
+            defaultModel: "qwen3-omni-flash-realtime-2025-12-01",
+            availableModels: ["qwen3-omni-flash-realtime-2025-12-01"],
+          },
+        },
+      })
+    );
+
+    await act(async () => {
+      await result.current.onLoadVoiceAgentHistory();
+    });
+
+    expect(listVoiceAgentSessionsMock).toHaveBeenCalledWith(20);
+    expect(result.current.voiceAgentHistorySessions).toHaveLength(1);
+    expect(result.current.voiceAgentHistorySessions[0].id).toBe("voice-session-1");
+
+    await act(async () => {
+      await result.current.onOpenVoiceAgentSession("voice-session-1");
+    });
+
+    expect(fetchVoiceAgentSessionMock).toHaveBeenCalledWith("voice-session-1");
+    expect(result.current.voiceAgentHistoryDetail?.turns[0].user_text).toBe("帮我搜索 voice agent");
+    expect(result.current.voiceAgentHistoryDetail?.tool_events[0].event_type).toBe("agent_result");
+
+    let exported = "";
+    act(() => {
+      exported = result.current.onExportVoiceAgentSession();
+    });
+
+    const parsed = JSON.parse(exported);
+    expect(parsed.session.id).toBe("voice-session-1");
+    expect(parsed.session.turns[0].assistant_text).toBe("已整理来源。");
+    expect(result.current.voiceAgentHistoryExportText).toContain("\"voice-session-1\"");
+
+    fetchVoiceAgentSessionMock.mockRejectedValueOnce(new Error("not found"));
+    await act(async () => {
+      await result.current.onOpenVoiceAgentSession("missing-session");
+    });
+
+    expect(fetchVoiceAgentSessionMock).toHaveBeenCalledWith("missing-session");
+    expect(result.current.voiceAgentHistoryDetail).toBeNull();
+    expect(result.current.voiceAgentHistoryExportText).toBe("");
+    expect(result.current.voiceAgentHistoryError).toBe("加载历史语音 Agent 会话详情失败。");
   });
 });

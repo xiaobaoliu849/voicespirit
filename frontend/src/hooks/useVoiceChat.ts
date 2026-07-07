@@ -4,10 +4,14 @@ import {
   buildVoiceChatWebSocketUrl,
   clearPersistedEverMemConversationGroupId,
   ensureEverMemConversationGroupId,
+  fetchVoiceAgentSession,
   getPersistedEverMemConversationGroupId,
+  listVoiceAgentSessions,
   persistEverMemConversationGroupId,
   type ChatMessage,
   type VoiceAgentSource,
+  type VoiceAgentSessionHistory,
+  type VoiceAgentSessionHistoryDetailResponse,
   type VoiceChatServerEvent,
   type VoiceAgentToolRecord,
 } from "../api";
@@ -579,6 +583,12 @@ export default function useVoiceChat({
   const [voiceChatMemoryGroupId, setVoiceChatMemoryGroupId] = useState(
     () => getPersistedEverMemConversationGroupId("voice_chat")
   );
+  const [voiceAgentHistorySessions, setVoiceAgentHistorySessions] = useState<VoiceAgentSessionHistory[]>([]);
+  const [voiceAgentHistoryDetail, setVoiceAgentHistoryDetail] =
+    useState<VoiceAgentSessionHistoryDetailResponse | null>(null);
+  const [voiceAgentHistoryBusy, setVoiceAgentHistoryBusy] = useState(false);
+  const [voiceAgentHistoryError, setVoiceAgentHistoryError] = useState("");
+  const [voiceAgentHistoryExportText, setVoiceAgentHistoryExportText] = useState("");
 
   const websocketRef = useRef<WebSocket | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
@@ -1371,6 +1381,71 @@ export default function useVoiceChat({
     await startSession();
   }
 
+  async function onLoadVoiceAgentHistory(limit = 20) {
+    setVoiceAgentHistoryBusy(true);
+    setVoiceAgentHistoryError("");
+    try {
+      const response = await listVoiceAgentSessions(limit);
+      setVoiceAgentHistorySessions(Array.isArray(response.sessions) ? response.sessions : []);
+    } catch (err) {
+      setVoiceAgentHistoryError(
+        formatErrorMessage(
+          err,
+          t("加载历史语音 Agent 会话失败。", "Failed to load voice agent session history.")
+        )
+      );
+    } finally {
+      setVoiceAgentHistoryBusy(false);
+    }
+  }
+
+  async function onOpenVoiceAgentSession(sessionId: string) {
+    const cleanSessionId = String(sessionId || "").trim();
+    if (!cleanSessionId) {
+      return;
+    }
+    setVoiceAgentHistoryBusy(true);
+    setVoiceAgentHistoryError("");
+    setVoiceAgentHistoryDetail(null);
+    setVoiceAgentHistoryExportText("");
+    try {
+      const detail = await fetchVoiceAgentSession(cleanSessionId);
+      setVoiceAgentHistoryDetail(detail);
+    } catch (err) {
+      setVoiceAgentHistoryError(
+        formatErrorMessage(
+          err,
+          t("加载历史语音 Agent 会话详情失败。", "Failed to load voice agent session detail.")
+        )
+      );
+    } finally {
+      setVoiceAgentHistoryBusy(false);
+    }
+  }
+
+  function onExportVoiceAgentSession(): string {
+    if (!voiceAgentHistoryDetail) {
+      setVoiceAgentHistoryError(
+        t("请先打开一个历史语音 Agent 会话。", "Open a voice agent session before exporting.")
+      );
+      return "";
+    }
+    const exported = JSON.stringify(
+      {
+        exported_at: new Date().toISOString(),
+        session: voiceAgentHistoryDetail,
+      },
+      null,
+      2
+    );
+    setVoiceAgentHistoryExportText(exported);
+    const clipboard = typeof navigator !== "undefined" ? navigator.clipboard : undefined;
+    if (clipboard?.writeText) {
+      void clipboard.writeText(exported).catch(() => undefined);
+    }
+    return exported;
+  }
+
   const sessionSummary = useMemo(() => voiceChatMessages, [voiceChatMessages]);
   const voiceChatArchiveMessages = useMemo(() => {
     const currentUser = voiceChatTranscript.trim();
@@ -1500,6 +1575,14 @@ export default function useVoiceChat({
     voiceChatAgentSources,
     voiceChatAgentRunMeta,
     voiceChatMemoryGroupId,
+    voiceAgentHistorySessions,
+    voiceAgentHistoryDetail,
+    voiceAgentHistoryBusy,
+    voiceAgentHistoryError,
+    voiceAgentHistoryExportText,
+    onLoadVoiceAgentHistory,
+    onOpenVoiceAgentSession,
+    onExportVoiceAgentSession,
     replaceSession,
   };
 }
