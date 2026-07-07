@@ -67,16 +67,45 @@ class AudioScriptWriter:
         lines: list[str] = []
         for idx, source in enumerate(sources[:6], start=1):
             title = str(source.get("title", "")).strip()
+            uri = str(source.get("uri", "")).strip()
             snippet = str(source.get("snippet", "")).strip()
             content = str(source.get("content", "")).strip()
             body = snippet or content
             if not body:
-                uri = str(source.get("uri", "")).strip()
                 body = f"参考来源：{uri}" if uri else ""
             if not body:
                 continue
             prefix = f"{idx}. {title}: " if title else f"{idx}. "
-            lines.append(f"{prefix}{body[:480]}")
+            citation = f" [{uri}]" if uri else ""
+            lines.append(f"{prefix}{body[:480]}{citation}")
+        return "\n".join(lines)
+
+    @staticmethod
+    def _build_research_brief(sources: list[dict[str, Any]]) -> str:
+        source_counts: dict[str, int] = {}
+        lines: list[str] = []
+        for source in sources:
+            source_type = str(source.get("source_type", "unknown")).strip() or "unknown"
+            source_counts[source_type] = source_counts.get(source_type, 0) + 1
+
+        if source_counts:
+            mix = ", ".join(
+                f"{source_type}={count}"
+                for source_type, count in sorted(source_counts.items())
+            )
+            lines.append(f"Source mix: {mix}")
+        else:
+            lines.append("Source mix: none")
+
+        for idx, source in enumerate(sources[:8], start=1):
+            title = str(source.get("title", "")).strip() or f"Source {idx}"
+            source_type = str(source.get("source_type", "")).strip() or "unknown"
+            uri = str(source.get("uri", "")).strip()
+            score = float(source.get("score", 0.0) or 0.0)
+            snippet = str(source.get("snippet") or source.get("content") or "").strip()[:240]
+            uri_part = f" {uri}" if uri else ""
+            snippet_part = f" - {snippet}" if snippet else ""
+            lines.append(f"{idx}. {title} ({source_type}, score={score:.2f}):{uri_part}{snippet_part}")
         return "\n".join(lines)
 
     @staticmethod

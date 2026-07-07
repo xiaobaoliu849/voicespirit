@@ -53,6 +53,25 @@ class FakeResearchService:
         )
 
 
+class FakeMemoryService:
+    def should_skip_memory(self, topic: str) -> bool:
+        _ = topic
+        return False
+
+    async def search_memories(
+        self,
+        *,
+        query: str,
+        user_id: str,
+        min_score: float,
+    ) -> list[dict[str, object]]:
+        _ = (query, user_id, min_score)
+        return [
+            {"content": "First memory preference", "score": 0.92, "type": "preference"},
+            {"content": "Second memory task context", "score": 0.88, "type": "task_context"},
+        ]
+
+
 class FakeAsyncClient:
     calls: list[str] = []
     responses: list[Response] = []
@@ -359,6 +378,24 @@ class AudioRetrievalServiceTests(unittest.TestCase):
         )
         self.assertLessEqual(len(sources), 8)
         self.assertEqual(len({item["uri"] for item in sources}), len(sources))
+
+    def test_collect_sources_keeps_memory_before_auto_search(self) -> None:
+        fake = FakeResearchService()
+        service = AudioRetrievalService(research_service=fake, max_sources=2)  # type: ignore[arg-type]
+        with patch(
+            "services.audio_retrieval_service.EverMemConfig.get_service",
+            return_value=FakeMemoryService(),
+        ):
+            sources = asyncio.run(
+                service.collect_sources(
+                    topic="AI podcast research",
+                    use_memory=True,
+                    source_urls=[],
+                    source_text=None,
+                )
+            )
+        self.assertEqual([item["source_type"] for item in sources], ["evermem", "evermem"])
+        self.assertEqual(fake.search_calls, [])
 
 
 class AudioScriptWriterResearchBriefTests(unittest.TestCase):
