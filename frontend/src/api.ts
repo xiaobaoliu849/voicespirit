@@ -15,7 +15,7 @@ export type TtsAudioResponse = {
   memorySaved: boolean;
 };
 
-export type TtsEngine = "edge" | "qwen_flash" | "minimax" | "xiaomi" | "openai" | "elevenlabs";
+export type TtsEngine = "edge" | "qwen_flash" | "minimax" | "xiaomi" | "openai" | "elevenlabs" | "chattts" | "gpt_sovits";
 
 export type ChatAttachment = {
   name: string;
@@ -1412,11 +1412,14 @@ export async function translateImage(params: {
 }
 
 export async function listCustomVoices(
-  voiceType: VoiceType
+  voiceType: VoiceType,
+  provider?: string
 ): Promise<CustomVoiceListResponse> {
-  const response = await apiFetch(
-    `${API_BASE_URL}/api/voices/?voice_type=${encodeURIComponent(voiceType)}`
-  );
+  let url = `${API_BASE_URL}/api/voices/?voice_type=${encodeURIComponent(voiceType)}`;
+  if (provider) {
+    url += `&provider=${encodeURIComponent(provider)}`;
+  }
+  const response = await apiFetch(url);
   if (!response.ok) {
     await throwApiError(response);
   }
@@ -1461,12 +1464,14 @@ export async function createVoiceClone(params: {
 
 export async function deleteCustomVoice(
   voiceName: string,
-  voiceType: VoiceType
+  voiceType: VoiceType,
+  provider?: string
 ): Promise<void> {
-  const response = await apiFetch(
-    `${API_BASE_URL}/api/voices/${encodeURIComponent(voiceName)}?voice_type=${encodeURIComponent(voiceType)}`,
-    { method: "DELETE" }
-  );
+  let url = `${API_BASE_URL}/api/voices/${encodeURIComponent(voiceName)}?voice_type=${encodeURIComponent(voiceType)}`;
+  if (provider) {
+    url += `&provider=${encodeURIComponent(provider)}`;
+  }
+  const response = await apiFetch(url, { method: "DELETE" });
   if (!response.ok) {
     await throwApiError(response);
   }

@@ -19,6 +19,7 @@ def get_data_dir() -> Path:
     data_dir.mkdir(parents=True, exist_ok=True)
     return data_dir
 
+
 PROVIDER_KEY_MAP = {
     "DeepSeek": "deepseek_api_key",
     "OpenRouter": "openrouter_api_key",
@@ -32,6 +33,7 @@ PROVIDER_KEY_MAP = {
     "Ollama": "ollama_api_key",
     "Deepgram": "deepgram_api_key",
     "AssemblyAI": "assemblyai_api_key",
+    "GPT-SoVITS": "gpt_sovits_api_key",
 }
 
 GOOGLE_INTERACTIONS_BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
@@ -49,6 +51,7 @@ DEFAULT_BASE_URLS = {
     "Ollama": "http://localhost:11434/v1",
     "Deepgram": "https://api.deepgram.com/v1",
     "AssemblyAI": "https://api.assemblyai.com",
+    "GPT-SoVITS": "http://127.0.0.1:9880",
 }
 
 

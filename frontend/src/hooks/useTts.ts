@@ -164,6 +164,8 @@ export default function useTts({ defaultText, formatErrorMessage, language = "zh
       { value: "xiaomi" as TtsEngine, label: "Xiaomi TTS", hint: t("小米精品音色，支持唱歌模式与情感微调。", "Xiaomi high-quality voices, supporting singing mode and emotional nuances.") },
       { value: "openai" as TtsEngine, label: "OpenAI TTS", hint: t("OpenAI 拟真音色，合成效果极其自然逼真。", "OpenAI realistic voices with highly natural synthesis.") },
       { value: "elevenlabs" as TtsEngine, label: "ElevenLabs TTS", hint: t("ElevenLabs 顶尖音频合成，支持克隆及极高表现力音色。", "ElevenLabs top-tier voice synthesis, supports cloning and premium expression.") },
+      { value: "chattts" as TtsEngine, label: "ChatTTS (本地)", hint: t("本地 ChatTTS 引擎，拟真度高，支持笑声和停顿。", "Local ChatTTS engine, highly realistic, supports laughter and breaths.") },
+      { value: "gpt_sovits" as TtsEngine, label: "GPT-SoVITS (本地)", hint: t("本地 GPT-SoVITS API，支持高质量个性化声音克隆。", "Local GPT-SoVITS API, supports high-quality personalized voice cloning.") },
     ],
     [t]
   );

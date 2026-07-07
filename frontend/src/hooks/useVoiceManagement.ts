@@ -45,7 +45,7 @@ export default function useVoiceManagement({
   dashscopeApiKeyConfigured = false,
   xiaomiApiKeyConfigured = false,
 }: Options) {
-  const [voiceProvider, setVoiceProvider] = useState<"qwen" | "xiaomi">("qwen");
+  const [voiceProvider, setVoiceProvider] = useState<"qwen" | "xiaomi" | "gpt_sovits">("qwen");
   const t = createInlineTranslator(language);
   const designPromptPresets = [
     {
@@ -118,6 +118,7 @@ export default function useVoiceManagement({
   }
 
   function isCurrentProviderKeyConfigured(): boolean {
+    if (voiceProvider === "gpt_sovits") return true;
     return voiceProvider === "xiaomi" ? xiaomiApiKeyConfigured : dashscopeApiKeyConfigured;
   }
 
@@ -134,7 +135,7 @@ export default function useVoiceManagement({
       } else {
         setCloneListBusy(true);
       }
-      const result = await listCustomVoices(voiceType);
+      const result = await listCustomVoices(voiceType, voiceProvider);
       if (voiceType === "voice_design") {
         setDesignVoices(result.voices);
       } else {
@@ -237,7 +238,7 @@ export default function useVoiceManagement({
 
   async function onDeleteVoice(voiceName: string, voiceType: VoiceType) {
     try {
-      await deleteCustomVoice(voiceName, voiceType);
+      await deleteCustomVoice(voiceName, voiceType, voiceProvider);
       await refreshCustomVoices(voiceType);
     } catch (err) {
       const message = formatErrorMessage(err, t("删除音色失败。", "Failed to delete the voice."));

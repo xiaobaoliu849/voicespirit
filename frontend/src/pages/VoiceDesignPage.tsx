@@ -8,8 +8,8 @@ import type { ErrorRuntimeContext } from "../types/ui";
 type Props = {
   design: VoiceDesignController;
   errorRuntimeContext: ErrorRuntimeContext;
-  voiceProvider?: "qwen" | "xiaomi";
-  onVoiceProviderChange?: (provider: "qwen" | "xiaomi") => void;
+  voiceProvider?: "qwen" | "xiaomi" | "gpt_sovits";
+  onVoiceProviderChange?: (provider: "qwen" | "xiaomi" | "gpt_sovits") => void;
 };
 
 export default function VoiceDesignPage({ design, errorRuntimeContext, voiceProvider = "qwen", onVoiceProviderChange }: Props) {
@@ -118,7 +118,7 @@ export default function VoiceDesignPage({ design, errorRuntimeContext, voiceProv
                 <select
                   className="vsInput"
                   value={voiceProvider}
-                  onChange={(e) => onVoiceProviderChange?.(e.target.value as "qwen" | "xiaomi")}
+                  onChange={(e) => onVoiceProviderChange?.(e.target.value as "qwen" | "xiaomi" | "gpt_sovits")}
                   style={{ height: "40px", fontSize: "14px" }}
                 >
                   <option value="qwen">{t("阿里 DashScope (Qwen)", "Alibaba DashScope (Qwen)")}</option>

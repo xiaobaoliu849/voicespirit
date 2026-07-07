@@ -17,8 +17,8 @@ type Props = {
   clone: VoiceCloneController;
   errorRuntimeContext: ErrorRuntimeContext;
   onSendToChat?: (text: string) => void;
-  voiceProvider?: "qwen" | "xiaomi";
-  onVoiceProviderChange?: (provider: "qwen" | "xiaomi") => void;
+  voiceProvider?: "qwen" | "xiaomi" | "gpt_sovits";
+  onVoiceProviderChange?: (provider: "qwen" | "xiaomi" | "gpt_sovits") => void;
 };
 
 export default function VoiceCenterPage({

@@ -43,6 +43,7 @@ DEFAULT_SETTINGS_TEMPLATE: dict[str, Any] = {
         "elevenlabs_api_key": "",
         "ollama_api_key": "",
         "deepgram_api_key": "",
+        "gpt_sovits_api_key": "",
     },
     "api_urls": {
         "Google": "",
@@ -57,6 +58,7 @@ DEFAULT_SETTINGS_TEMPLATE: dict[str, Any] = {
         "ElevenLabs": "",
         "Ollama": "",
         "Deepgram": "",
+        "GPT-SoVITS": "",
     },
     "default_models": {
         "DeepSeek": {"default": "", "available": [], "enabled": []},
@@ -71,6 +73,7 @@ DEFAULT_SETTINGS_TEMPLATE: dict[str, Any] = {
         "ElevenLabs": {"default": "eleven_multilingual_v2", "available": ["eleven_multilingual_v2", "eleven_turbo_v2_5", "eleven_monolingual_v1"], "enabled": ["eleven_multilingual_v2", "eleven_turbo_v2_5"]},
         "Ollama": {"default": "", "available": [], "enabled": []},
         "Deepgram": {"default": "", "available": [], "enabled": []},
+        "GPT-SoVITS": {"default": "", "available": [], "enabled": []},
     },
     "general_settings": {
         "display_language": "English",

@@ -27,6 +27,7 @@ const getProviderDisplayNames = (t: (zh: string, en: string) => string): Record<
   ElevenLabs: t("ElevenLabs TTS", "ElevenLabs TTS"),
   Ollama: t("本地 Ollama", "Local Ollama"),
   Deepgram: t("Deepgram ASR", "Deepgram ASR"),
+  "GPT-SoVITS": t("本地 GPT-SoVITS API", "Local GPT-SoVITS API"),
 });
 
 const getLobeProviderKey = (name: string): string => {
@@ -53,6 +54,9 @@ const getLobeProviderKey = (name: string): string => {
 const renderProviderIcon = (providerName: string): ReactNode => {
   if (providerName.includes("(ACP)")) {
     return <Terminal size={18} />;
+  }
+  if (providerName === "GPT-SoVITS") {
+    return <Brain size={18} />;
   }
   const key = getLobeProviderKey(providerName);
   return <ProviderIcon provider={key} size={18} type="color" />;

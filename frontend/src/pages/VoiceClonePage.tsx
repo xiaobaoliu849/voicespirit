@@ -8,8 +8,8 @@ import type { ErrorRuntimeContext } from "../types/ui";
 type Props = {
   clone: VoiceCloneController;
   errorRuntimeContext: ErrorRuntimeContext;
-  voiceProvider?: "qwen" | "xiaomi";
-  onVoiceProviderChange?: (provider: "qwen" | "xiaomi") => void;
+  voiceProvider?: "qwen" | "xiaomi" | "gpt_sovits";
+  onVoiceProviderChange?: (provider: "qwen" | "xiaomi" | "gpt_sovits") => void;
 };
 
 export default function VoiceClonePage({ clone, errorRuntimeContext, voiceProvider = "qwen", onVoiceProviderChange }: Props) {
@@ -115,11 +115,12 @@ export default function VoiceClonePage({ clone, errorRuntimeContext, voiceProvid
                 <select
                   className="vsInput"
                   value={voiceProvider}
-                  onChange={(e) => onVoiceProviderChange?.(e.target.value as "qwen" | "xiaomi")}
+                  onChange={(e) => onVoiceProviderChange?.(e.target.value as "qwen" | "xiaomi" | "gpt_sovits")}
                   style={{ height: "40px", fontSize: "14px" }}
                 >
                   <option value="qwen">{t("阿里 DashScope (Qwen)", "Alibaba DashScope (Qwen)")}</option>
                   <option value="xiaomi">{t("小米 MiMo", "Xiaomi MiMo")}</option>
+                  <option value="gpt_sovits">{t("GPT-SoVITS (本地 API)", "GPT-SoVITS (Local API)")}</option>
                 </select>
               </label>
 

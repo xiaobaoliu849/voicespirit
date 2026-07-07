@@ -24,7 +24,9 @@ const PROVIDER_API_KEY_FIELD: Record<string, string> = {
   Xiaomi: "xiaomi_api_key",
   Ollama: "ollama_api_key",
   Deepgram: "deepgram_api_key",
-  OpenAI: "openai_api_key"
+  OpenAI: "openai_api_key",
+  ElevenLabs: "elevenlabs_api_key",
+  "GPT-SoVITS": "gpt_sovits_api_key"
 };
 
 function parseModelValue(

@@ -21,6 +21,8 @@ TTS_ENGINE_MINIMAX = "minimax"
 TTS_ENGINE_XIAOMI = "xiaomi"
 TTS_ENGINE_OPENAI = "openai"
 TTS_ENGINE_ELEVENLABS = "elevenlabs"
+TTS_ENGINE_CHATTTS = "chattts"
+TTS_ENGINE_GPT_SOVITS = "gpt_sovits"
 
 SUPPORTED_TTS_ENGINES = {
     TTS_ENGINE_EDGE,
@@ -29,6 +31,8 @@ SUPPORTED_TTS_ENGINES = {
     TTS_ENGINE_XIAOMI,
     TTS_ENGINE_OPENAI,
     TTS_ENGINE_ELEVENLABS,
+    TTS_ENGINE_CHATTTS,
+    TTS_ENGINE_GPT_SOVITS,
 }
 
 OPENAI_VOICES = [
@@ -103,6 +107,21 @@ XIAOMI_VOICES = [
     {"name": "Milo", "short_name": "Milo (Milo)", "locale": "en-US", "gender": "Male"},
 ]
 
+CHATTTS_VOICES = [
+    {"name": "2", "short_name": "默认男声 (Seed 2)", "locale": "zh-CN", "gender": "Male"},
+    {"name": "2422", "short_name": "自然男声 (Seed 2422)", "locale": "zh-CN", "gender": "Male"},
+    {"name": "88", "short_name": "清澈女声 (Seed 88)", "locale": "zh-CN", "gender": "Female"},
+    {"name": "111", "short_name": "活泼女声 (Seed 111)", "locale": "zh-CN", "gender": "Female"},
+    {"name": "custom", "short_name": "自定义 Seed...", "locale": "zh-CN", "gender": "Neutral"},
+]
+
+GPT_SOVITS_VOICES = [
+    {"name": "default", "short_name": "默认 API 角色 (Default)", "locale": "zh-CN", "gender": "Neutral"},
+]
+
+
+_global_chattts_instance = None
+
 
 class TTSService:
     def __init__(
@@ -115,6 +134,22 @@ class TTSService:
         resolved_output = output_dir or (root / "temp_audio")
         self.output_dir = resolved_output
         self.output_dir.mkdir(parents=True, exist_ok=True)
+
+    def _get_local_gpt_sovits_voices(self) -> list[dict[str, Any]]:
+        root = Path(__file__).resolve().parents[1]
+        voices_dir = root / "data" / "gpt_sovits_voices"
+        if not voices_dir.exists():
+            return []
+        voices = []
+        for file in sorted(voices_dir.glob("*.wav")):
+            name = file.stem
+            voices.append({
+                "name": f"gpt_sovits_{name}",
+                "short_name": f"{name} (本地克隆)",
+                "locale": "multi",
+                "gender": "Clone",
+            })
+        return voices
 
     def _clean_text(self, text: str) -> str:
         cleaned = text.strip()
@@ -179,6 +214,149 @@ class TTSService:
         if not base_url.startswith(("http://", "https://")):
             base_url = f"https://{base_url}"
         return api_key, base_url
+
+    def _gpt_sovits_settings(self) -> tuple[str, str]:
+        self.config.reload()
+        gpt_sovits_config = self.config.get_all().get("api_urls", {})
+        base_url = str(gpt_sovits_config.get("GPT-SoVITS", "")).strip()
+        if not base_url:
+            base_url = "http://127.0.0.1:9880"
+        
+        api_keys = self.config.get_all().get("api_keys", {})
+        api_key = str(api_keys.get("gpt_sovits_api_key", "")).strip()
+        
+        if not base_url.startswith(("http://", "https://")):
+            base_url = f"http://{base_url}"
+        return api_key, base_url
+
+    async def _generate_chattts_audio(self, text: str, voice: str, path: Path) -> None:
+        global _global_chattts_instance
+        try:
+            import ChatTTS
+            import torch
+            import soundfile as sf
+        except ImportError as exc:
+            raise RuntimeError("ChatTTS or soundfile is not installed on backend.") from exc
+
+        if _global_chattts_instance is None:
+            import os
+            os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
+            _global_chattts_instance = ChatTTS.Chat()
+            
+            bp = os.path.expanduser("~/.cache/modelscope/hub/pzc163/ChatTTS")
+            if not os.path.exists(bp):
+                bp = r"C:\Users\WINDOWS\.cache\modelscope\hub\pzc163\ChatTTS"
+            
+            if not os.path.exists(bp):
+                raise RuntimeError(f"ChatTTS model directory not found at {bp}. Please download it first.")
+            
+            _global_chattts_instance.load_models(
+                vocos_config_path=os.path.join(bp, 'config', 'vocos.yaml'),
+                vocos_ckpt_path=os.path.join(bp, 'asset', 'Vocos.pt'),
+                dvae_config_path=os.path.join(bp, 'config', 'dvae.yaml'),
+                dvae_ckpt_path=os.path.join(bp, 'asset', 'DVAE.pt'),
+                gpt_config_path=os.path.join(bp, 'config', 'gpt.yaml'),
+                gpt_ckpt_path=os.path.join(bp, 'asset', 'GPT.pt'),
+                decoder_config_path=os.path.join(bp, 'config', 'decoder.yaml'),
+                decoder_ckpt_path=os.path.join(bp, 'asset', 'Decoder.pt'),
+                tokenizer_path=os.path.join(bp, 'asset', 'tokenizer.pt'),
+                device='cuda' if torch.cuda.is_available() else 'cpu'
+            )
+
+        seed = 2
+        try:
+            if voice and voice.isdigit():
+                seed = int(voice)
+            elif voice and voice.startswith("seed_"):
+                seed = int(voice.split("_")[-1])
+        except Exception:
+            pass
+
+        import os
+        bp = os.path.expanduser("~/.cache/modelscope/hub/pzc163/ChatTTS")
+        if not os.path.exists(bp):
+            bp = r"C:\Users\WINDOWS\.cache\modelscope\hub\pzc163\ChatTTS"
+        
+        spk_stat_path = os.path.join(bp, 'asset', 'spk_stat.pt')
+        if os.path.exists(spk_stat_path):
+            std, mean = torch.load(spk_stat_path, map_location='cpu').chunk(2)
+            g = torch.Generator(device='cpu')
+            g.manual_seed(seed)
+            spk_emb = torch.randn(768, generator=g) * std + mean
+            params_infer_code = {'spk_emb': spk_emb}
+        else:
+            params_infer_code = {}
+
+        wavs = _global_chattts_instance.infer(
+            [text],
+            params_infer_code=params_infer_code,
+            params_refine_text={'prompt': '[oral_2][laugh_0][break_6]'}
+        )
+        wav = wavs[0]
+        if wav.ndim > 1 and wav.shape[0] == 1:
+            wav = wav[0]
+        
+        sf.write(str(path), wav.T if wav.ndim > 1 else wav, 24000)
+
+    async def _generate_gpt_sovits_audio(self, text: str, voice: str, path: Path) -> None:
+        api_key, base_url = self._gpt_sovits_settings()
+        
+        ref_audio_path = ""
+        prompt_text = ""
+        prompt_lang = ""
+        
+        voice_prefix = "gpt_sovits_"
+        if voice and voice.startswith(voice_prefix):
+            clone_name = voice[len(voice_prefix):]
+            voices_dir = Path(__file__).resolve().parents[1] / "data" / "gpt_sovits_voices"
+            audio_file = voices_dir / f"{clone_name}.wav"
+            text_file = voices_dir / f"{clone_name}.txt"
+            
+            if audio_file.exists():
+                ref_audio_path = str(audio_file.absolute())
+                if text_file.exists():
+                    try:
+                        prompt_text = text_file.read_text(encoding="utf-8").strip()
+                    except Exception:
+                        pass
+                
+                prompt_lang = "zh"
+                if any(ord(c) > 0x4e00 and ord(c) < 0x9fff for c in prompt_text):
+                    prompt_lang = "zh"
+                elif prompt_text and all(ord(c) < 128 for c in prompt_text):
+                    prompt_lang = "en"
+        
+        text_lang = "auto"
+        if any(ord(c) > 0x4e00 and ord(c) < 0x9fff for c in text):
+            text_lang = "zh"
+        elif all(ord(c) < 128 for c in text):
+            text_lang = "en"
+
+        payload = {
+            "text": text,
+            "text_lang": text_lang,
+        }
+        if ref_audio_path:
+            payload["ref_audio_path"] = ref_audio_path
+            payload["prompt_text"] = prompt_text
+            payload["prompt_lang"] = prompt_lang
+
+        headers = {}
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
+
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            try:
+                response = await client.post(base_url, json=payload, headers=headers)
+                if response.status_code != 200:
+                    response = await client.get(base_url, params=payload, headers=headers)
+            except Exception:
+                response = await client.get(base_url, params=payload, headers=headers)
+
+        if response.status_code != 200:
+            raise RuntimeError(f"GPT-SoVITS API error: {response.status_code} - {response.text}")
+
+        path.write_bytes(response.content)
 
     async def _generate_edge_audio(self, text: str, voice: str, rate: str, path: Path) -> None:
         if edge_tts is None:
@@ -418,6 +596,12 @@ class TTSService:
     def detect_engine_by_voice(self, voice: str | None) -> str:
         if not voice:
             return TTS_ENGINE_EDGE
+        # Check ChatTTS voices
+        if any(v["name"] == voice for v in CHATTTS_VOICES) or (voice and voice.isdigit()) or (voice and voice.startswith("seed_")):
+            return TTS_ENGINE_CHATTTS
+        # Check GPT-SoVITS voices
+        if voice == "default" or (voice and voice.startswith("gpt_sovits_")):
+            return TTS_ENGINE_GPT_SOVITS
         # Check OpenAI voices
         if any(v["name"] == voice for v in OPENAI_VOICES):
             return TTS_ENGINE_OPENAI
@@ -471,6 +655,10 @@ class TTSService:
             selected_voice = voice or OPENAI_VOICES[0]["name"]
         elif normalized_engine == TTS_ENGINE_ELEVENLABS:
             selected_voice = voice or ELEVENLABS_VOICES[0]["name"]
+        elif normalized_engine == TTS_ENGINE_CHATTTS:
+            selected_voice = voice or CHATTTS_VOICES[0]["name"]
+        elif normalized_engine == TTS_ENGINE_GPT_SOVITS:
+            selected_voice = voice or GPT_SOVITS_VOICES[0]["name"]
         else:
             selected_voice = voice or XIAOMI_VOICES[0]["name"]
 
@@ -490,6 +678,10 @@ class TTSService:
             await self._generate_openai_audio(cleaned, selected_voice, rate, path)
         elif normalized_engine == TTS_ENGINE_ELEVENLABS:
             await self._generate_elevenlabs_audio(cleaned, selected_voice, path)
+        elif normalized_engine == TTS_ENGINE_CHATTTS:
+            await self._generate_chattts_audio(cleaned, selected_voice, path)
+        elif normalized_engine == TTS_ENGINE_GPT_SOVITS:
+            await self._generate_gpt_sovits_audio(cleaned, selected_voice, path)
         else:
             await self._generate_xiaomi_audio(cleaned, selected_voice, path)
 
@@ -584,6 +776,11 @@ class TTSService:
         engine: str = TTS_ENGINE_EDGE,
     ) -> list[dict[str, Any]]:
         normalized_engine = self._normalize_engine(engine)
+        if normalized_engine == TTS_ENGINE_CHATTTS:
+            return self._filter_by_locale(CHATTTS_VOICES, locale)
+        if normalized_engine == TTS_ENGINE_GPT_SOVITS:
+            local_clones = self._get_local_gpt_sovits_voices()
+            return self._filter_by_locale(GPT_SOVITS_VOICES + local_clones, locale)
         if normalized_engine == TTS_ENGINE_QWEN_FLASH:
             return self._filter_by_locale(QWEN_FLASH_VOICES, locale)
         if normalized_engine == TTS_ENGINE_MINIMAX:
