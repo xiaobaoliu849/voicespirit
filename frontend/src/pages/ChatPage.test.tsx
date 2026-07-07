@@ -47,7 +47,7 @@ describe('ChatPage', () => {
             />
         );
 
-        expect(screen.getByPlaceholderText(/随便说点什么/)).toBeInTheDocument();
+        expect(screen.getByPlaceholderText(/输入聊天内容/)).toBeInTheDocument();
         expect(screen.getByRole('button', { name: '语音转写' })).toBeInTheDocument();
         expect(screen.getByRole('button', { name: '实时通话' })).toBeInTheDocument();
         expect(screen.getByRole('button', { name: '发送' })).toBeDisabled();
@@ -109,7 +109,7 @@ describe('ChatPage', () => {
         expect(screen.getByText('同语回放')).toBeInTheDocument();
         expect(screen.getByText('原文实时转写')).toBeInTheDocument();
         expect(screen.getByText('译文：中文（简体）/ Chinese (Simplified) (zh-Hans)')).toBeInTheDocument();
-        expect(screen.queryByPlaceholderText(/随便说点什么/)).not.toBeInTheDocument();
+        expect(screen.queryByPlaceholderText(/输入聊天内容/)).not.toBeInTheDocument();
         expect(document.querySelector('.vsComposer.liveActive')).toBeInTheDocument();
     });
 });

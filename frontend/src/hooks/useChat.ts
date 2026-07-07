@@ -26,6 +26,14 @@ type Options = {
   language?: UiLanguage;
 };
 
+type ChatModelChoice = {
+  provider: string;
+  model: string;
+  label: string;
+  value: string;
+};
+
+const MODEL_CHOICE_SEPARATOR = "\u001f";
 function isVoiceRealtimeModel(provider: string, model: string): boolean {
   const normalizedProvider = (provider || "").trim().toLowerCase();
   const normalizedModel = (model || "").trim().toLowerCase();
@@ -33,7 +41,7 @@ function isVoiceRealtimeModel(provider: string, model: string): boolean {
     return false;
   }
   if (normalizedProvider === "dashscope") {
-    return normalizedModel.includes("realtime");
+    return normalizedModel.includes("realtime") || normalizedModel.includes("livetranslate");
   }
   if (normalizedProvider === "google") {
     return (
@@ -43,6 +51,23 @@ function isVoiceRealtimeModel(provider: string, model: string): boolean {
     );
   }
   return normalizedModel.includes("realtime");
+}
+
+function buildModelChoiceValue(provider: string, model: string): string {
+  return `${provider}${MODEL_CHOICE_SEPARATOR}${model}`;
+}
+
+function parseModelChoiceValue(value: string): { provider: string; model: string } | null {
+  const separatorIndex = value.indexOf(MODEL_CHOICE_SEPARATOR);
+  if (separatorIndex < 0) {
+    return null;
+  }
+  const provider = value.slice(0, separatorIndex).trim();
+  const model = value.slice(separatorIndex + MODEL_CHOICE_SEPARATOR.length).trim();
+  if (!provider || !model) {
+    return null;
+  }
+  return { provider, model };
 }
 
 function resolveProvider(
@@ -87,7 +112,7 @@ function resolveDefaultModel(
   return preferredDefault || availableModels[0] || "";
 }
 
-function resolveTextModelOptions(
+function resolveModelOptions(
   provider: string,
   providerModelCatalog: Options["providerModelCatalog"],
 ): string[] {
@@ -103,11 +128,28 @@ function resolveTextModelOptions(
     : [];
   const availableModels = enabledModels.length > 0 ? enabledModels : rawAvailable;
 
-  const normalized = availableModels
+  return availableModels
     .map((item) => item.trim())
     .filter(Boolean);
-  const textModels = normalized.filter((item) => !isVoiceRealtimeModel(provider, item));
-  return textModels.length > 0 ? textModels : normalized;
+}
+
+function resolveAllModelChoices(
+  providerOptions: string[],
+  providerModelCatalog: Options["providerModelCatalog"],
+): ChatModelChoice[] {
+  const providers = [
+    ...providerOptions,
+    ...Object.keys(providerModelCatalog || {}).filter((provider) => !providerOptions.includes(provider)),
+  ];
+
+  return providers.flatMap((provider) => {
+    return resolveModelOptions(provider, providerModelCatalog).map((model) => ({
+      provider,
+      model,
+      label: `${provider} / ${model}`,
+      value: buildModelChoiceValue(provider, model),
+    }));
+  });
 }
 
 export default function useChat({
@@ -146,7 +188,11 @@ export default function useChat({
   }
 
   const chatProviderOptions = providerOptions.length > 0 ? providerOptions : ["Google"];
-  const chatModelOptions = resolveTextModelOptions(chatProvider, providerModelCatalog);
+  const chatModelOptions = resolveModelOptions(chatProvider, providerModelCatalog);
+  const chatModelChoices = resolveAllModelChoices(chatProviderOptions, providerModelCatalog);
+  const chatModelChoiceValue = chatModel.trim()
+    ? buildModelChoiceValue(chatProvider, chatModel.trim())
+    : "";
 
   useEffect(() => {
     const preferredProviderChanged = lastPreferredProviderRef.current !== preferredProvider;
@@ -187,6 +233,16 @@ export default function useChat({
     setChatModel(resolveDefaultModel(nextProvider, providerModelCatalog));
   }
 
+  function onModelChoiceChange(value: string) {
+    const choice = parseModelChoiceValue(value);
+    if (!choice) {
+      setChatModel(value);
+      return;
+    }
+    setChatProvider(choice.provider);
+    setChatModel(choice.model);
+  }
+
   const chatHistoryItems = useMemo(() => {
     const items: Array<{ id: string; content: string }> = [];
     chatMessages.forEach((msg, idx) => {
@@ -208,17 +264,15 @@ export default function useChat({
 
   async function onSubmit(event: FormEvent) {
     event.preventDefault();
-    if (isVoiceRealtimeModel(chatProvider, chatModel)) {
-      setChatError(
-        t(
-          "当前选择的是实时语音模型，请点击麦克风开始语音对话，或切换到普通文本模型后再发送消息。",
-          "The selected model is a realtime voice model. Start a voice session with the microphone, or switch back to a text model before sending."
-        )
-      );
-      return;
-    }
     const userText = chatInput.trim();
     if (!userText) {
+      return;
+    }
+    if (isVoiceRealtimeModel(chatProvider, chatModel)) {
+      setChatError(t(
+        "当前选择的是实时语音/实时翻译模型，请点击实时通话按钮开始语音会话，或切换到普通文本模型后再发送文字。",
+        "The selected model is realtime voice/live translation only. Start a realtime call, or switch to a text model before sending text."
+      ));
       return;
     }
     setChatError("");
@@ -368,6 +422,8 @@ export default function useChat({
     chatProviderOptions,
     chatModel,
     chatModelOptions,
+    chatModelChoices,
+    chatModelChoiceValue,
     chatInput,
     chatMessages,
     chatBusy,
@@ -377,6 +433,7 @@ export default function useChat({
     onSubmit,
     onProviderChange,
     onModelChange: setChatModel,
+    onModelChoiceChange,
     onInputChange: setChatInput,
     onQuickAction: setChatInput,
     onComposerKeyDown,
