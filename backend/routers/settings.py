@@ -6,6 +6,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from services.desktop_diagnostics_service import DesktopDiagnosticsService
+from services.config_loader import GOOGLE_INTERACTIONS_BASE_URL
 from services.settings_service import SettingsService
 
 router = APIRouter()
@@ -130,7 +131,7 @@ GOOGLE_MODEL_LIST_SUPPLEMENTS = [
     "gemini-3.1-flash-live-preview",
     "gemini-3.5-live-translate-preview",
 ]
-GOOGLE_MODELS_BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
+GOOGLE_MODELS_BASE_URL = GOOGLE_INTERACTIONS_BASE_URL
 
 
 @router.post(

@@ -36,6 +36,7 @@ MIN_WINDOW_HEIGHT = 620
 LOCAL_DESKTOP_LIB_DIR = PROJECT_ROOT / ".desktop-libs" / "usr" / "lib" / "x86_64-linux-gnu"
 DESKTOP_FONTCONFIG_PATH = PROJECT_ROOT / "desktop_fonts.conf"
 QT_RUNTIME_READY_ENV = "VOICE_SPIRIT_DESKTOP_QT_RUNTIME_READY"
+WEBVIEW2_MEDIA_ARGS = "--use-fake-ui-for-media-stream --enable-media-stream"
 
 
 def is_wsl_environment() -> bool:
@@ -307,6 +308,7 @@ def collect_desktop_diagnostics() -> dict[str, Any]:
             "QT_FONT_DPI": os.environ.get("QT_FONT_DPI", ""),
             "PYWEBVIEW_GUI": os.environ.get("PYWEBVIEW_GUI", ""),
             "FONTCONFIG_FILE": os.environ.get("FONTCONFIG_FILE", ""),
+            "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS": os.environ.get("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", ""),
         },
     }
     return diagnostics
@@ -605,6 +607,20 @@ def configure_linux_qt_runtime() -> None:
     os.execvpe(sys.executable, [sys.executable, *sys.argv], relaunched_env)
 
 
+def configure_windows_webview2_runtime() -> None:
+    """Allow WebView2 microphone prompts to resolve inside the desktop shell."""
+    if sys.platform != "win32":
+        return
+
+    existing = os.environ.get("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", "").strip()
+    existing_parts = existing.split() if existing else []
+    next_parts = [part for part in WEBVIEW2_MEDIA_ARGS.split() if part not in existing_parts]
+    if next_parts:
+        os.environ["WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS"] = " ".join(
+            [*existing_parts, *next_parts]
+        )
+
+
 def run_preflight_checks() -> int:
     print("[Preflight] Running desktop readiness checks...")
     report = collect_preflight_report()
@@ -846,6 +862,7 @@ def main() -> int:
     args = parse_args()
     print_startup_info()
     configure_linux_qt_runtime()
+    configure_windows_webview2_runtime()
     if LATEST_ERROR_PATH.is_file():
         try:
             LATEST_ERROR_PATH.unlink()

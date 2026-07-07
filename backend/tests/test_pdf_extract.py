@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import unittest
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -12,9 +13,24 @@ from main import create_app
 
 class PdfExtractTests(unittest.TestCase):
     def setUp(self) -> None:
+        self._auth_env_patcher = patch.dict(
+            os.environ,
+            {"VOICESPIRIT_API_TOKEN": "test-api-token"},
+            clear=False,
+        )
+        self._auth_env_patcher.start()
         self.app = create_app()
 
+    def tearDown(self) -> None:
+        self._auth_env_patcher.stop()
+
     def _request(self, method: str, path: str, **kwargs: Any) -> httpx.Response:
+        if method.upper() in {"POST", "PUT", "PATCH", "DELETE"} and path.startswith("/api/"):
+            headers = dict(kwargs.get("headers") or {})
+            if "Authorization" not in headers:
+                headers["Authorization"] = "Bearer test-api-token"
+                kwargs["headers"] = headers
+
         async def runner() -> httpx.Response:
             transport = httpx.ASGITransport(app=self.app)
             async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:

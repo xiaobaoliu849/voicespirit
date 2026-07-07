@@ -40,6 +40,7 @@ frontend/*.log
 frontend/test_output.log
 frontend/*.tsbuildinfo
 frontend/inspect_icons.js
+backend/uvicorn-dev*.log
 
 # Desktop local runtime
 .desktop-venv/

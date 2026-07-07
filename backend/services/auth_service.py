@@ -11,6 +11,9 @@ from .user_auth_service import user_auth_service
 
 _config = BackendConfig()
 WRITE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+SENSITIVE_READ_PATH_PREFIXES = (
+    "/api/voice-chat/sessions",
+)
 
 
 def _read_token_from_config() -> str:
@@ -57,6 +60,12 @@ def should_enforce_auth(method: str, path: str) -> bool:
         return False
     if path.startswith("/api/auth/"):
         return False
+    if (
+        method.upper() == "GET"
+        and path.startswith("/api/")
+        and any(path.startswith(prefix) for prefix in SENSITIVE_READ_PATH_PREFIXES)
+    ):
+        return True
     return path.startswith("/api/") and method.upper() in WRITE_METHODS
 
 

@@ -34,12 +34,15 @@ PROVIDER_KEY_MAP = {
     "AssemblyAI": "assemblyai_api_key",
 }
 
+GOOGLE_INTERACTIONS_BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
+
 DEFAULT_BASE_URLS = {
     "DeepSeek": "https://api.deepseek.com/v1",
     "OpenRouter": "https://openrouter.ai/api/v1",
     "SiliconFlow": "https://api.siliconflow.cn/v1",
     "Groq": "https://api.groq.com/openai/v1",
     "DashScope": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    "Google": GOOGLE_INTERACTIONS_BASE_URL,
     "Xiaomi": "https://token-plan-sgp.xiaomimimo.com/v1",
     "OpenAI": "https://api.openai.com/v1",
     "ElevenLabs": "https://api.elevenlabs.io/v1",

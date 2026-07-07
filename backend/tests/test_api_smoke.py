@@ -28,9 +28,10 @@ from routers import voice_chat as voice_chat_router
 from routers import voices as voices_router
 from services.audio_overview_service import AudioOverviewService, AudioOverviewServiceError
 from services.audio_agent_service import AudioAgentService
-from services.config_loader import BackendConfig
+from services.config_loader import BackendConfig, GOOGLE_INTERACTIONS_BASE_URL
 from services.evermem_config import EverMemConfig
 from services import realtime_voice_service as realtime_voice_module
+from services.llm_service import LLMService
 from services.realtime_voice_service import RealtimeVoiceService
 from services.settings_service import SettingsService
 from services.transcription_publish_adapter import build_transcription_publisher
@@ -41,9 +42,38 @@ from services.voice_agent_session_repository import VoiceAgentSessionRepository
 
 class ApiSmokeTests(unittest.TestCase):
     def setUp(self) -> None:
+        self._auth_env_patcher = patch.dict(
+            os.environ,
+            {
+                "VOICESPIRIT_API_TOKEN": "test-api-token",
+                "VOICESPIRIT_ADMIN_TOKEN": "test-admin-token",
+            },
+            clear=False,
+        )
+        self._auth_env_patcher.start()
         self.app = create_app()
 
+    def tearDown(self) -> None:
+        self._auth_env_patcher.stop()
+
     def _request(self, method: str, path: str, **kwargs: Any) -> httpx.Response:
+        default_auth = bool(kwargs.pop("default_auth", True))
+        sensitive_read = method.upper() == "GET" and path.startswith("/api/voice-chat/sessions")
+        if (
+            default_auth
+            and path.startswith("/api/")
+            and (method.upper() in {"POST", "PUT", "PATCH", "DELETE"} or sensitive_read)
+        ):
+            headers = dict(kwargs.get("headers") or {})
+            if "Authorization" not in headers and not path.startswith("/api/auth/"):
+                token_key = "VOICESPIRIT_ADMIN_TOKEN" if path.startswith("/api/settings") else "VOICESPIRIT_API_TOKEN"
+                token = os.getenv(token_key, "").strip()
+                if not token and token_key == "VOICESPIRIT_API_TOKEN":
+                    token = os.getenv("VOICESPIRIT_ADMIN_TOKEN", "").strip()
+                if token:
+                    headers["Authorization"] = f"Bearer {token}"
+                    kwargs["headers"] = headers
+
         async def runner() -> httpx.Response:
             transport = httpx.ASGITransport(app=self.app)
             async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
@@ -92,6 +122,28 @@ class ApiSmokeTests(unittest.TestCase):
                         "query": "语音 Agent",
                         "answer": "我查到这些信息。",
                     },
+                )
+
+                missing_auth_response = self._request(
+                    "GET",
+                    "/api/voice-chat/sessions?limit=5",
+                    default_auth=False,
+                )
+                self.assertEqual(missing_auth_response.status_code, 401)
+                self.assertEqual(
+                    missing_auth_response.json()["detail"]["code"],
+                    "AUTH_TOKEN_MISSING",
+                )
+
+                invalid_auth_response = self._request(
+                    "GET",
+                    "/api/voice-chat/sessions?limit=5",
+                    headers={"Authorization": "Bearer wrong-token"},
+                )
+                self.assertEqual(invalid_auth_response.status_code, 403)
+                self.assertEqual(
+                    invalid_auth_response.json()["detail"]["code"],
+                    "AUTH_TOKEN_INVALID",
                 )
 
                 list_response = self._request("GET", "/api/voice-chat/sessions?limit=5")
@@ -152,6 +204,69 @@ class ApiSmokeTests(unittest.TestCase):
                 patch.object(realtime_voice_module, "types", object()),
             ):
                 settings = service._resolve_google_settings(None)
+            self.assertEqual(settings["base_url"], "")
+            self.assertEqual(settings["model"], "gemini-3.1-flash-live-preview")
+
+    def test_google_text_uses_interactions_default_when_url_is_empty(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            config_path = Path(tmp_dir) / "config.json"
+            config_path.write_text(
+                json.dumps(
+                    {
+                        "api_keys": {"google_api_key": "test-key"},
+                        "api_urls": {"Google": ""},
+                        "default_models": {
+                            "Google": {
+                                "default": "gemini-2.5-flash",
+                                "available": ["gemini-2.5-flash"],
+                            }
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            service = LLMService(config=BackendConfig(config_path))
+
+            settings = service._resolve_settings("Google", None)
+
+            self.assertEqual(settings["base_url"], GOOGLE_INTERACTIONS_BASE_URL)
+            self.assertEqual(settings["model"], "gemini-2.5-flash")
+
+    def test_settings_response_keeps_google_url_blank_for_ui(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            config_path = Path(tmp_dir) / "config.json"
+            config_path.write_text("{}", encoding="utf-8")
+            service = SettingsService(config=BackendConfig(config_path))
+
+            response = service.get_settings()
+
+            self.assertEqual(response["settings"]["api_urls"]["Google"], "")
+
+    def test_realtime_google_settings_strip_default_interactions_base_url(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            config_path = Path(tmp_dir) / "config.json"
+            config_path.write_text(
+                json.dumps(
+                    {
+                        "api_keys": {"google_api_key": "test-key"},
+                        "api_urls": {"Google": ""},
+                        "default_models": {
+                            "Google": {
+                                "default": "gemini-3.1-flash-live-preview",
+                                "available": [],
+                            }
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            service = RealtimeVoiceService(config=BackendConfig(config_path))
+            with (
+                patch.object(realtime_voice_module, "genai", object()),
+                patch.object(realtime_voice_module, "types", object()),
+            ):
+                settings = service._resolve_google_settings(None)
+
             self.assertEqual(settings["base_url"], "")
             self.assertEqual(settings["model"], "gemini-3.1-flash-live-preview")
 
@@ -272,6 +387,7 @@ class ApiSmokeTests(unittest.TestCase):
                     "POST",
                     "/api/chat/completions",
                     json={"provider": "DashScope", "messages": [{"role": "user", "content": "hello"}]},
+                    default_auth=False,
                 )
                 self.assertEqual(missing.status_code, 401)
                 self.assertEqual(missing.json()["detail"]["code"], "AUTH_TOKEN_MISSING")
@@ -316,6 +432,7 @@ class ApiSmokeTests(unittest.TestCase):
                         "PUT",
                         "/api/settings/",
                         json={"merge": True, "settings": {"general_settings": {"log_level": "INFO"}}},
+                        default_auth=False,
                     )
                     self.assertEqual(missing.status_code, 401)
                     self.assertEqual(missing.json()["detail"]["code"], "AUTH_ADMIN_TOKEN_MISSING")
@@ -1269,7 +1386,7 @@ class ApiSmokeTests(unittest.TestCase):
             voice_type = kwargs.get("voice_type", "voice_design")
             return {"voice": str(voice_name), "type": str(voice_type), "deleted": True}
 
-        with patch.object(voices_router.voice_service, "create_voice_design", new=fake_create_voice_design):
+        with patch.object(voices_router.qwen_voice_service, "create_voice_design", new=fake_create_voice_design):
             r_design = self._request(
                 "POST",
                 "/api/voices/design",
@@ -1283,7 +1400,7 @@ class ApiSmokeTests(unittest.TestCase):
         self.assertEqual(r_design.status_code, 200)
         self.assertEqual(r_design.json()["voice"], "voice_design_x")
 
-        with patch.object(voices_router.voice_service, "create_voice_clone", new=fake_create_voice_clone):
+        with patch.object(voices_router.qwen_voice_service, "create_voice_clone", new=fake_create_voice_clone):
             r_clone = self._request(
                 "POST",
                 "/api/voices/clone",
@@ -1293,12 +1410,12 @@ class ApiSmokeTests(unittest.TestCase):
         self.assertEqual(r_clone.status_code, 200)
         self.assertEqual(r_clone.json()["voice"], "voice_clone_x")
 
-        with patch.object(voices_router.voice_service, "list_voices", new=fake_list_voices):
+        with patch.object(voices_router.qwen_voice_service, "list_voices", new=fake_list_voices):
             r_list = self._request("GET", "/api/voices/?voice_type=voice_design")
         self.assertEqual(r_list.status_code, 200)
         self.assertEqual(r_list.json()["count"], 1)
 
-        with patch.object(voices_router.voice_service, "delete_voice", new=fake_delete_voice):
+        with patch.object(voices_router.qwen_voice_service, "delete_voice", new=fake_delete_voice):
             r_delete = self._request("DELETE", "/api/voices/voice_design_x?voice_type=voice_design")
         self.assertEqual(r_delete.status_code, 200)
         self.assertTrue(r_delete.json()["deleted"])

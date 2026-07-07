@@ -6,7 +6,61 @@ from tempfile import TemporaryDirectory
 from unittest.mock import AsyncMock, patch
 
 from services.evermem_service import EverMemService
-from services.realtime_voice_service import RealtimeMemorySession, RealtimeVoiceService
+from services.realtime_voice_service import (
+    RealtimeMemorySession,
+    RealtimeVoiceService,
+    _is_google_live_translate_model,
+)
+from services.voice_agent_tools import VoiceAgentToolSession
+
+
+class _FakeAudioTranscriptionConfig:
+    pass
+
+
+class _FakeTranslationConfig:
+    def __init__(self, target_language_code: str, echo_target_language: bool) -> None:
+        self.target_language_code = target_language_code
+        self.echo_target_language = echo_target_language
+
+
+class _FakeLiveConnectConfig:
+    def __init__(self, **kwargs) -> None:
+        self.kwargs = kwargs
+
+
+class _FakeGoogleTypes:
+    AudioTranscriptionConfig = _FakeAudioTranscriptionConfig
+    TranslationConfig = _FakeTranslationConfig
+    LiveConnectConfig = _FakeLiveConnectConfig
+
+
+class _FakeTextInputWebSocket:
+    def __init__(self) -> None:
+        self._messages = [
+            {"text": '{"type":"text_input","text":"hello"}'},
+            {"text": '{"type":"stop"}'},
+        ]
+        self.events: list[dict[str, object]] = []
+
+    async def receive(self) -> dict[str, object]:
+        return self._messages.pop(0)
+
+    async def send_json(self, payload: dict[str, object]) -> None:
+        self.events.append(payload)
+
+
+class _FakeTranscriptObject:
+    def __init__(self, text: str | None, finished: bool | None = None, language_code: str = "ja") -> None:
+        self.text = text
+        self.finished = finished
+        self.language_code = language_code
+
+
+class _FakeServerContent:
+    def __init__(self, **kwargs) -> None:
+        for key, value in kwargs.items():
+            setattr(self, key, value)
 
 
 class RealtimeMemorySessionTests(unittest.IsolatedAsyncioTestCase):
@@ -391,6 +445,66 @@ class RealtimeMemorySessionTests(unittest.IsolatedAsyncioTestCase):
         kwargs = fake_session.send_client_content.await_args.kwargs
         self.assertFalse(kwargs["turn_complete"])
         self.assertIn("默认使用中文女声播报", kwargs["turns"][0]["parts"][0]["text"])
+
+    def test_google_live_translate_model_detection(self) -> None:
+        self.assertTrue(_is_google_live_translate_model("gemini-3.5-live-translate-preview"))
+        self.assertFalse(_is_google_live_translate_model("gemini-2.5-flash-native-audio-preview-12-2025"))
+
+    def test_google_live_translate_config_uses_translation_settings_only(self) -> None:
+        with patch("services.realtime_voice_service.types", new=_FakeGoogleTypes):
+            config = RealtimeVoiceService._build_live_translate_config("zh-Hans", True)
+
+        self.assertEqual(config.kwargs["response_modalities"], ["AUDIO"])
+        self.assertIn("input_audio_transcription", config.kwargs)
+        self.assertIn("output_audio_transcription", config.kwargs)
+        self.assertNotIn("system_instruction", config.kwargs)
+        self.assertNotIn("speech_config", config.kwargs)
+        translation_config = config.kwargs["translation_config"]
+        self.assertEqual(translation_config.target_language_code, "zh-Hans")
+        self.assertTrue(translation_config.echo_target_language)
+
+    async def test_google_live_translate_rejects_text_input(self) -> None:
+        service = RealtimeVoiceService()
+        websocket = _FakeTextInputWebSocket()
+        session = AsyncMock()
+        memory_session = RealtimeMemorySession()
+        tool_session = VoiceAgentToolSession()
+
+        await service._client_to_google_loop(
+            websocket,  # type: ignore[arg-type]
+            session,
+            memory_session,
+            tool_session,
+            is_live_translate=True,
+        )
+
+        session.send.assert_not_awaited()
+        self.assertEqual(websocket.events[0]["type"], "error")
+        self.assertIn("仅支持实时音频输入", str(websocket.events[0]["message"]))
+
+    def test_extract_transcript_text_ignores_empty_sdk_objects(self) -> None:
+        content = _FakeServerContent(
+            input_transcription=_FakeTranscriptObject(text=None, finished=None, language_code="ja")
+        )
+
+        extracted = RealtimeVoiceService._extract_transcript_text(
+            content,
+            ("input_transcription",),
+        )
+
+        self.assertEqual(extracted, "")
+
+    def test_extract_transcript_text_reads_text_field_only(self) -> None:
+        content = _FakeServerContent(
+            input_transcription=_FakeTranscriptObject(text="あ、今日は外に旅行に行きたいです。", finished=True)
+        )
+
+        extracted = RealtimeVoiceService._extract_transcript_text(
+            content,
+            ("input_transcription",),
+        )
+
+        self.assertEqual(extracted, "あ、今日は外に旅行に行きたいです。")
 
 
 if __name__ == "__main__":

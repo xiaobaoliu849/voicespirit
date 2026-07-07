@@ -3,6 +3,6 @@ uvicorn[standard]>=0.30.0
 edge-tts>=7.2.7
 httpx>=0.28.1
 python-multipart>=0.0.9
-google-genai>=1.0.0
+google-genai>=2.3.0
 dashscope>=1.25.3
 pypdf>=5.0.0
