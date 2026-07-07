@@ -52,6 +52,18 @@ class VoiceAgentToolEventResponse(BaseModel):
     created_at: str
 
 
+class VoiceAgentTimelineEventResponse(BaseModel):
+    id: str
+    event_type: str
+    source: str
+    turn_id: str = ""
+    tool_name: str = ""
+    query: str = ""
+    text: str = ""
+    timestamp: str
+    payload: dict[str, Any] = Field(default_factory=dict)
+
+
 class VoiceAgentSessionListResponse(BaseModel):
     count: int
     sessions: list[VoiceAgentSessionResponse] = Field(default_factory=list)
@@ -60,6 +72,7 @@ class VoiceAgentSessionListResponse(BaseModel):
 class VoiceAgentSessionDetailResponse(VoiceAgentSessionResponse):
     turns: list[VoiceAgentTurnResponse] = Field(default_factory=list)
     tool_events: list[VoiceAgentToolEventResponse] = Field(default_factory=list)
+    timeline: list[VoiceAgentTimelineEventResponse] = Field(default_factory=list)
 
 
 def _raise_not_found(session_id: str) -> None:
@@ -91,6 +104,7 @@ async def get_voice_agent_session(session_id: str) -> VoiceAgentSessionDetailRes
         **session,
         turns=voice_agent_session_repository.list_turns(session_id),
         tool_events=voice_agent_session_repository.list_tool_events(session_id),
+        timeline=voice_agent_session_repository.build_timeline(session_id),
     )
 
 

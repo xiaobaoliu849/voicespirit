@@ -899,6 +899,41 @@ describe("useVoiceChat", () => {
           created_at: "2026-07-07 10:00:03",
         },
       ],
+      timeline: [
+        {
+          id: "session:voice-session-1:open",
+          event_type: "session_open",
+          source: "session",
+          turn_id: "",
+          tool_name: "",
+          query: "",
+          text: "",
+          timestamp: "2026-07-07 10:00:00",
+          payload: { provider: "DashScope" },
+        },
+        {
+          id: "turn:1:user",
+          event_type: "user_transcript",
+          source: "turn",
+          turn_id: "voice-tool-1",
+          tool_name: "",
+          query: "",
+          text: "帮我搜索 voice agent",
+          timestamp: "2026-07-07 10:00:01",
+          payload: { completed: true },
+        },
+        {
+          id: "tool_event:2",
+          event_type: "agent_result",
+          source: "tool_event",
+          turn_id: "voice-tool-1",
+          tool_name: "search_web",
+          query: "voice agent",
+          text: "已整理来源。",
+          timestamp: "2026-07-07 10:00:03",
+          payload: { answer: "已整理来源。" },
+        },
+      ],
     });
 
     const { result } = renderHook(() =>
@@ -940,6 +975,7 @@ describe("useVoiceChat", () => {
     const parsed = JSON.parse(exported);
     expect(parsed.session.id).toBe("voice-session-1");
     expect(parsed.session.turns[0].assistant_text).toBe("已整理来源。");
+    expect(parsed.session.timeline[2].event_type).toBe("agent_result");
     expect(result.current.voiceAgentHistoryExportText).toContain("\"voice-session-1\"");
 
     fetchVoiceAgentSessionMock.mockRejectedValueOnce(new Error("not found"));

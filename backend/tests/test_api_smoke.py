@@ -157,6 +157,17 @@ class ApiSmokeTests(unittest.TestCase):
                 detail_payload = detail_response.json()
                 self.assertEqual(detail_payload["turns"][0]["user_text"], "帮我搜索语音 Agent")
                 self.assertEqual(detail_payload["tool_events"][0]["event_type"], "agent_result")
+                self.assertEqual(
+                    [event["event_type"] for event in detail_payload["timeline"]],
+                    [
+                        "session_open",
+                        "user_transcript",
+                        "agent_result",
+                        "assistant_response",
+                        "turn_completed",
+                    ],
+                )
+                self.assertEqual(detail_payload["timeline"][2]["source"], "tool_event")
 
                 missing_response = self._request("GET", "/api/voice-chat/sessions/missing")
                 self.assertEqual(missing_response.status_code, 404)

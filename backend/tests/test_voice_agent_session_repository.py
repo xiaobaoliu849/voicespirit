@@ -69,6 +69,25 @@ class VoiceAgentSessionRepositoryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(events[0]["tool_name"], "search_web")
         self.assertEqual(events[0]["payload"]["sources"][0]["title"], "Source")
 
+        timeline = self.repository.build_timeline(session["id"])
+        self.assertEqual(
+            [event["event_type"] for event in timeline],
+            [
+                "session_open",
+                "user_transcript",
+                "agent_result",
+                "assistant_response",
+                "memory_commit",
+                "turn_completed",
+                "session_closed",
+            ],
+        )
+        self.assertEqual(timeline[1]["text"], "帮我搜索语音 Agent")
+        self.assertEqual(timeline[2]["source"], "tool_event")
+        self.assertEqual(timeline[2]["payload"]["answer"], "已整理结果")
+        self.assertEqual(timeline[3]["text"], "这是基于来源的回答。")
+        self.assertEqual(timeline[4]["payload"]["saved_count"], 1)
+
     async def test_recorder_links_tool_events_to_current_transcript_turn(self) -> None:
         session = self.repository.create_session(
             provider="Google",

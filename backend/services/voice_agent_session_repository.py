@@ -85,6 +85,33 @@ class VoiceAgentSessionRepository:
             "created_at": str(row["created_at"]),
         }
 
+    @staticmethod
+    def _timeline_event(
+        *,
+        event_id: str,
+        event_type: str,
+        source: str,
+        timestamp: str,
+        turn_id: str = "",
+        tool_name: str = "",
+        query: str = "",
+        text: str = "",
+        payload: dict[str, Any] | None = None,
+        order: int,
+    ) -> dict[str, Any]:
+        return {
+            "id": event_id,
+            "event_type": event_type,
+            "source": source,
+            "turn_id": turn_id,
+            "tool_name": tool_name,
+            "query": query,
+            "text": text,
+            "timestamp": timestamp,
+            "payload": payload or {},
+            "_order": order,
+        }
+
     def _init_db(self) -> None:
         with self._connect() as conn:
             conn.execute(
@@ -366,3 +393,119 @@ class VoiceAgentSessionRepository:
                 (str(session_id or ""), safe_limit),
             ).fetchall()
         return [self._row_to_event(row) for row in rows]
+
+    def build_timeline(self, session_id: str) -> list[dict[str, Any]]:
+        session = self.get_session(session_id)
+        if session is None:
+            return []
+
+        timeline: list[dict[str, Any]] = [
+            self._timeline_event(
+                event_id=f"session:{session['id']}:open",
+                event_type="session_open",
+                source="session",
+                timestamp=str(session.get("started_at", "")),
+                payload={
+                    "provider": session.get("provider", ""),
+                    "model": session.get("model", ""),
+                    "voice": session.get("voice", ""),
+                    "status": session.get("status", ""),
+                    "meta": session.get("meta", {}),
+                },
+                order=0,
+            )
+        ]
+
+        for turn in self.list_turns(session_id):
+            turn_id = str(turn.get("turn_id", ""))
+            if str(turn.get("user_text", "")).strip():
+                timeline.append(
+                    self._timeline_event(
+                        event_id=f"turn:{turn['id']}:user",
+                        event_type="user_transcript",
+                        source="turn",
+                        turn_id=turn_id,
+                        text=str(turn.get("user_text", "")),
+                        timestamp=str(turn.get("started_at", "")),
+                        payload={"completed": bool(turn.get("completed", False))},
+                        order=20,
+                    )
+                )
+            if str(turn.get("assistant_text", "")).strip():
+                timeline.append(
+                    self._timeline_event(
+                        event_id=f"turn:{turn['id']}:assistant",
+                        event_type="assistant_response",
+                        source="turn",
+                        turn_id=turn_id,
+                        text=str(turn.get("assistant_text", "")),
+                        timestamp=str(turn.get("completed_at") or turn.get("started_at", "")),
+                        payload={"completed": bool(turn.get("completed", False))},
+                        order=60,
+                    )
+                )
+            memory_payload = turn.get("memory_payload", {})
+            if isinstance(memory_payload, dict) and memory_payload:
+                timeline.append(
+                    self._timeline_event(
+                        event_id=f"turn:{turn['id']}:memory",
+                        event_type="memory_commit",
+                        source="memory",
+                        turn_id=turn_id,
+                        timestamp=str(turn.get("completed_at") or turn.get("started_at", "")),
+                        payload=memory_payload,
+                        order=70,
+                    )
+                )
+            if bool(turn.get("completed", False)):
+                timeline.append(
+                    self._timeline_event(
+                        event_id=f"turn:{turn['id']}:complete",
+                        event_type="turn_completed",
+                        source="turn",
+                        turn_id=turn_id,
+                        timestamp=str(turn.get("completed_at") or turn.get("started_at", "")),
+                        payload={},
+                        order=80,
+                    )
+                )
+
+        for event in self.list_tool_events(session_id):
+            payload = event.get("payload", {})
+            timeline.append(
+                self._timeline_event(
+                    event_id=f"tool_event:{event['id']}",
+                    event_type=str(event.get("event_type", "")),
+                    source="tool_event",
+                    turn_id=str(event.get("turn_id", "")),
+                    tool_name=str(event.get("tool_name", "")),
+                    query=str(event.get("query", "")),
+                    text=str(payload.get("message") or payload.get("answer") or "") if isinstance(payload, dict) else "",
+                    timestamp=str(event.get("created_at", "")),
+                    payload=payload if isinstance(payload, dict) else {},
+                    order=40,
+                )
+            )
+
+        if str(session.get("ended_at", "")).strip():
+            timeline.append(
+                self._timeline_event(
+                    event_id=f"session:{session['id']}:closed",
+                    event_type="session_closed",
+                    source="session",
+                    timestamp=str(session.get("ended_at", "")),
+                    payload={"status": session.get("status", "")},
+                    order=900,
+                )
+            )
+
+        timeline.sort(
+            key=lambda item: (
+                str(item.get("timestamp", "")),
+                int(item.get("_order", 0)),
+                str(item.get("id", "")),
+            )
+        )
+        for item in timeline:
+            item.pop("_order", None)
+        return timeline

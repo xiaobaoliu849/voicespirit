@@ -1,6 +1,6 @@
 # VoiceSpirit Voice Agent Evolution Roadmap
 
-Last updated: 2026-06-16
+Last updated: 2026-07-07
 
 ## Executive View
 
@@ -50,16 +50,17 @@ Implemented:
 - frontend-local session history now stores structured realtime tool call records on assistant messages
 - backend SQLite persistence for realtime voice agent sessions, turn transcripts, and tool event payloads
 - read API for persisted realtime voice agent sessions and detail records
+- frontend browsing/export UI for persisted realtime voice agent sessions
+- canonical voice agent timeline built from session, turn, tool, memory, and completion events
 - response gating for search turns through `response_gated`, suppressing direct generic replies while tool results are pending
 
 Missing:
 
 - richer retrieval and application tools beyond web search, audio-run creation, translation, transcript summarization, and TTS synthesis
-- frontend browsing/export UI for persisted realtime voice agent sessions
 - policy for ignoring backchannels like "嗯嗯" or brief noise
 - aggregate latency and interruption metrics dashboard
 - deeper provider-level response cancellation for every realtime backend
-- session transcript persistence beyond frontend-local archive behavior
+- provider-independent timeline rendering, filtering, and metrics
 
 ### Audio/podcast agent
 
@@ -115,6 +116,13 @@ Current event payloads should carry:
 - `elapsed_ms`
 - `reason` for cancellations
 
+The clean target is a single event ledger:
+
+- realtime providers emit raw transport events
+- VoiceSpirit normalizes them into a canonical voice agent timeline
+- frontend history, replay, export, debugging, and future metrics consume the timeline
+- LiveKit or WebRTC can become a transport adapter without changing the agent history model
+
 ## Proposed Milestones
 
 ### Milestone 1: Realtime Voice Agent MVP
@@ -137,7 +145,9 @@ Backend:
 - done: persist realtime tool calls into frontend-local session history
 - done: persist realtime tool transcripts and artifacts in the backend
 - done: expose persisted voice agent sessions through a read API
-- next: add frontend browsing/export UI for persisted voice agent sessions
+- done: add frontend browsing/export UI for persisted voice agent sessions
+- done: expose a canonical backend timeline for persisted voice agent sessions
+- next: render timeline as the primary history view and add recorded event sequence tests
 
 Frontend:
 
@@ -146,6 +156,8 @@ Frontend:
 - done: show run metadata such as `turn_id`, source count, and elapsed time
 - done: treat interruption as both playback stop and current-turn cancellation request
 - done: attach structured tool call records to archived voice assistant messages
+- done: browse, inspect, and export persisted backend voice agent sessions
+- next: make the canonical timeline the primary replay/debugging surface
 
 Success criteria:
 
@@ -155,7 +167,7 @@ Success criteria:
 - done: user interruption cancels active tool work
 - done: search context is passed back to the realtime model for a voice answer
 - done: reduce risk of raw model reply racing with tool-grounded reply through response gating
-- next: add scenario tests with recorded realtime event sequences
+- next: add scenario tests with recorded realtime event sequences built around the canonical timeline
 
 ### Milestone 2: Robust Interruption Policy
 
@@ -209,24 +221,22 @@ Permission model:
 
 ## Immediate Development Backlog
 
-1. Add a shared tool result model and event schema.
-2. Add cancellation support to voice chat sessions.
-3. Add `search_web` and `fetch_url` tools by wrapping `AudioResearchService`.
-4. Add a voice command path that detects search/research intent and executes the tools.
-5. Surface tool progress and sources in `VoiceChatPage`.
-6. Add tests for interruption, tool event emission, and source display.
-7. Persist tool transcripts and artifacts in backend session storage.
-8. Add read APIs for persisted realtime voice agent sessions.
-9. Add frontend browsing/export UI for persisted voice agent sessions.
-10. Add audio agent cancellation/retry endpoints.
+1. Promote the canonical voice agent timeline to the primary frontend history/replay view.
+2. Add recorded event sequence tests for search, interruption, cancellation, and memory-write turns.
+3. Add aggregate latency fields to timeline events (`elapsed_ms`, provider, transport, stage).
+4. Add interruption classification: true barge-in, backchannel, silence timeout, and noise-like audio.
+5. Add audio agent cancellation/retry endpoints.
+6. Add SSE or WebSocket progress for durable audio agent runs.
+7. Add a shared tool/action permission model for read-only versus confirm-required actions.
+8. Evaluate LiveKit only after the timeline contract survives Google, DashScope, and OpenAI session replay.
 
 ## Recommended Next Code Iteration
 
-Start with a narrow, testable slice:
+Start with the narrowest slice that proves the higher-level model:
 
-- backend tool wrapper around `AudioResearchService.search` and `fetch_document`
-- websocket event types for tool progress
-- frontend rendering of current tool status and final sources
-- tests without real network by mocking the research service
+- backend timeline builder from session, turn, tool, memory, and completion records
+- API detail response that includes both raw records and canonical timeline
+- frontend history view that renders the timeline first and raw records as supporting detail
+- tests with deterministic recorded event sequences
 
-This gives VoiceSpirit a visible "agent can search and answer" capability without rewiring the realtime model provider stack.
+This proves VoiceSpirit can reason about voice agent sessions independently of provider transport before taking on a LiveKit/WebRTC migration.

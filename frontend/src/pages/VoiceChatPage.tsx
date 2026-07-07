@@ -1,4 +1,5 @@
 import ErrorNotice from "../components/ErrorNotice";
+import type { VoiceAgentTimelineEventHistory } from "../api";
 import type { UseVoiceChatResult } from "../hooks/useVoiceChat";
 import { useI18n } from "../i18n";
 import type { ErrorRuntimeContext } from "../types/ui";
@@ -8,9 +9,30 @@ type Props = {
   errorRuntimeContext: ErrorRuntimeContext;
 };
 
+function timelineText(event: VoiceAgentTimelineEventHistory): string {
+  return event.text || event.query || "";
+}
+
 export default function VoiceChatPage({ voiceChat, errorRuntimeContext }: Props) {
   const { t } = useI18n();
   const selectedHistory = voiceChat.voiceAgentHistoryDetail;
+  const selectedHistoryTimeline = selectedHistory?.timeline ?? [];
+  const timelineEventLabels: Record<string, string> = {
+    session_open: t("会话开始", "Session opened"),
+    session_closed: t("会话结束", "Session closed"),
+    user_transcript: t("用户语音转写", "User transcript"),
+    assistant_response: t("助手回应", "Assistant response"),
+    memory_commit: t("记忆写入", "Memory commit"),
+    turn_completed: t("轮次完成", "Turn completed"),
+    tool_call_started: t("工具开始", "Tool started"),
+    agent_progress: t("Agent 进度", "Agent progress"),
+    tool_call_completed: t("工具完成", "Tool completed"),
+    tool_call_failed: t("工具失败", "Tool failed"),
+    tool_call_cancelled: t("工具取消", "Tool cancelled"),
+    response_gated: t("回应闸门", "Response gated"),
+    tool_context_injected: t("工具上下文注入", "Tool context injected"),
+    agent_result: t("Agent 结果", "Agent result"),
+  };
   return (
     <section className="vsTtsWorkspace">
       <div className="vsTtsLayout">
@@ -299,9 +321,42 @@ export default function VoiceChatPage({ voiceChat, errorRuntimeContext }: Props)
                     {selectedHistory.provider} · {selectedHistory.model || t("未记录模型", "Model not recorded")} · {selectedHistory.voice || t("未记录音色", "Voice not recorded")}
                   </div>
                   <div className="vsFieldHint">
-                    {t(`轮次 ${selectedHistory.turns.length}，工具事件 ${selectedHistory.tool_events.length}`, `${selectedHistory.turns.length} turns, ${selectedHistory.tool_events.length} tool events`)}
+                    {t(
+                      `轮次 ${selectedHistory.turns.length}，工具事件 ${selectedHistory.tool_events.length}，时间线 ${selectedHistoryTimeline.length}`,
+                      `${selectedHistory.turns.length} turns, ${selectedHistory.tool_events.length} tool events, ${selectedHistoryTimeline.length} timeline events`
+                    )}
                   </div>
                 </div>
+
+                {selectedHistoryTimeline.length > 0 ? (
+                  <div className="vsField">
+                    <label className="vsFieldLabel">{t("统一事件时间线", "Unified event timeline")}</label>
+                    <div style={{ display: "grid", gap: 8 }}>
+                      {selectedHistoryTimeline.slice(0, 12).map((event) => {
+                        const label = timelineEventLabels[event.event_type] || event.event_type;
+                        const mainText = timelineText(event);
+                        return (
+                          <div
+                            key={event.id}
+                            className="vsRealtimeContent"
+                            style={{ border: "1px solid var(--line)", borderRadius: 10, padding: 12, background: "white" }}
+                          >
+                            <div style={{ fontWeight: 700 }}>
+                              {label}
+                              {event.tool_name ? ` · ${event.tool_name}` : ""}
+                            </div>
+                            <div className="vsFieldHint">
+                              {event.timestamp}
+                              {event.turn_id ? ` · ${event.turn_id}` : ""}
+                              {event.source ? ` · ${event.source}` : ""}
+                            </div>
+                            {mainText ? <div>{mainText}</div> : null}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ) : null}
 
                 {selectedHistory.turns.length > 0 ? (
                   <div className="vsField">

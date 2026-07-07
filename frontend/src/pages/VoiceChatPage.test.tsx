@@ -131,6 +131,41 @@ describe("VoiceChatPage", () => {
                 created_at: "2026-07-07 10:00:03",
               },
             ],
+            timeline: [
+              {
+                id: "session:voice-session-1:open",
+                event_type: "session_open",
+                source: "session",
+                turn_id: "",
+                tool_name: "",
+                query: "",
+                text: "",
+                timestamp: "2026-07-07 10:00:00",
+                payload: { provider: "DashScope" },
+              },
+              {
+                id: "turn:1:user",
+                event_type: "user_transcript",
+                source: "turn",
+                turn_id: "voice-tool-1",
+                tool_name: "",
+                query: "",
+                text: "帮我搜索 voice agent",
+                timestamp: "2026-07-07 10:00:01",
+                payload: { completed: true },
+              },
+              {
+                id: "tool_event:2",
+                event_type: "agent_result",
+                source: "tool_event",
+                turn_id: "voice-tool-1",
+                tool_name: "search_web",
+                query: "voice agent",
+                text: "已整理来源。",
+                timestamp: "2026-07-07 10:00:03",
+                payload: { answer: "已整理来源。" },
+              },
+            ],
           },
           voiceAgentHistoryExportText: "{\n  \"session\": \"voice-session-1\"\n}",
           onLoadVoiceAgentHistory,
@@ -149,9 +184,11 @@ describe("VoiceChatPage", () => {
     expect(onOpenVoiceAgentSession).toHaveBeenCalledWith("voice-session-1");
 
     expect(screen.getByText("已打开历史会话: voice-session-1")).toBeInTheDocument();
-    expect(screen.getByText("轮次 1，工具事件 1")).toBeInTheDocument();
+    expect(screen.getByText("轮次 1，工具事件 1，时间线 3")).toBeInTheDocument();
+    expect(screen.getByText("统一事件时间线")).toBeInTheDocument();
     expect(screen.getByText("用户: 帮我搜索 voice agent")).toBeInTheDocument();
     expect(screen.getByText("agent_result · search_web")).toBeInTheDocument();
+    expect(screen.getByText("用户语音转写")).toBeInTheDocument();
 
     fireEvent.click(screen.getByText("导出 JSON"));
     expect(onExportVoiceAgentSession).toHaveBeenCalledTimes(1);

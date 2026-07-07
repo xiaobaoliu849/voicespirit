@@ -109,6 +109,18 @@ export type VoiceAgentToolEventHistory = {
   created_at: string;
 };
 
+export type VoiceAgentTimelineEventHistory = {
+  id: string;
+  event_type: string;
+  source: string;
+  turn_id: string;
+  tool_name: string;
+  query: string;
+  text: string;
+  timestamp: string;
+  payload: Record<string, unknown>;
+};
+
 export type VoiceAgentSessionHistoryListResponse = {
   count: number;
   sessions: VoiceAgentSessionHistory[];
@@ -117,6 +129,7 @@ export type VoiceAgentSessionHistoryListResponse = {
 export type VoiceAgentSessionHistoryDetailResponse = VoiceAgentSessionHistory & {
   turns: VoiceAgentTurnHistory[];
   tool_events: VoiceAgentToolEventHistory[];
+  timeline: VoiceAgentTimelineEventHistory[];
 };
 
 export type ChatMessage = {
