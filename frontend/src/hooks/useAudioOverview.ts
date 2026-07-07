@@ -2,6 +2,7 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import {
   createAudioAgentRun,
   type AudioAgentEvent,
+  type AudioAgentRun,
   createAudioOverviewPodcast,
   deleteAudioOverviewPodcast,
   type AudioAgentRunDetail,
@@ -13,6 +14,7 @@ import {
   getEverMemRuntimeConfig,
   getAudioOverviewPodcast,
   listAudioAgentRunEvents,
+  listAudioAgentRuns,
   listAudioOverviewPodcasts,
   saveAudioOverviewScript,
   synthesizeAudioAgentRun,
@@ -91,6 +93,8 @@ export default function useAudioOverview(options: Options) {
   const [audioAgentResultModel, setAudioAgentResultModel] = useState("");
   const [audioAgentEvents, setAudioAgentEvents] = useState<AudioAgentEvent[]>([]);
   const [audioAgentErrorMessage, setAudioAgentErrorMessage] = useState("");
+  const [agentRunHistory, setAgentRunHistory] = useState<AudioAgentRun[]>([]);
+  const [agentRunHistoryBusy, setAgentRunHistoryBusy] = useState(false);
 
   const [allVoices, setAllVoices] = useState<VoiceInfo[]>([]);
 
@@ -482,6 +486,51 @@ export default function useAudioOverview(options: Options) {
     }
   }
 
+  async function loadAgentRunHistory() {
+    setAgentRunHistoryBusy(true);
+    try {
+      const data = await listAudioAgentRuns(30);
+      setAgentRunHistory(data.runs);
+    } catch (err) {
+      setAudioOverviewError(formatErrorMessage(err, t("加载 Agent 运行记录失败。", "Failed to load agent run history.")));
+    } finally {
+      setAgentRunHistoryBusy(false);
+    }
+  }
+
+  async function onOpenAgentRun(run: AudioAgentRun) {
+    setAudioOverviewError("");
+    setAudioOverviewInfo("");
+    setAudioOverviewBusy(true);
+    try {
+      const detail = await getAudioAgentRun(run.id);
+      applyAudioAgentRun(detail);
+      const eventData = await listAudioAgentRunEvents(run.id, 50);
+      applyAudioAgentEvents(eventData.events);
+      if (detail.podcast_id && detail.podcast_id > 0) {
+        const podcast = await getAudioOverviewPodcast(detail.podcast_id);
+        applyAudioOverviewPodcast(podcast);
+        if (podcast.audio_path) {
+          const blob = await fetchAudioOverviewPodcastAudio(detail.podcast_id);
+          setAudioOverviewAudioBlob(blob);
+        } else {
+          clearAudioOverviewAudio();
+        }
+      } else {
+        setAudioOverviewPodcastId(null);
+        setAudioOverviewScriptLines([]);
+        clearAudioOverviewAudio();
+      }
+      setAudioOverviewInfo(
+        t(`已载入 Agent 运行 #${run.id}。`, `Loaded agent run #${run.id}.`)
+      );
+    } catch (err) {
+      setAudioOverviewError(formatErrorMessage(err, t("加载 Agent 运行记录失败。", "Failed to load agent run.")));
+    } finally {
+      setAudioOverviewBusy(false);
+    }
+  }
+
   async function onSaveScript() {
     setAudioOverviewError("");
     setAudioOverviewInfo("");
@@ -799,7 +848,11 @@ export default function useAudioOverview(options: Options) {
     onMergeStrategyChange: setAudioOverviewMergeStrategy,
     onRefreshList: loadAudioOverviewPodcasts,
     onLoadPodcast: loadAudioOverviewPodcastById,
-    onRetryAgentRun
+    onRetryAgentRun,
+    agentRunHistory,
+    agentRunHistoryBusy,
+    onLoadAgentRunHistory: loadAgentRunHistory,
+    onOpenAgentRun
   };
 }
 

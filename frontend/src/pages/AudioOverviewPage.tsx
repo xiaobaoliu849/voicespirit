@@ -5,6 +5,9 @@ import PodcastSynthBar from "../components/podcast/PodcastSynthBar";
 import PodcastTopicStep from "../components/podcast/PodcastTopicStep";
 import PodcastHeader from "../components/podcast/PodcastHeader";
 import { PodcastCard } from "../components/podcast/PodcastCard";
+import AgentProgressPanel from "../components/podcast/AgentProgressPanel";
+import AgentSourcesPanel from "../components/podcast/AgentSourcesPanel";
+import AgentRunHistory from "../components/podcast/AgentRunHistory";
 import ErrorNotice from "../components/ErrorNotice";
 import { useI18n } from "../i18n";
 import type { ErrorRuntimeContext } from "../types/ui";
@@ -23,6 +26,13 @@ export default function AudioOverviewPage({
   // ── View State ──
   const [viewMode, setViewMode] = useState<"library" | "workspace">("library");
   const [searchQuery, setSearchQuery] = useState("");
+  const [libraryTab, setLibraryTab] = useState<"podcasts" | "agent_runs">("podcasts");
+
+  useEffect(() => {
+    if (libraryTab === "agent_runs" && audioOverview.agentRunHistory.length === 0 && !audioOverview.agentRunHistoryBusy) {
+      void audioOverview.onLoadAgentRunHistory();
+    }
+  }, [libraryTab]);
 
   const hasScript = audioOverview.audioOverviewScriptLines.length > 0;
   const headerAudioOverview = {
@@ -138,13 +148,16 @@ export default function AudioOverviewPage({
             </p>
           ) : null}
           
-          {audioOverview.audioAgentRunId !== null && audioOverview.audioAgentStatus !== "completed" ? (
-            <div className="vsAgentRunningBanner">
-               <div className="spinner vsAgentSpinner" />
-               <span className="vsAgentRunningLabel">
-                 {t(`Agent 执行中: 步骤 ${audioOverview.audioAgentCurrentStep || "prepare"}`, `Agent running: step ${audioOverview.audioAgentCurrentStep || "prepare"}`)}
-               </span>
-            </div>
+          {audioOverview.audioAgentRunId !== null ? (
+            <AgentProgressPanel
+              steps={audioOverview.audioAgentSteps}
+              currentStep={audioOverview.audioAgentCurrentStep}
+              agentStatus={audioOverview.audioAgentStatus}
+              errorMessage={audioOverview.audioAgentErrorMessage}
+              canRetry={audioOverview.audioAgentCanRetry}
+              onRetry={audioOverview.onRetryAgentRun}
+              busy={audioOverview.audioOverviewBusy}
+            />
           ) : null}
 
           {/* Stepper Tabs */}
@@ -185,6 +198,7 @@ export default function AudioOverviewPage({
                   </div>
                 )}
                 
+                <AgentSourcesPanel sources={audioOverview.audioAgentSources} />
                 <PodcastScriptEditor audioOverview={audioOverview} />
                 <PodcastSynthBar audioOverview={audioOverview} />
               </>
@@ -231,7 +245,36 @@ export default function AudioOverviewPage({
         </div>
       </div>
 
-      {/* Card Grid */}
+      {/* Library Tabs */}
+      <div className="vsLibraryTabs">
+        <button
+          className={libraryTab === "podcasts" ? "vsBtnPrimary vsStepperBtn" : "vsBtnSecondary vsStepperBtn"}
+          onClick={() => setLibraryTab("podcasts")}
+        >
+          {t("播客记录", "Podcasts")}
+        </button>
+        <button
+          className={libraryTab === "agent_runs" ? "vsBtnPrimary vsStepperBtn" : "vsBtnSecondary vsStepperBtn"}
+          onClick={() => setLibraryTab("agent_runs")}
+        >
+          {t("Agent 运行记录", "Agent Runs")}
+        </button>
+      </div>
+
+      {/* Card Grid / Agent History */}
+      {libraryTab === "agent_runs" ? (
+        <div className="vsTranscribeGridWrap custom-scrollbar">
+          <AgentRunHistory
+            runs={audioOverview.agentRunHistory}
+            busy={audioOverview.agentRunHistoryBusy}
+            onRefresh={() => { void audioOverview.onLoadAgentRunHistory(); }}
+            onOpenRun={(run) => {
+              void audioOverview.onOpenAgentRun(run);
+              setViewMode("workspace");
+            }}
+          />
+        </div>
+      ) : (
       <div className="vsTranscribeGridWrap custom-scrollbar">
         {audioOverview.audioOverviewListBusy && audioOverview.audioOverviewPodcasts.length === 0 ? (
           <div className="vsTranscribeEmpty">
@@ -293,6 +336,7 @@ export default function AudioOverviewPage({
           </div>
         )}
       </div>
+      )}
 
       {/* Global Error */}
       {audioOverview.audioOverviewError && (
