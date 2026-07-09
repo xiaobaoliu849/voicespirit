@@ -56,8 +56,8 @@ describe("useVoiceManagement", () => {
       useVoiceManagement({ formatErrorMessage, dashscopeApiKeyConfigured: true })
     );
 
-    expect(listCustomVoices).toHaveBeenCalledWith("voice_design");
-    expect(listCustomVoices).toHaveBeenCalledWith("voice_clone");
+    expect(listCustomVoices).toHaveBeenCalledWith("voice_design", "qwen");
+    expect(listCustomVoices).toHaveBeenCalledWith("voice_clone", "qwen");
   });
 
   it("validates clone audio file metadata on selection", () => {

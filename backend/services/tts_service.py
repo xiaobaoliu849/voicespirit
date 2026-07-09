@@ -1,13 +1,17 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
+import os
 import re
+import threading
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import httpx
 
-from .config_loader import BackendConfig
+from .config_loader import BackendConfig, get_data_dir
 
 try:
     import edge_tts
@@ -62,6 +66,22 @@ DEFAULT_MINIMAX_MODEL = "speech-02-turbo"
 DEFAULT_MINIMAX_URL = "https://api.minimax.chat/v1/t2a_v2"
 DEFAULT_XIAOMI_MODEL = "mimo-v2.5-tts"
 DEFAULT_XIAOMI_URL = "https://api.xiaomimimo.com"
+MEDIA_TYPE_MP3 = "audio/mpeg"
+MEDIA_TYPE_WAV = "audio/wav"
+GPT_SOVITS_VOICE_PREFIX = "gpt_sovits_"
+LOCAL_AUDIO_EXTENSIONS = {".wav", ".mp3", ".flac", ".m4a", ".aac", ".ogg", ".webm", ".mp4"}
+LOCAL_AUDIO_EXTENSION_BY_MIME = {
+    "audio/wav": ".wav",
+    "audio/x-wav": ".wav",
+    "audio/mpeg": ".mp3",
+    "audio/mp3": ".mp3",
+    "audio/flac": ".flac",
+    "audio/x-flac": ".flac",
+    "audio/mp4": ".m4a",
+    "audio/aac": ".aac",
+    "audio/ogg": ".ogg",
+    "audio/webm": ".webm",
+}
 
 FALLBACK_EDGE_VOICES = [
     {"name": "zh-CN-XiaoxiaoNeural", "short_name": "Xiaoxiao", "locale": "zh-CN", "gender": "Female"},
@@ -121,6 +141,24 @@ GPT_SOVITS_VOICES = [
 
 
 _global_chattts_instance = None
+_global_chattts_lock = threading.Lock()
+
+
+@dataclass(frozen=True)
+class TTSAudioResult:
+    file_path: str
+    voice: str
+    engine: str
+    media_type: str
+    filename: str
+    cache_hit: bool
+
+    def __iter__(self):
+        # Backward compatible with older callers that unpacked
+        # (file_path, used_voice, cache_hit).
+        yield self.file_path
+        yield self.voice
+        yield self.cache_hit
 
 
 class TTSService:
@@ -135,19 +173,150 @@ class TTSService:
         self.output_dir = resolved_output
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
+    def _legacy_gpt_sovits_voices_dir(self) -> Path:
+        return Path(__file__).resolve().parents[1] / "data" / "gpt_sovits_voices"
+
+    def get_gpt_sovits_voices_dir(self) -> Path:
+        return get_data_dir() / "gpt_sovits_voices"
+
+    def _gpt_sovits_voice_dirs(self) -> list[Path]:
+        primary = self.get_gpt_sovits_voices_dir()
+        legacy = self._legacy_gpt_sovits_voices_dir()
+        return [primary] if primary == legacy else [primary, legacy]
+
+    @staticmethod
+    def normalize_local_voice_name(name: str) -> str:
+        raw = str(name or "").strip()
+        if not raw:
+            raise ValueError("Voice name is required.")
+        normalized = re.sub(r"\s+", "_", raw)
+        normalized = re.sub(r"[^\w.-]+", "_", normalized, flags=re.UNICODE)
+        normalized = normalized.strip("._-")
+        if not normalized:
+            digest = hashlib.sha1(raw.encode("utf-8")).hexdigest()[:8]
+            normalized = f"voice_{digest}"
+        if normalized in {".", ".."} or "/" in normalized or "\\" in normalized:
+            raise ValueError("Voice name contains invalid path characters.")
+        if len(normalized) > 80:
+            digest = hashlib.sha1(normalized.encode("utf-8")).hexdigest()[:8]
+            normalized = f"{normalized[:71]}_{digest}"
+        return normalized
+
+    @classmethod
+    def _parse_local_gpt_sovits_voice_name(cls, voice_name: str) -> str:
+        clone_name = str(voice_name or "").strip()
+        if clone_name.startswith(GPT_SOVITS_VOICE_PREFIX):
+            clone_name = clone_name[len(GPT_SOVITS_VOICE_PREFIX):]
+        normalized = cls.normalize_local_voice_name(clone_name)
+        if normalized != clone_name:
+            raise ValueError("Invalid GPT-SoVITS voice name.")
+        return normalized
+
+    @staticmethod
+    def _infer_local_audio_extension(
+        filename: str | None,
+        content_type: str | None,
+        data: bytes,
+    ) -> str:
+        suffix = Path(filename or "").suffix.lower()
+        if suffix in LOCAL_AUDIO_EXTENSIONS:
+            return suffix
+
+        mime_extension = LOCAL_AUDIO_EXTENSION_BY_MIME.get(str(content_type or "").split(";")[0].strip().lower())
+        if mime_extension:
+            return mime_extension
+
+        if data.startswith(b"RIFF") and data[8:12] == b"WAVE":
+            return ".wav"
+        if data.startswith(b"ID3") or data[:2] in {b"\xff\xfb", b"\xff\xf3", b"\xff\xf2"}:
+            return ".mp3"
+        if data.startswith(b"fLaC"):
+            return ".flac"
+        if data.startswith(b"OggS"):
+            return ".ogg"
+        if data.startswith(b"\x1a\x45\xdf\xa3"):
+            return ".webm"
+        if len(data) > 12 and data[4:8] == b"ftyp":
+            return ".m4a"
+
+        raise ValueError("Unsupported audio file format for GPT-SoVITS clone.")
+
+    def _iter_local_gpt_sovits_audio_files(self) -> list[Path]:
+        files: dict[str, Path] = {}
+        for voices_dir in self._gpt_sovits_voice_dirs():
+            if not voices_dir.exists():
+                continue
+            for file in sorted(voices_dir.iterdir()):
+                if file.is_file() and file.suffix.lower() in LOCAL_AUDIO_EXTENSIONS:
+                    files.setdefault(file.stem, file)
+        return list(files.values())
+
+    def _find_local_gpt_sovits_voice(self, clone_name: str) -> tuple[Path, Path | None] | None:
+        normalized = self._parse_local_gpt_sovits_voice_name(clone_name)
+        for voices_dir in self._gpt_sovits_voice_dirs():
+            if not voices_dir.exists():
+                continue
+            for extension in sorted(LOCAL_AUDIO_EXTENSIONS):
+                audio_file = voices_dir / f"{normalized}{extension}"
+                if audio_file.exists() and audio_file.is_file():
+                    text_file = voices_dir / f"{normalized}.txt"
+                    return audio_file, text_file if text_file.exists() else None
+        return None
+
+    def save_local_gpt_sovits_voice(
+        self,
+        *,
+        preferred_name: str,
+        audio_bytes: bytes,
+        filename: str | None,
+        content_type: str | None,
+        prompt_text: str,
+    ) -> dict[str, Any]:
+        clone_name = self.normalize_local_voice_name(preferred_name)
+        extension = self._infer_local_audio_extension(filename, content_type, audio_bytes)
+        voices_dir = self.get_gpt_sovits_voices_dir()
+        voices_dir.mkdir(parents=True, exist_ok=True)
+
+        for old_file in voices_dir.glob(f"{clone_name}.*"):
+            if old_file.suffix.lower() in LOCAL_AUDIO_EXTENSIONS or old_file.suffix.lower() == ".txt":
+                old_file.unlink()
+
+        audio_path = voices_dir / f"{clone_name}{extension}"
+        audio_path.write_bytes(audio_bytes)
+        text_path = voices_dir / f"{clone_name}.txt"
+        text_path.write_text(prompt_text.strip(), encoding="utf-8")
+
+        return {
+            "voice": f"{GPT_SOVITS_VOICE_PREFIX}{clone_name}",
+            "type": "voice_clone",
+            "target_model": "gpt-sovits-local",
+            "preferred_name": clone_name,
+            "provider": "gpt_sovits",
+        }
+
+    def delete_local_gpt_sovits_voice(self, voice_name: str) -> bool:
+        clone_name = self._parse_local_gpt_sovits_voice_name(voice_name)
+        deleted = False
+        for voices_dir in self._gpt_sovits_voice_dirs():
+            if not voices_dir.exists():
+                continue
+            for extension in sorted(LOCAL_AUDIO_EXTENSIONS | {".txt"}):
+                candidate = voices_dir / f"{clone_name}{extension}"
+                if candidate.exists() and candidate.is_file():
+                    candidate.unlink()
+                    deleted = True
+        return deleted
+
     def _get_local_gpt_sovits_voices(self) -> list[dict[str, Any]]:
-        root = Path(__file__).resolve().parents[1]
-        voices_dir = root / "data" / "gpt_sovits_voices"
-        if not voices_dir.exists():
-            return []
         voices = []
-        for file in sorted(voices_dir.glob("*.wav")):
+        for file in self._iter_local_gpt_sovits_audio_files():
             name = file.stem
             voices.append({
-                "name": f"gpt_sovits_{name}",
+                "name": f"{GPT_SOVITS_VOICE_PREFIX}{name}",
                 "short_name": f"{name} (本地克隆)",
                 "locale": "multi",
                 "gender": "Clone",
+                "audio_format": file.suffix.lower().lstrip("."),
             })
         return voices
 
@@ -177,9 +346,14 @@ class TTSService:
             return "ko-KR-SunHiNeural"
         return DEFAULT_EDGE_VOICE
 
-    def _make_filename(self, text: str, voice: str, rate: str, engine: str) -> str:
+    def _audio_profile_for_engine(self, engine: str) -> tuple[str, str]:
+        if engine in {TTS_ENGINE_CHATTTS, TTS_ENGINE_GPT_SOVITS}:
+            return "wav", MEDIA_TYPE_WAV
+        return "mp3", MEDIA_TYPE_MP3
+
+    def _make_filename(self, text: str, voice: str, rate: str, engine: str, extension: str) -> str:
         digest = hashlib.md5(f"{engine}|{voice}|{rate}|{text}".encode("utf-8")).hexdigest()[:16]
-        return f"{engine}_{digest}.mp3"
+        return f"{engine}_{digest}.{extension}"
 
     def _filter_by_locale(self, voices: list[dict[str, Any]], locale: str | None) -> list[dict[str, Any]]:
         if not locale:
@@ -229,74 +403,99 @@ class TTSService:
             base_url = f"http://{base_url}"
         return api_key, base_url
 
+    def _chattts_runtime_settings(self) -> tuple[Path, str, str]:
+        self.config.reload()
+        tts_settings = self.config.get_all().get("tts_settings", {})
+        model_dir = str(
+            tts_settings.get("chattts_model_dir")
+            or os.environ.get("VOICESPIRIT_CHATTTS_MODEL_DIR", "")
+        ).strip()
+        if not model_dir:
+            model_dir = str(Path.home() / ".cache" / "modelscope" / "hub" / "pzc163" / "ChatTTS")
+
+        hf_endpoint = str(
+            tts_settings.get("chattts_hf_endpoint")
+            or os.environ.get("VOICESPIRIT_CHATTTS_HF_ENDPOINT", "")
+        ).strip()
+        device = str(
+            tts_settings.get("chattts_device")
+            or os.environ.get("VOICESPIRIT_CHATTTS_DEVICE", "auto")
+        ).strip().lower() or "auto"
+        return Path(model_dir).expanduser(), hf_endpoint, device
+
     async def _generate_chattts_audio(self, text: str, voice: str, path: Path) -> None:
+        await asyncio.to_thread(self._generate_chattts_audio_sync, text, voice, path)
+
+    def _generate_chattts_audio_sync(self, text: str, voice: str, path: Path) -> None:
         global _global_chattts_instance
         try:
             import ChatTTS
             import torch
             import soundfile as sf
         except ImportError as exc:
-            raise RuntimeError("ChatTTS or soundfile is not installed on backend.") from exc
+            raise RuntimeError(
+                "ChatTTS local engine dependencies are missing. Install ChatTTS, torch, and soundfile."
+            ) from exc
 
-        if _global_chattts_instance is None:
-            import os
-            os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
-            _global_chattts_instance = ChatTTS.Chat()
-            
-            bp = os.path.expanduser("~/.cache/modelscope/hub/pzc163/ChatTTS")
-            if not os.path.exists(bp):
-                bp = r"C:\Users\WINDOWS\.cache\modelscope\hub\pzc163\ChatTTS"
-            
-            if not os.path.exists(bp):
-                raise RuntimeError(f"ChatTTS model directory not found at {bp}. Please download it first.")
-            
-            _global_chattts_instance.load_models(
-                vocos_config_path=os.path.join(bp, 'config', 'vocos.yaml'),
-                vocos_ckpt_path=os.path.join(bp, 'asset', 'Vocos.pt'),
-                dvae_config_path=os.path.join(bp, 'config', 'dvae.yaml'),
-                dvae_ckpt_path=os.path.join(bp, 'asset', 'DVAE.pt'),
-                gpt_config_path=os.path.join(bp, 'config', 'gpt.yaml'),
-                gpt_ckpt_path=os.path.join(bp, 'asset', 'GPT.pt'),
-                decoder_config_path=os.path.join(bp, 'config', 'decoder.yaml'),
-                decoder_ckpt_path=os.path.join(bp, 'asset', 'Decoder.pt'),
-                tokenizer_path=os.path.join(bp, 'asset', 'tokenizer.pt'),
-                device='cuda' if torch.cuda.is_available() else 'cpu'
+        model_dir, hf_endpoint, device_setting = self._chattts_runtime_settings()
+        if hf_endpoint:
+            os.environ["HF_ENDPOINT"] = hf_endpoint
+
+        with _global_chattts_lock:
+            if _global_chattts_instance is None:
+                if not model_dir.exists():
+                    raise RuntimeError(
+                        f"ChatTTS model directory not found at {model_dir}. "
+                        "Set tts_settings.chattts_model_dir or VOICESPIRIT_CHATTTS_MODEL_DIR."
+                    )
+
+                device = device_setting
+                if device == "auto":
+                    device = "cuda" if torch.cuda.is_available() else "cpu"
+
+                _global_chattts_instance = ChatTTS.Chat()
+                _global_chattts_instance.load_models(
+                    vocos_config_path=str(model_dir / "config" / "vocos.yaml"),
+                    vocos_ckpt_path=str(model_dir / "asset" / "Vocos.pt"),
+                    dvae_config_path=str(model_dir / "config" / "dvae.yaml"),
+                    dvae_ckpt_path=str(model_dir / "asset" / "DVAE.pt"),
+                    gpt_config_path=str(model_dir / "config" / "gpt.yaml"),
+                    gpt_ckpt_path=str(model_dir / "asset" / "GPT.pt"),
+                    decoder_config_path=str(model_dir / "config" / "decoder.yaml"),
+                    decoder_ckpt_path=str(model_dir / "asset" / "Decoder.pt"),
+                    tokenizer_path=str(model_dir / "asset" / "tokenizer.pt"),
+                    device=device,
+                )
+
+            seed = 2
+            try:
+                if voice and voice.isdigit():
+                    seed = int(voice)
+                elif voice and voice.startswith("seed_"):
+                    seed = int(voice.split("_")[-1])
+            except Exception:
+                pass
+
+            spk_stat_path = model_dir / "asset" / "spk_stat.pt"
+            if spk_stat_path.exists():
+                std, mean = torch.load(str(spk_stat_path), map_location="cpu").chunk(2)
+                generator = torch.Generator(device="cpu")
+                generator.manual_seed(seed)
+                spk_emb = torch.randn(768, generator=generator) * std + mean
+                params_infer_code = {"spk_emb": spk_emb}
+            else:
+                params_infer_code = {}
+
+            wavs = _global_chattts_instance.infer(
+                [text],
+                params_infer_code=params_infer_code,
+                params_refine_text={"prompt": "[oral_2][laugh_0][break_6]"},
             )
+            wav = wavs[0]
+            if wav.ndim > 1 and wav.shape[0] == 1:
+                wav = wav[0]
 
-        seed = 2
-        try:
-            if voice and voice.isdigit():
-                seed = int(voice)
-            elif voice and voice.startswith("seed_"):
-                seed = int(voice.split("_")[-1])
-        except Exception:
-            pass
-
-        import os
-        bp = os.path.expanduser("~/.cache/modelscope/hub/pzc163/ChatTTS")
-        if not os.path.exists(bp):
-            bp = r"C:\Users\WINDOWS\.cache\modelscope\hub\pzc163\ChatTTS"
-        
-        spk_stat_path = os.path.join(bp, 'asset', 'spk_stat.pt')
-        if os.path.exists(spk_stat_path):
-            std, mean = torch.load(spk_stat_path, map_location='cpu').chunk(2)
-            g = torch.Generator(device='cpu')
-            g.manual_seed(seed)
-            spk_emb = torch.randn(768, generator=g) * std + mean
-            params_infer_code = {'spk_emb': spk_emb}
-        else:
-            params_infer_code = {}
-
-        wavs = _global_chattts_instance.infer(
-            [text],
-            params_infer_code=params_infer_code,
-            params_refine_text={'prompt': '[oral_2][laugh_0][break_6]'}
-        )
-        wav = wavs[0]
-        if wav.ndim > 1 and wav.shape[0] == 1:
-            wav = wav[0]
-        
-        sf.write(str(path), wav.T if wav.ndim > 1 else wav, 24000)
+            sf.write(str(path), wav.T if wav.ndim > 1 else wav, 24000)
 
     async def _generate_gpt_sovits_audio(self, text: str, voice: str, path: Path) -> None:
         api_key, base_url = self._gpt_sovits_settings()
@@ -305,23 +504,20 @@ class TTSService:
         prompt_text = ""
         prompt_lang = ""
         
-        voice_prefix = "gpt_sovits_"
-        if voice and voice.startswith(voice_prefix):
-            clone_name = voice[len(voice_prefix):]
-            voices_dir = Path(__file__).resolve().parents[1] / "data" / "gpt_sovits_voices"
-            audio_file = voices_dir / f"{clone_name}.wav"
-            text_file = voices_dir / f"{clone_name}.txt"
-            
-            if audio_file.exists():
+        if voice and voice.startswith(GPT_SOVITS_VOICE_PREFIX):
+            clone_name = voice[len(GPT_SOVITS_VOICE_PREFIX):]
+            local_voice = self._find_local_gpt_sovits_voice(clone_name)
+            if local_voice:
+                audio_file, text_file = local_voice
                 ref_audio_path = str(audio_file.absolute())
-                if text_file.exists():
+                if text_file:
                     try:
                         prompt_text = text_file.read_text(encoding="utf-8").strip()
                     except Exception:
                         pass
-                
+
                 prompt_lang = "zh"
-                if any(ord(c) > 0x4e00 and ord(c) < 0x9fff for c in prompt_text):
+                if any("\u4e00" <= c <= "\u9fff" for c in prompt_text):
                     prompt_lang = "zh"
                 elif prompt_text and all(ord(c) < 128 for c in prompt_text):
                     prompt_lang = "en"
@@ -631,17 +827,16 @@ class TTSService:
         voice: str | None,
         rate: str = "+0%",
         engine: str | None = None,
-    ) -> tuple[str, str, bool]:
+    ) -> TTSAudioResult:
         cleaned = self._clean_text(text)
 
-        # Auto-detect or correct the engine based on the selected voice
-        if engine is None or engine == TTS_ENGINE_EDGE:
+        # Keep backward compatibility for callers that omit engine while passing
+        # a provider-specific voice, but do not override explicit non-Edge engines.
+        normalized_requested_engine = self._normalize_engine(engine)
+        if engine is None or normalized_requested_engine == TTS_ENGINE_EDGE:
             detected_engine = self.detect_engine_by_voice(voice)
         else:
-            detected_engine = self._normalize_engine(engine)
-            # If the voice is specific to another engine, correct it!
-            if voice:
-                detected_engine = self.detect_engine_by_voice(voice)
+            detected_engine = normalized_requested_engine
 
         normalized_engine = detected_engine
 
@@ -662,11 +857,19 @@ class TTSService:
         else:
             selected_voice = voice or XIAOMI_VOICES[0]["name"]
 
-        filename = self._make_filename(cleaned, selected_voice, rate, normalized_engine)
+        extension, media_type = self._audio_profile_for_engine(normalized_engine)
+        filename = self._make_filename(cleaned, selected_voice, rate, normalized_engine, extension)
         path = self.output_dir / filename
 
         if path.exists() and path.stat().st_size > 0:
-            return str(path), selected_voice, True
+            return TTSAudioResult(
+                file_path=str(path),
+                voice=selected_voice,
+                engine=normalized_engine,
+                media_type=media_type,
+                filename=f"tts_output.{extension}",
+                cache_hit=True,
+            )
 
         if normalized_engine == TTS_ENGINE_EDGE:
             await self._generate_edge_audio(cleaned, selected_voice, rate, path)
@@ -688,7 +891,14 @@ class TTSService:
         if not path.exists() or path.stat().st_size == 0:
             raise RuntimeError("Failed to generate audio file.")
 
-        return str(path), selected_voice, False
+        return TTSAudioResult(
+            file_path=str(path),
+            voice=selected_voice,
+            engine=normalized_engine,
+            media_type=media_type,
+            filename=f"tts_output.{extension}",
+            cache_hit=False,
+        )
 
     async def generate_dialogue_audio(
         self,
@@ -697,10 +907,9 @@ class TTSService:
         voice_b: str | None,
         rate: str = "+0%",
         engine: str = "edge",
-    ) -> str:
-        import shutil
+        engine_b: str | None = None,
+    ) -> TTSAudioResult:
         import uuid
-        from pathlib import Path
         import re
 
         # 1. Parse dialogue text into alternating script lines
@@ -725,17 +934,22 @@ class TTSService:
 
         # 2. Synthesize each line using the respective speaker's voice
         segment_paths = []
+        segment_results: list[TTSAudioResult] = []
+        used_voice_by_role: dict[str, str] = {}
         for idx, line in enumerate(lines):
             selected_voice = voice_a if line["role"] == "A" else voice_b
-            file_path, _, _ = await self.generate_audio(
+            selected_engine = engine if line["role"] == "A" else (engine_b or engine)
+            result = await self.generate_audio(
                 text=line["text"],
                 voice=selected_voice,
                 rate=rate,
-                engine=engine,
+                engine=selected_engine,
             )
-            segment_paths.append(Path(file_path))
+            segment_results.append(result)
+            used_voice_by_role.setdefault(line["role"], result.voice)
+            segment_paths.append(Path(result.file_path))
 
-        # 3. Merge audio files using pydub (with 250ms silence gap) or binary concat fallback
+        # 3. Merge audio files using pydub with a 250ms silence gap.
         output_name = f"dialogue_{uuid.uuid4().hex[:8]}.mp3"
         output_path = self.output_dir / output_name
 
@@ -751,17 +965,26 @@ class TTSService:
                     combined += silence + audio
             if combined is not None:
                 combined.export(str(output_path), format="mp3", bitrate="192k")
-                return str(output_path)
-        except Exception:
-            pass
+        except ImportError as exc:
+            raise RuntimeError("pydub is required to merge dialogue audio segments.") from exc
+        except Exception as exc:
+            raise RuntimeError(f"Failed to merge dialogue audio segments: {exc}") from exc
 
-        # Fallback merge via concat
-        with output_path.open("wb") as target:
-            for segment in segment_paths:
-                with segment.open("rb") as source:
-                    shutil.copyfileobj(source, target, length=1024 * 1024)
+        if not output_path.exists() or output_path.stat().st_size == 0:
+            raise RuntimeError("Failed to generate dialogue audio file.")
 
-        return str(output_path)
+        used_engines = " + ".join(dict.fromkeys(result.engine for result in segment_results))
+        used_voices = " + ".join(
+            voice for voice in [used_voice_by_role.get("A", ""), used_voice_by_role.get("B", "")] if voice
+        )
+        return TTSAudioResult(
+            file_path=str(output_path),
+            voice=used_voices,
+            engine=used_engines,
+            media_type=MEDIA_TYPE_MP3,
+            filename="tts_dialogue.mp3",
+            cache_hit=False,
+        )
 
     def _clean_edge_voice_short_name(self, short_name: str) -> str:
         if "-" in short_name:

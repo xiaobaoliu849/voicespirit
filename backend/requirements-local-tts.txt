@@ -1,0 +1,7 @@
+# Optional dependencies for local open-source TTS engines.
+# Install this in addition to requirements.txt when enabling ChatTTS
+# or GPT-SoVITS local clone transcription.
+ChatTTS>=0.0.5
+torch>=2.3.0
+soundfile>=0.12.1
+faster-whisper>=1.0.1

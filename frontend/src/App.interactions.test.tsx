@@ -375,7 +375,7 @@ describe("App interactions", () => {
         })
       );
     });
-    expect(await screen.findByRole("button", { name: "导出 MP3" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "导出音频" })).toBeInTheDocument();
     expect(screen.getByText("已将本次语音生成偏好写入长期记忆。")).toBeInTheDocument();
     expect(document.querySelector("audio")).toHaveAttribute("src", "blob:test-url");
   });

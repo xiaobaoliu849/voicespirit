@@ -1,21 +1,45 @@
 from __future__ import annotations
 
+import asyncio
+import os
+import threading
 from typing import Any, Literal
 
 from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
 from pydantic import BaseModel, Field
 
-from pathlib import Path
 from services.qwen_voice_service import QwenVoiceService
 from services.xiaomi_voice_service import XiaomiVoiceService
 from services.tts_service import TTSService
 
 VoiceType = Literal["voice_design", "voice_clone"]
+MAX_LOCAL_CLONE_FILE_BYTES = 20 * 1024 * 1024
 
 router = APIRouter()
 qwen_voice_service = QwenVoiceService()
 xiaomi_voice_service = XiaomiVoiceService()
 tts_service = TTSService()
+_whisper_model = None
+_whisper_model_lock = threading.Lock()
+
+
+def _transcribe_local_clone_sync(audio_path: str) -> str:
+    global _whisper_model
+    os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
+    try:
+        from faster_whisper import WhisperModel
+    except ImportError as exc:
+        raise RuntimeError("faster-whisper is required to create GPT-SoVITS local clones.") from exc
+
+    with _whisper_model_lock:
+        if _whisper_model is None:
+            _whisper_model = WhisperModel("tiny", device="cpu")
+        segments, _info = _whisper_model.transcribe(audio_path)
+        return "".join(segment.text for segment in segments).strip()
+
+
+async def _transcribe_local_clone(audio_path: str) -> str:
+    return await asyncio.to_thread(_transcribe_local_clone_sync, audio_path)
 
 
 class VoiceDesignRequest(BaseModel):
@@ -79,6 +103,8 @@ async def create_voice_design(payload: VoiceDesignRequest) -> VoiceCreateRespons
                 language=payload.language,
             )
             result["provider"] = "xiaomi"
+        elif provider == "gpt_sovits":
+            raise ValueError("GPT-SoVITS local API does not support voice design. Use voice clone instead.")
         else:
             result = await qwen_voice_service.create_voice_design(
                 voice_prompt=payload.voice_prompt,
@@ -145,6 +171,15 @@ async def create_voice_clone(
                 "meta": {},
             },
         )
+    if len(data) > MAX_LOCAL_CLONE_FILE_BYTES:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "VOICE_CLONE_BAD_REQUEST",
+                "message": "audio_file is too large. Keep it within 20MB.",
+                "meta": {"max_bytes": MAX_LOCAL_CLONE_FILE_BYTES},
+            },
+        )
 
     provider = (provider or "qwen").strip().lower()
     try:
@@ -156,33 +191,27 @@ async def create_voice_clone(
             result["provider"] = "xiaomi"
             result["preferred_name"] = preferred_name
         elif provider == "gpt_sovits":
-            voices_dir = Path(__file__).resolve().parents[1] / "data" / "gpt_sovits_voices"
-            voices_dir.mkdir(parents=True, exist_ok=True)
-            audio_path = voices_dir / f"{preferred_name}.wav"
-            audio_path.write_bytes(data)
-            
             prompt_text = ""
+            saved = tts_service.save_local_gpt_sovits_voice(
+                preferred_name=preferred_name,
+                audio_bytes=data,
+                filename=audio_file.filename,
+                content_type=audio_file.content_type or "",
+                prompt_text="",
+            )
+
             try:
-                import os
-                os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
-                from faster_whisper import WhisperModel
-                model = WhisperModel("tiny", device="cpu")
-                segments, info = model.transcribe(str(audio_path))
-                prompt_text = "".join([s.text for s in segments]).strip()
+                local_voice = tts_service._find_local_gpt_sovits_voice(saved["voice"])
+                if local_voice:
+                    audio_path, text_path = local_voice
+                    prompt_text = await _transcribe_local_clone(str(audio_path))
+                    if text_path:
+                        text_path.write_text(prompt_text, encoding="utf-8")
             except Exception as e:
                 print(f"Local Whisper transcription failed: {e}")
                 prompt_text = ""
-                
-            text_path = voices_dir / f"{preferred_name}.txt"
-            text_path.write_text(prompt_text, encoding="utf-8")
-            
-            result = {
-                "voice": f"gpt_sovits_{preferred_name}",
-                "type": "voice_clone",
-                "target_model": "gpt-sovits-local",
-                "preferred_name": preferred_name,
-                "provider": "gpt_sovits"
-            }
+
+            result = saved
         else:
             result = await qwen_voice_service.create_voice_clone(
                 audio_bytes=data,
@@ -284,21 +313,11 @@ async def delete_voice(
         if provider == "xiaomi" or provider == "mimo":
             raise ValueError("Xiaomi does not support persistent voice deletion. Voices are generated on-the-fly.")
         elif provider == "gpt_sovits":
-            voice_prefix = "gpt_sovits_"
-            clone_name = voice_name
-            if voice_name.startswith(voice_prefix):
-                clone_name = voice_name[len(voice_prefix):]
-            voices_dir = Path(__file__).resolve().parents[1] / "data" / "gpt_sovits_voices"
-            audio_file = voices_dir / f"{clone_name}.wav"
-            text_file = voices_dir / f"{clone_name}.txt"
-            if audio_file.exists():
-                audio_file.unlink()
-            if text_file.exists():
-                text_file.unlink()
+            deleted = tts_service.delete_local_gpt_sovits_voice(voice_name)
             result = {
                 "voice": voice_name,
                 "type": voice_type,
-                "deleted": True
+                "deleted": deleted
             }
         else:
             result = await qwen_voice_service.delete_voice(voice_name=voice_name, voice_type=voice_type)

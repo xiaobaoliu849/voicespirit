@@ -114,7 +114,8 @@ describe('useTts', () => {
         expect(fetchSpeakAudio).toHaveBeenCalledWith(
             expect.objectContaining({
                 text: 'A: 你好\\nB: 很高兴见到你',
-                engine: 'edge'
+                engine: 'edge',
+                engineB: 'edge'
             })
         );
     });
