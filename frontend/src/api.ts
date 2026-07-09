@@ -1145,6 +1145,7 @@ export function buildSpeakUrl(params: {
   voiceB?: string;
   rate?: string;
   engine?: TtsEngine;
+  engineB?: TtsEngine;
 }): string {
   const url = new URL(`${API_BASE_URL}/api/tts/speak`);
   url.searchParams.set("text", params.text);
@@ -1159,6 +1160,9 @@ export function buildSpeakUrl(params: {
   }
   if (params.engine) {
     url.searchParams.set("engine", params.engine);
+  }
+  if (params.engineB) {
+    url.searchParams.set("engine_b", params.engineB);
   }
   return url.toString();
 }
@@ -1234,6 +1238,7 @@ export async function fetchSpeakAudio(params: {
   voiceB?: string;
   rate?: string;
   engine?: TtsEngine;
+  engineB?: TtsEngine;
 }): Promise<TtsAudioResponse> {
   const url = buildSpeakUrl(params);
   const response = await apiFetch(url, {

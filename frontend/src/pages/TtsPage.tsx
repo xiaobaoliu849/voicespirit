@@ -44,18 +44,36 @@ function blobToBase64(blob: Blob): Promise<string> {
   });
 }
 
+function getAudioExportMeta(blob: Blob): { filename: string; mimeType: string } {
+  const mimeType = blob.type || "audio/mpeg";
+  const lowerType = mimeType.toLowerCase();
+  let extension = "mp3";
+  if (lowerType.includes("wav")) {
+    extension = "wav";
+  } else if (lowerType.includes("ogg")) {
+    extension = "ogg";
+  } else if (lowerType.includes("webm")) {
+    extension = "webm";
+  } else if (lowerType.includes("flac")) {
+    extension = "flac";
+  } else if (lowerType.includes("mp4") || lowerType.includes("aac")) {
+    extension = "m4a";
+  }
+  return { filename: `voicespirit_tts.${extension}`, mimeType };
+}
+
 export default function TtsPage({ tts, errorRuntimeContext }: Props) {
   const { t } = useI18n();
   async function handleDownload() {
     if (!tts.audioUrl) return;
     try {
-      const filename = "voicespirit_tts.mp3";
       const audioBlob: Blob = tts.audioBlob ?? await fetch(tts.audioUrl).then((response) => response.blob());
+      const { filename, mimeType } = getAudioExportMeta(audioBlob);
       const desktopSaveAudio = (window as DesktopBridgeWindow).pywebview?.api?.save_audio_file;
       if (desktopSaveAudio) {
         const result = await desktopSaveAudio({
           filename,
-          mime_type: audioBlob.type || "audio/mpeg",
+          mime_type: mimeType,
           data_base64: await blobToBase64(audioBlob)
         });
         if (result?.ok || result?.cancelled) {
@@ -72,7 +90,7 @@ export default function TtsPage({ tts, errorRuntimeContext }: Props) {
       document.body.removeChild(a);
     } catch (error) {
       console.error("Failed to export TTS audio:", error);
-      window.alert(t("导出 MP3 失败，请重试或在系统菜单中打开音频输出目录。", "Failed to export MP3. Retry or open the audio output folder from the system menu."));
+      window.alert(t("导出音频失败，请重试或在系统菜单中打开音频输出目录。", "Failed to export audio. Retry or open the audio output folder from the system menu."));
     }
   }
 
@@ -392,7 +410,7 @@ export default function TtsPage({ tts, errorRuntimeContext }: Props) {
                   onClick={handleDownload}
                   style={{ height: "36px", fontSize: "12px", padding: "0 14px", whiteSpace: "nowrap" }}
                 >
-                  {t("导出 MP3", "Export MP3")}
+                  {t("导出音频", "Export Audio")}
                 </button>
               </div>
             )}

@@ -34,6 +34,7 @@ from services import realtime_voice_service as realtime_voice_module
 from services.llm_service import LLMService
 from services.realtime_voice_service import RealtimeVoiceService
 from services.settings_service import SettingsService
+from services.tts_service import TTSAudioResult
 from services.transcription_publish_adapter import build_transcription_publisher
 from services.transcription_service import TranscriptionService
 from services.user_auth_service import user_auth_service
@@ -578,7 +579,7 @@ class ApiSmokeTests(unittest.TestCase):
             voice: str | None,
             rate: str = "+0%",
             engine: str = "edge",
-        ) -> tuple[str, str, bool]:
+        ) -> TTSAudioResult:
             self.assertEqual(text, "hello")
             self.assertEqual(voice, "female-shaonv")
             self.assertEqual(rate, "+10%")
@@ -586,7 +587,14 @@ class ApiSmokeTests(unittest.TestCase):
             tmp_dir = tempfile.mkdtemp()
             file_path = Path(tmp_dir) / "test.mp3"
             file_path.write_bytes(b"ID3")
-            return str(file_path), "female-shaonv", False
+            return TTSAudioResult(
+                file_path=str(file_path),
+                voice="female-shaonv",
+                engine="minimax",
+                media_type="audio/mpeg",
+                filename="tts_output.mp3",
+                cache_hit=False,
+            )
 
         with patch.object(tts_router.tts_service, "generate_audio", new=fake_generate_audio):
             response = self._request(
@@ -601,6 +609,81 @@ class ApiSmokeTests(unittest.TestCase):
             )
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.headers.get("x-tts-engine"), "minimax")
+        self.assertEqual(response.headers.get("content-type"), "audio/mpeg")
+
+    def test_tts_speak_endpoint_uses_result_media_type(self) -> None:
+        async def fake_generate_audio(
+            text: str,
+            voice: str | None,
+            rate: str = "+0%",
+            engine: str = "edge",
+        ) -> TTSAudioResult:
+            _ = (text, voice, rate, engine)
+            tmp_dir = tempfile.mkdtemp()
+            file_path = Path(tmp_dir) / "test.wav"
+            file_path.write_bytes(b"RIFF....WAVE")
+            return TTSAudioResult(
+                file_path=str(file_path),
+                voice="2",
+                engine="chattts",
+                media_type="audio/wav",
+                filename="tts_output.wav",
+                cache_hit=False,
+            )
+
+        with patch.object(tts_router.tts_service, "generate_audio", new=fake_generate_audio):
+            response = self._request(
+                "GET",
+                "/api/tts/speak",
+                params={"text": "hello", "voice": "2", "engine": "chattts"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("audio/wav", response.headers.get("content-type", ""))
+        self.assertEqual(response.headers.get("x-tts-engine"), "chattts")
+
+    def test_tts_dialogue_endpoint_passes_engine_b(self) -> None:
+        async def fake_generate_dialogue_audio(
+            text: str,
+            voice_a: str | None,
+            voice_b: str | None,
+            rate: str = "+0%",
+            engine: str = "edge",
+            engine_b: str | None = None,
+        ) -> TTSAudioResult:
+            self.assertEqual(text, "A: hi\nB: hello")
+            self.assertEqual(voice_a, "zh-CN-XiaoxiaoNeural")
+            self.assertEqual(voice_b, "2")
+            self.assertEqual(rate, "+0%")
+            self.assertEqual(engine, "edge")
+            self.assertEqual(engine_b, "chattts")
+            tmp_dir = tempfile.mkdtemp()
+            file_path = Path(tmp_dir) / "dialogue.mp3"
+            file_path.write_bytes(b"ID3")
+            return TTSAudioResult(
+                file_path=str(file_path),
+                voice="zh-CN-XiaoxiaoNeural + 2",
+                engine="edge + chattts",
+                media_type="audio/mpeg",
+                filename="tts_dialogue.mp3",
+                cache_hit=False,
+            )
+
+        with patch.object(tts_router.tts_service, "generate_dialogue_audio", new=fake_generate_dialogue_audio):
+            response = self._request(
+                "GET",
+                "/api/tts/speak",
+                params={
+                    "text": "A: hi\nB: hello",
+                    "voice": "zh-CN-XiaoxiaoNeural",
+                    "voice_b": "2",
+                    "engine": "edge",
+                    "engine_b": "chattts",
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.headers.get("x-tts-engine"), "edge + chattts")
 
     def test_tts_speak_endpoint_with_memory_header(self) -> None:
         async def fake_generate_audio(
@@ -608,12 +691,19 @@ class ApiSmokeTests(unittest.TestCase):
             voice: str | None,
             rate: str = "+0%",
             engine: str = "edge",
-        ) -> tuple[str, str, bool]:
+        ) -> TTSAudioResult:
             _ = (text, voice, rate, engine)
             tmp_dir = tempfile.mkdtemp()
             file_path = Path(tmp_dir) / "test.mp3"
             file_path.write_bytes(b"ID3")
-            return str(file_path), "zh-CN-XiaoxiaoNeural", True
+            return TTSAudioResult(
+                file_path=str(file_path),
+                voice="zh-CN-XiaoxiaoNeural",
+                engine="edge",
+                media_type="audio/mpeg",
+                filename="tts_output.mp3",
+                cache_hit=True,
+            )
 
         class FakeEverMemService:
             async def add_memory(self, **kwargs: Any) -> dict[str, Any] | None:
@@ -1430,6 +1520,44 @@ class ApiSmokeTests(unittest.TestCase):
             r_delete = self._request("DELETE", "/api/voices/voice_design_x?voice_type=voice_design")
         self.assertEqual(r_delete.status_code, 200)
         self.assertTrue(r_delete.json()["deleted"])
+
+    def test_gpt_sovits_clone_sanitizes_name_and_preserves_extension(self) -> None:
+        async def fake_transcribe_local_clone(audio_path: str) -> str:
+            self.assertTrue(audio_path.endswith(".mp3"))
+            return "hello prompt"
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            with patch.dict(os.environ, {"APPDATA": tmp_dir}, clear=False):
+                with patch.object(voices_router, "_transcribe_local_clone", new=fake_transcribe_local_clone):
+                    response = self._request(
+                        "POST",
+                        "/api/voices/clone",
+                        data={"preferred_name": "../bad name", "provider": "gpt_sovits"},
+                        files={"audio_file": ("demo.mp3", b"ID3demo", "audio/mpeg")},
+                    )
+
+                self.assertEqual(response.status_code, 200)
+                payload = response.json()
+                self.assertEqual(payload["voice"], "gpt_sovits_bad_name")
+                voices_dir = Path(tmp_dir) / "VoiceSpirit" / "gpt_sovits_voices"
+                self.assertTrue((voices_dir / "bad_name.mp3").is_file())
+                self.assertEqual((voices_dir / "bad_name.txt").read_text(encoding="utf-8"), "hello prompt")
+                self.assertFalse((Path(tmp_dir) / "VoiceSpirit" / "bad name.wav").exists())
+
+    def test_gpt_sovits_voice_design_is_rejected(self) -> None:
+        response = self._request(
+            "POST",
+            "/api/voices/design",
+            json={
+                "voice_prompt": "warm narrator",
+                "preview_text": "hello there",
+                "preferred_name": "local_design",
+                "language": "zh",
+                "provider": "gpt_sovits",
+            },
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("does not support voice design", response.text)
 
     def test_settings_get_and_update_endpoints(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:

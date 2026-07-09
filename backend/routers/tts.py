@@ -48,7 +48,10 @@ class StructuredErrorResponse(BaseModel):
 )
 async def list_voices(
     locale: str | None = Query(default=None, description="Locale prefix, e.g. zh-CN"),
-    engine: str = Query(default="edge", description="TTS engine: edge, qwen_flash, minimax, xiaomi"),
+    engine: str = Query(
+        default="edge",
+        description="TTS engine: edge, qwen_flash, minimax, xiaomi, openai, elevenlabs, chattts, gpt_sovits",
+    ),
 ) -> dict:
     try:
         voices = await tts_service.list_voices(locale=locale, engine=engine)
@@ -79,7 +82,14 @@ async def speak(
     voice: str | None = Query(default=None),
     voice_b: str | None = Query(default=None),
     rate: str = Query(default="+0%"),
-    engine: str = Query(default="edge", description="TTS engine: edge, qwen_flash, minimax, xiaomi"),
+    engine: str = Query(
+        default="edge",
+        description="TTS engine: edge, qwen_flash, minimax, xiaomi, openai, elevenlabs, chattts, gpt_sovits",
+    ),
+    engine_b: str | None = Query(
+        default=None,
+        description="Optional speaker B engine for dialogue synthesis.",
+    ),
 ) -> FileResponse:
     # FastAPI injects concrete values for HTTP requests. Direct route tests pass
     # Query objects for omitted defaults, so normalize all optional inputs here.
@@ -87,20 +97,20 @@ async def speak(
     voice_b = _normalize_query_optional(voice_b)
     rate = _normalize_query_string(rate, "+0%")
     engine = _normalize_query_string(engine, "edge")
+    engine_b = _normalize_query_optional(engine_b)
 
     try:
         if voice_b:
-            file_path = await tts_service.generate_dialogue_audio(
+            result = await tts_service.generate_dialogue_audio(
                 text=text,
                 voice_a=voice,
                 voice_b=voice_b,
                 rate=rate,
                 engine=engine,
+                engine_b=engine_b,
             )
-            used_voice = f"{voice} + {voice_b}"
-            cache_hit = False
         else:
-            file_path, used_voice, cache_hit = await tts_service.generate_audio(
+            result = await tts_service.generate_audio(
                 text=text,
                 voice=voice,
                 rate=rate,
@@ -133,7 +143,7 @@ async def speak(
     if evermem_service:
         snippet = text.strip().replace("\n", " ")[:180]
         memory_text = (
-            f"VoiceSpirit 语音合成已生成。音色：{used_voice}。语速：{rate}。"
+            f"VoiceSpirit 语音合成已生成。音色：{result.voice}。语速：{rate}。"
             f"文本摘要：{snippet}"
         )
         try:
@@ -148,13 +158,13 @@ async def speak(
             memory_saved = False
 
     return FileResponse(
-        file_path,
-        media_type="audio/mpeg",
-        filename="tts_output.mp3",
+        result.file_path,
+        media_type=result.media_type,
+        filename=result.filename,
         headers={
-            "X-TTS-Voice": used_voice,
-            "X-TTS-Engine": engine,
-            "X-Cache": "HIT" if cache_hit else "MISS",
+            "X-TTS-Voice": result.voice,
+            "X-TTS-Engine": result.engine,
+            "X-Cache": "HIT" if result.cache_hit else "MISS",
             "X-EverMem-Saved": "true" if memory_saved else "false",
         },
     )

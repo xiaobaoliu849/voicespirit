@@ -133,14 +133,14 @@ describe('TtsPage', () => {
         );
 
         await act(async () => {
-            fireEvent.click(screen.getByRole('button', { name: /导出 MP3/ }));
+            fireEvent.click(screen.getByRole('button', { name: /导出音频/ }));
         });
 
         await waitFor(() => expect(clickSpy).toHaveBeenCalledTimes(1));
     });
 
-    it('uses pywebview bridge for desktop MP3 export', async () => {
-        const saveAudio = vi.fn().mockResolvedValue({ ok: true, path: 'D:\\\\voice.mp3' });
+    it('uses pywebview bridge with the generated audio format', async () => {
+        const saveAudio = vi.fn().mockResolvedValue({ ok: true, path: 'D:\\\\voice.wav' });
         (window as any).pywebview = {
             api: {
                 save_audio_file: saveAudio
@@ -152,21 +152,21 @@ describe('TtsPage', () => {
             <TtsPage
                 tts={createTtsController({
                     audioUrl: 'blob:test-url',
-                    audioBlob: new Blob(['audio'], { type: 'audio/mpeg' })
+                    audioBlob: new Blob(['audio'], { type: 'audio/wav' })
                 })}
                 errorRuntimeContext={{}}
             />
         );
 
         await act(async () => {
-            fireEvent.click(screen.getByRole('button', { name: /导出 MP3/ }));
+            fireEvent.click(screen.getByRole('button', { name: /导出音频/ }));
         });
 
         await waitFor(() => expect(saveAudio).toHaveBeenCalledTimes(1));
         expect(saveAudio).toHaveBeenCalledWith(
             expect.objectContaining({
-                filename: 'voicespirit_tts.mp3',
-                mime_type: 'audio/mpeg',
+                filename: 'voicespirit_tts.wav',
+                mime_type: 'audio/wav',
                 data_base64: expect.any(String)
             })
         );

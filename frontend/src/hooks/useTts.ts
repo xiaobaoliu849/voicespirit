@@ -212,6 +212,7 @@ export default function useTts({ defaultText, formatErrorMessage, language = "zh
         voiceB: ttsMode === "dialogue" ? (voiceB || undefined) : undefined,
         rate,
         engine: ttsEngine,
+        engineB: ttsMode === "dialogue" ? ttsEngineB : undefined,
       });
       if (audioUrl.startsWith("blob:")) {
         URL.revokeObjectURL(audioUrl);
@@ -236,6 +237,17 @@ export default function useTts({ defaultText, formatErrorMessage, language = "zh
 
   function onEngineChange(engine: TtsEngine) {
     setTtsEngine(engine);
+    setTtsError("");
+    setTtsInfo("");
+    if (audioUrl.startsWith("blob:")) {
+      URL.revokeObjectURL(audioUrl);
+    }
+    setAudioBlob(null);
+    setAudioUrl("");
+  }
+
+  function onEngineBChange(engine: TtsEngine) {
+    setTtsEngineB(engine);
     setTtsError("");
     setTtsInfo("");
     if (audioUrl.startsWith("blob:")) {
@@ -341,7 +353,7 @@ export default function useTts({ defaultText, formatErrorMessage, language = "zh
     onSubmit,
     onTtsModeChange,
     onEngineChange,
-    onEngineBChange: setTtsEngineB,
+    onEngineBChange,
     onTextChange,
     onDialogueTextChange,
     onPdfFileChange,

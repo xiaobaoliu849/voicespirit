@@ -101,6 +101,9 @@ DEFAULT_SETTINGS_TEMPLATE: dict[str, Any] = {
         "speech_speed": 1.0,
         "speech_pitch": 1.0,
         "provider": "System TTS",
+        "chattts_model_dir": "",
+        "chattts_hf_endpoint": "",
+        "chattts_device": "auto",
     },
     "qwen_tts_settings": {
         "voice_design_voices": [],
