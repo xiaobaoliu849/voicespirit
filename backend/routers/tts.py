@@ -2,7 +2,7 @@ import io
 from typing import Any
 
 from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 import pypdf
 
@@ -300,3 +300,15 @@ async def polish_pdf_text(payload: PolishTextRequest) -> PolishTextResponse:
             },
         ) from exc
 
+
+
+class StreamTtsRequest(BaseModel):
+    text: str = Field(..., min_length=1)
+    voice: str = Field(default="zh-CN-YunxiNeural")
+
+@router.post("/stream-with-timestamps")
+async def stream_with_timestamps(req: StreamTtsRequest):
+    return StreamingResponse(
+        tts_service.stream_azure_tts_with_timestamps(req.text, req.voice),
+        media_type="text/event-stream"
+    )

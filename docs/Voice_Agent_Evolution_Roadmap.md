@@ -223,11 +223,11 @@ Permission model:
 
 1. Promote the canonical voice agent timeline to the primary frontend history/replay view.
 2. Add recorded event sequence tests for search, interruption, cancellation, and memory-write turns.
-3. Add aggregate latency fields to timeline events (`elapsed_ms`, provider, transport, stage).
+3. **[DONE]** Add aggregate latency fields to timeline events (`elapsed_ms`, provider, transport, stage).
 4. Add interruption classification: true barge-in, backchannel, silence timeout, and noise-like audio.
-5. Add audio agent cancellation/retry endpoints.
-6. Add SSE or WebSocket progress for durable audio agent runs.
-7. Add a shared tool/action permission model for read-only versus confirm-required actions.
+5. **[DONE]** Add audio agent cancellation/retry endpoints.
+6. **[DONE]** Add SSE or WebSocket progress for durable audio agent runs.
+7. **[DONE]** Add a shared tool/action permission model for read-only versus confirm-required actions.
 8. Evaluate LiveKit only after the timeline contract survives Google, DashScope, and OpenAI session replay.
 
 ## Recommended Next Code Iteration

@@ -119,6 +119,10 @@ export type VoiceAgentTimelineEventHistory = {
   text: string;
   timestamp: string;
   payload: Record<string, unknown>;
+  elapsed_ms?: number;
+  provider?: string;
+  transport?: string;
+  stage?: string;
 };
 
 export type VoiceAgentSessionHistoryListResponse = {
@@ -315,6 +319,9 @@ export type AudioOverviewSynthesizeRequest = {
   language?: string;
   gap_ms?: number;
   merge_strategy?: "auto" | "pydub" | "ffmpeg" | "concat";
+  intro_music?: boolean;
+  intro_music_style?: "warm" | "bright" | "calm";
+  intro_music_duration_ms?: number;
 };
 
 export type AudioOverviewSynthesizeResponse = {
@@ -329,6 +336,9 @@ export type AudioOverviewSynthesizeResponse = {
   gap_ms: number;
   gap_ms_applied: number;
   merge_strategy: string;
+  intro_music: boolean;
+  intro_music_style: string;
+  intro_music_duration_ms: number;
 };
 
 export type AudioAgentStep = {
@@ -419,6 +429,9 @@ export type AudioAgentSynthesizeRequest = {
   language?: string;
   gap_ms?: number;
   merge_strategy?: "auto" | "pydub" | "ffmpeg" | "concat";
+  intro_music?: boolean;
+  intro_music_style?: "warm" | "bright" | "calm";
+  intro_music_duration_ms?: number;
 };
 
 export type ApiRuntimeInfo = {
@@ -1858,6 +1871,31 @@ export async function getAudioAgentRun(runId: number): Promise<AudioAgentRunDeta
 export async function executeAudioAgentRun(runId: number): Promise<AudioAgentRunDetail> {
   const response = await apiFetch(
     `${API_BASE_URL}/api/audio-agent/runs/${encodeURIComponent(String(runId))}/execute`,
+    {
+      method: "POST",
+      headers: buildEverMemHeaders(true, "podcast")
+    }
+  );
+  if (!response.ok) {
+    await throwApiError(response);
+  }
+  return response.json();
+}
+
+export async function cancelAudioAgentRun(runId: number): Promise<AudioAgentRunDetail> {
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/audio-agent/runs/${encodeURIComponent(String(runId))}/cancel`,
+    { method: "POST" }
+  );
+  if (!response.ok) {
+    await throwApiError(response);
+  }
+  return response.json();
+}
+
+export async function retryAudioAgentRun(runId: number): Promise<AudioAgentRunDetail> {
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/audio-agent/runs/${encodeURIComponent(String(runId))}/retry`,
     {
       method: "POST",
       headers: buildEverMemHeaders(true, "podcast")

@@ -3,12 +3,22 @@ from __future__ import annotations
 import copy
 import json
 import os
+import shutil
 from pathlib import Path
 from typing import Any
 
 
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
+
 def get_data_dir() -> Path:
     """Return the application data directory for VoiceSpirit."""
+    explicit_data_dir = os.environ.get("VOICESPIRIT_DATA_DIR", "").strip()
+    if explicit_data_dir:
+        data_dir = Path(explicit_data_dir)
+        data_dir.mkdir(parents=True, exist_ok=True)
+        return data_dir
+
     app_name = "VoiceSpirit"
     if os.name == "nt":
         base = Path(os.environ.get("APPDATA", str(Path.cwd())))
@@ -18,6 +28,16 @@ def get_data_dir() -> Path:
     data_dir = base / app_name
     data_dir.mkdir(parents=True, exist_ok=True)
     return data_dir
+
+
+def get_data_file_path(filename: str) -> Path:
+    target = get_data_dir() / filename
+    if not target.exists():
+        legacy_path = PROJECT_ROOT / filename
+        if legacy_path.exists():
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(legacy_path, target)
+    return target
 
 
 PROVIDER_KEY_MAP = {
@@ -63,8 +83,7 @@ class BackendConfig:
 
     @staticmethod
     def _default_config_path() -> Path:
-        # /backend/services/config_loader.py -> project root/config.json
-        return Path(__file__).resolve().parents[2] / "config.json"
+        return get_data_file_path("config.json")
 
     def reload(self) -> None:
         if not self.config_path.exists():

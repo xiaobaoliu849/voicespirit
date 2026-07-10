@@ -21,7 +21,9 @@ class AudioAgentRepository:
 
     @staticmethod
     def _default_db_path() -> Path:
-        return Path(__file__).resolve().parents[2] / "voice_spirit.db"
+        from .config_loader import get_data_file_path
+
+        return get_data_file_path("voice_spirit.db")
 
     def _connect(self) -> sqlite3.Connection:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -463,6 +465,21 @@ class AudioAgentRepository:
                 LIMIT ?
                 """,
                 (run_id, safe_limit),
+            ).fetchall()
+        return [self._row_to_event(row) for row in rows]
+
+    def list_events_after(self, run_id: int, after_id: int, limit: int = 200) -> list[dict[str, Any]]:
+        safe_limit = max(1, min(int(limit), 1000))
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT id, run_id, event_type, payload_json, created_at
+                FROM audio_agent_events
+                WHERE run_id = ? AND id > ?
+                ORDER BY id ASC
+                LIMIT ?
+                """,
+                (run_id, after_id, safe_limit),
             ).fetchall()
         return [self._row_to_event(row) for row in rows]
 

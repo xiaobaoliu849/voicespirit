@@ -330,27 +330,57 @@ export default function VoiceChatPage({ voiceChat, errorRuntimeContext }: Props)
 
                 {selectedHistoryTimeline.length > 0 ? (
                   <div className="vsField">
-                    <label className="vsFieldLabel">{t("统一事件时间线", "Unified event timeline")}</label>
-                    <div style={{ display: "grid", gap: 8 }}>
-                      {selectedHistoryTimeline.slice(0, 12).map((event) => {
+                    <label className="vsFieldLabel" style={{ fontSize: 16, color: "var(--primary-color)" }}>
+                      {t("会话时间线回放 (Timeline Replay)", "Session Timeline Replay")}
+                    </label>
+                    <div style={{ display: "grid", gap: 12, marginTop: 8 }}>
+                      {selectedHistoryTimeline.map((event) => {
                         const label = timelineEventLabels[event.event_type] || event.event_type;
                         const mainText = timelineText(event);
+                        const isAssistant = event.event_type === "assistant_response";
+                        const isUser = event.event_type === "user_transcript";
+                        const isTool = event.source === "tool_event";
+
+                        let bgColor = "white";
+                        let borderColor = "var(--line)";
+                        if (isUser) {
+                          bgColor = "var(--surface-color)";
+                        } else if (isAssistant) {
+                          bgColor = "var(--primary-color-light, #f0f7ff)";
+                          borderColor = "var(--primary-color)";
+                        } else if (isTool) {
+                          bgColor = "#fffcf0";
+                        }
+
                         return (
                           <div
                             key={event.id}
                             className="vsRealtimeContent"
-                            style={{ border: "1px solid var(--line)", borderRadius: 10, padding: 12, background: "white" }}
+                            style={{ border: `1px solid ${borderColor}`, borderRadius: 10, padding: 12, background: bgColor }}
                           >
-                            <div style={{ fontWeight: 700 }}>
-                              {label}
-                              {event.tool_name ? ` · ${event.tool_name}` : ""}
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                              <div style={{ fontWeight: 700 }}>
+                                {label}
+                                {event.tool_name ? ` · ${event.tool_name}` : ""}
+                              </div>
+                              {event.elapsed_ms !== undefined ? (
+                                <span className="vsVoiceMemoryChip" style={{ margin: 0, opacity: 0.8 }}>
+                                  {event.elapsed_ms}ms
+                                </span>
+                              ) : null}
                             </div>
-                            <div className="vsFieldHint">
-                              {event.timestamp}
-                              {event.turn_id ? ` · ${event.turn_id}` : ""}
-                              {event.source ? ` · ${event.source}` : ""}
+                            <div className="vsFieldHint" style={{ marginTop: 4, marginBottom: 8, display: "flex", gap: 8, flexWrap: "wrap" }}>
+                              <span>{event.timestamp}</span>
+                              {event.turn_id ? <span>· turn: {event.turn_id}</span> : null}
+                              {event.stage ? <span>· stage: {event.stage}</span> : null}
+                              {event.provider ? <span>· {event.provider}</span> : null}
+                              {event.transport ? <span>· {event.transport}</span> : null}
                             </div>
-                            {mainText ? <div>{mainText}</div> : null}
+                            {mainText ? (
+                              <div style={{ marginTop: 4, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+                                {mainText}
+                              </div>
+                            ) : null}
                           </div>
                         );
                       })}
@@ -358,42 +388,49 @@ export default function VoiceChatPage({ voiceChat, errorRuntimeContext }: Props)
                   </div>
                 ) : null}
 
-                {selectedHistory.turns.length > 0 ? (
-                  <div className="vsField">
-                    <label className="vsFieldLabel">{t("历史轮次", "History turns")}</label>
-                    <div style={{ display: "grid", gap: 8 }}>
-                      {selectedHistory.turns.slice(0, 5).map((turn) => (
-                        <div
-                          key={turn.id}
-                          className="vsRealtimeContent"
-                          style={{ border: "1px solid var(--line)", borderRadius: 10, padding: 12, background: "white" }}
-                        >
-                          <div style={{ fontWeight: 700 }}>{turn.turn_id || t("未记录 turn_id", "turn_id not recorded")}</div>
-                          {turn.user_text ? <div>{t("用户", "User")}: {turn.user_text}</div> : null}
-                          {turn.assistant_text ? <div>{t("助手", "Assistant")}: {turn.assistant_text}</div> : null}
+                <details style={{ marginTop: 16 }}>
+                  <summary className="vsFieldHint" style={{ cursor: "pointer", userSelect: "none" }}>
+                    {t("查看原始轮次与事件", "View raw turns and events")}
+                  </summary>
+                  <div style={{ display: "grid", gap: 16, marginTop: 12 }}>
+                    {selectedHistory.turns.length > 0 ? (
+                      <div className="vsField">
+                        <label className="vsFieldLabel">{t("历史轮次", "History turns")}</label>
+                        <div style={{ display: "grid", gap: 8 }}>
+                          {selectedHistory.turns.map((turn) => (
+                            <div
+                              key={turn.id}
+                              className="vsRealtimeContent"
+                              style={{ border: "1px solid var(--line)", borderRadius: 10, padding: 12, background: "white" }}
+                            >
+                              <div style={{ fontWeight: 700 }}>{turn.turn_id || t("未记录 turn_id", "turn_id not recorded")}</div>
+                              {turn.user_text ? <div>{t("用户", "User")}: {turn.user_text}</div> : null}
+                              {turn.assistant_text ? <div>{t("助手", "Assistant")}: {turn.assistant_text}</div> : null}
+                            </div>
+                          ))}
                         </div>
-                      ))}
-                    </div>
-                  </div>
-                ) : null}
+                      </div>
+                    ) : null}
 
-                {selectedHistory.tool_events.length > 0 ? (
-                  <div className="vsField">
-                    <label className="vsFieldLabel">{t("历史工具事件", "History tool events")}</label>
-                    <div style={{ display: "grid", gap: 8 }}>
-                      {selectedHistory.tool_events.slice(0, 5).map((event) => (
-                        <div
-                          key={event.id}
-                          className="vsRealtimeContent"
-                          style={{ border: "1px solid var(--line)", borderRadius: 10, padding: 12, background: "white" }}
-                        >
-                          <div style={{ fontWeight: 700 }}>{event.event_type} · {event.tool_name || t("未记录工具", "Tool not recorded")}</div>
-                          {event.query ? <div className="vsFieldHint">{event.query}</div> : null}
+                    {selectedHistory.tool_events.length > 0 ? (
+                      <div className="vsField">
+                        <label className="vsFieldLabel">{t("历史工具事件", "History tool events")}</label>
+                        <div style={{ display: "grid", gap: 8 }}>
+                          {selectedHistory.tool_events.map((event) => (
+                            <div
+                              key={event.id}
+                              className="vsRealtimeContent"
+                              style={{ border: "1px solid var(--line)", borderRadius: 10, padding: 12, background: "white" }}
+                            >
+                              <div style={{ fontWeight: 700 }}>{event.event_type} · {event.tool_name || t("未记录工具", "Tool not recorded")}</div>
+                              {event.query ? <div className="vsFieldHint">{event.query}</div> : null}
+                            </div>
+                          ))}
                         </div>
-                      ))}
-                    </div>
+                      </div>
+                    ) : null}
                   </div>
-                ) : null}
+                </details>
 
                 <div style={{ display: "flex", justifyContent: "flex-end" }}>
                   <button type="button" className="vsBtnSecondary" onClick={voiceChat.onExportVoiceAgentSession}>

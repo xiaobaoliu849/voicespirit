@@ -181,6 +181,10 @@ class AudioScriptWriter:
     ) -> dict[str, Any]:
         clean_language = self._normalize_language(language)
         evidence_summary = self._build_evidence_summary(sources)
+        research_brief = self._build_research_brief(sources)
+        prompt_evidence = "\n\n".join(
+            item for item in (research_brief, evidence_summary) if item
+        )
         completion = await self.llm_service.chat_completion(
             provider=provider,
             model=model,
@@ -198,7 +202,7 @@ class AudioScriptWriter:
                         topic=topic,
                         language=clean_language,
                         turn_count=max(2, min(int(turn_count), 40)),
-                        evidence_summary=evidence_summary,
+                        evidence_summary=prompt_evidence,
                         generation_constraints=str(generation_constraints or "").strip(),
                     ),
                 },
@@ -217,4 +221,5 @@ class AudioScriptWriter:
             "reply": reply,
             "script_lines": normalized,
             "evidence_summary": evidence_summary,
+            "research_brief": research_brief,
         }

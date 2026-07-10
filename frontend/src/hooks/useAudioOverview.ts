@@ -30,6 +30,7 @@ import { createInlineTranslator, type UiLanguage } from "../i18n";
 import type { FormatErrorMessage } from "../utils/errorFormatting";
 
 type MergeStrategy = "auto" | "pydub" | "ffmpeg" | "concat";
+type IntroMusicStyle = "warm" | "bright" | "calm";
 export type AudioOverviewWorkspaceMode = "podcast" | "multi_dialogue";
 
 type Options = {
@@ -63,6 +64,11 @@ export default function useAudioOverview(options: Options) {
   const [audioOverviewGapMs, setAudioOverviewGapMs] = useState(250);
   const [audioOverviewMergeStrategy, setAudioOverviewMergeStrategy] =
     useState<MergeStrategy>("auto");
+  const [audioOverviewIntroMusic, setAudioOverviewIntroMusic] = useState(false);
+  const [audioOverviewIntroMusicStyle, setAudioOverviewIntroMusicStyle] =
+    useState<IntroMusicStyle>("warm");
+  const [audioOverviewIntroMusicDurationMs, setAudioOverviewIntroMusicDurationMs] =
+    useState(2500);
   const [audioOverviewBusy, setAudioOverviewBusy] = useState(false);
   const [audioOverviewSaving, setAudioOverviewSaving] = useState(false);
   const [audioOverviewSynthBusy, setAudioOverviewSynthBusy] = useState(false);
@@ -560,7 +566,10 @@ export default function useAudioOverview(options: Options) {
         rate: audioOverviewRate || "+0%",
         language: audioOverviewLanguage,
         gap_ms: audioOverviewGapMs,
-        merge_strategy: audioOverviewMergeStrategy
+        merge_strategy: audioOverviewMergeStrategy,
+        intro_music: audioOverviewIntroMusic,
+        intro_music_style: audioOverviewIntroMusicStyle,
+        intro_music_duration_ms: audioOverviewIntroMusicDurationMs
       } as const;
       let podcastId = await ensureAudioOverviewPodcastSaved();
       let result:
@@ -569,6 +578,9 @@ export default function useAudioOverview(options: Options) {
           merge_strategy: string;
           gap_ms_applied: number;
           cache_hits: number;
+          intro_music: boolean;
+          intro_music_style: string;
+          intro_music_duration_ms: number;
         }
         | null = null;
 
@@ -598,7 +610,23 @@ export default function useAudioOverview(options: Options) {
           cache_hits:
             typeof run.result_payload.cache_hits === "number"
               ? run.result_payload.cache_hits
-              : 0
+              : 0,
+          intro_music:
+            typeof run.result_payload.intro_music === "boolean"
+              ? run.result_payload.intro_music
+              : audioOverviewIntroMusic,
+          intro_music_style:
+            typeof run.result_payload.intro_music_style === "string"
+              ? run.result_payload.intro_music_style
+              : audioOverviewIntroMusic
+                ? audioOverviewIntroMusicStyle
+                : "off",
+          intro_music_duration_ms:
+            typeof run.result_payload.intro_music_duration_ms === "number"
+              ? run.result_payload.intro_music_duration_ms
+              : audioOverviewIntroMusic
+                ? audioOverviewIntroMusicDurationMs
+                : 0
         };
       } else {
         const synthResult = await synthesizeAudioOverviewPodcast(podcastId, payload);
@@ -606,7 +634,10 @@ export default function useAudioOverview(options: Options) {
           line_count: synthResult.line_count,
           merge_strategy: synthResult.merge_strategy,
           gap_ms_applied: synthResult.gap_ms_applied,
-          cache_hits: synthResult.cache_hits
+          cache_hits: synthResult.cache_hits,
+          intro_music: synthResult.intro_music,
+          intro_music_style: synthResult.intro_music_style,
+          intro_music_duration_ms: synthResult.intro_music_duration_ms
         };
       }
       if (podcastId === null) {
@@ -615,8 +646,17 @@ export default function useAudioOverview(options: Options) {
       const blob = await fetchAudioOverviewPodcastAudio(podcastId);
       setAudioOverviewAudioBlob(blob);
       await loadAudioOverviewPodcasts();
+      const introText = result.intro_music
+        ? t(
+            `，片头 ${result.intro_music_style} ${result.intro_music_duration_ms}ms`,
+            `, intro ${result.intro_music_style} ${result.intro_music_duration_ms}ms`
+          )
+        : "";
       setAudioOverviewInfo(
-        `音频已合成（${result.line_count} 条台词，策略 ${result.merge_strategy}，停顿 ${result.gap_ms_applied}ms，命中缓存 ${result.cache_hits} 次）。`
+        t(
+          `音频已合成（${result.line_count} 条台词，策略 ${result.merge_strategy}，停顿 ${result.gap_ms_applied}ms，命中缓存 ${result.cache_hits} 次${introText}）。`,
+          `Audio synthesized (${result.line_count} lines, strategy ${result.merge_strategy}, gap ${result.gap_ms_applied}ms, ${result.cache_hits} cache hits${introText}).`
+        )
       );
     } catch (err) {
       setAudioOverviewError(formatErrorMessage(err, "合成音频失败。"));
@@ -754,6 +794,10 @@ export default function useAudioOverview(options: Options) {
     setAudioOverviewGapMs(Number.isNaN(Number(value)) ? 0 : Number(value));
   }
 
+  function onIntroMusicDurationChange(value: string) {
+    setAudioOverviewIntroMusicDurationMs(Number.isNaN(Number(value)) ? 2500 : Number(value));
+  }
+
   const currentAudioOverviewLabel =
     audioOverviewPodcastId !== null
       ? `${audioOverviewWorkspaceMode === "podcast" ? "节目" : "多人对话"} #${audioOverviewPodcastId}`
@@ -782,6 +826,9 @@ export default function useAudioOverview(options: Options) {
     audioOverviewLanguage,
     audioOverviewPodcastId,
     audioOverviewMergeStrategy,
+    audioOverviewIntroMusic,
+    audioOverviewIntroMusicStyle,
+    audioOverviewIntroMusicDurationMs,
     audioOverviewTopic,
     audioOverviewTurnCount,
     audioOverviewAdvancedOpen,
@@ -846,6 +893,9 @@ export default function useAudioOverview(options: Options) {
     onRateChange: setAudioOverviewRate,
     onGapMsChange,
     onMergeStrategyChange: setAudioOverviewMergeStrategy,
+    onIntroMusicChange: setAudioOverviewIntroMusic,
+    onIntroMusicStyleChange: setAudioOverviewIntroMusicStyle,
+    onIntroMusicDurationChange,
     onRefreshList: loadAudioOverviewPodcasts,
     onLoadPodcast: loadAudioOverviewPodcastById,
     onRetryAgentRun,

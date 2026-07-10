@@ -1,16 +1,20 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import threading
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 try:
     from services.audio_agent_service import AudioAgentService, AudioAgentServiceError
+    from services.audio_overview_service import AudioOverviewServiceError
 except ImportError:
     from backend.services.audio_agent_service import AudioAgentService, AudioAgentServiceError
+    from backend.services.audio_overview_service import AudioOverviewServiceError
 
 
 router = APIRouter()
@@ -117,6 +121,9 @@ class AudioAgentSynthesizeRequest(BaseModel):
     language: str | None = Field(default=None, max_length=20)
     gap_ms: int = Field(default=250, ge=0, le=3000)
     merge_strategy: str = Field(default="auto", min_length=1, max_length=20)
+    intro_music: bool = False
+    intro_music_style: str = Field(default="calm", max_length=50)
+    intro_music_duration_ms: int = Field(default=2000, ge=0, le=30000)
 
 
 def _raise_structured(
@@ -348,6 +355,9 @@ async def synthesize_audio_agent_run(
             language=payload.language,
             gap_ms=payload.gap_ms,
             merge_strategy=payload.merge_strategy,
+            intro_music=payload.intro_music,
+            intro_music_style=payload.intro_music_style,
+            intro_music_duration_ms=payload.intro_music_duration_ms,
         )
     except AudioAgentServiceError as exc:
         status_code = 404 if exc.code == "AUDIO_AGENT_RUN_NOT_FOUND" else 502
@@ -360,3 +370,76 @@ async def synthesize_audio_agent_run(
             meta={"run_id": run_id},
         )
     return AudioAgentRunDetailResponse(**run)
+
+@router.post(
+    "/runs/{run_id}/cancel",
+    response_model=AudioAgentRunDetailResponse,
+    responses={
+        **AUTH_WRITE_RESPONSES,
+        404: {"description": "Audio agent run not found.", "model": StructuredErrorResponse},
+        500: {"description": "Unexpected error.", "model": StructuredErrorResponse},
+    },
+)
+async def cancel_audio_agent_run(run_id: int) -> AudioAgentRunDetailResponse:
+    try:
+        run = audio_agent_service.cancel_run(run_id)
+        return AudioAgentRunDetailResponse(**run)
+    except AudioAgentServiceError as exc:
+        raise HTTPException(status_code=404, detail=exc.to_dict()) from exc
+    except Exception as exc:
+        _raise_structured(500, code="AUDIO_AGENT_CANCEL_FAILED", message=str(exc))
+
+@router.post(
+    "/runs/{run_id}/retry",
+    response_model=AudioAgentRunDetailResponse,
+    responses={
+        **AUTH_WRITE_RESPONSES,
+        404: {"description": "Audio agent run not found.", "model": StructuredErrorResponse},
+        400: {"description": "Run not retryable.", "model": StructuredErrorResponse},
+        500: {"description": "Unexpected error.", "model": StructuredErrorResponse},
+    },
+)
+async def retry_audio_agent_run(run_id: int, request: Request) -> AudioAgentRunDetailResponse:
+    try:
+        run = audio_agent_service.retry_run(run_id)
+        _schedule_run_execution(run_id, request.headers)
+        return AudioAgentRunDetailResponse(**run)
+    except AudioAgentServiceError as exc:
+        status_code = 404 if exc.code == "AUDIO_AGENT_RUN_NOT_FOUND" else 400
+        raise HTTPException(status_code=status_code, detail=exc.to_dict()) from exc
+    except Exception as exc:
+        _raise_structured(500, code="AUDIO_AGENT_RETRY_FAILED", message=str(exc))
+
+@router.get(
+    "/runs/{run_id}/stream",
+    responses={
+        404: {"description": "Audio agent run not found.", "model": StructuredErrorResponse},
+    },
+)
+async def stream_audio_agent_run(run_id: int):
+    # Verify the run exists before streaming
+    try:
+        audio_agent_service.get_run(run_id)
+    except AudioAgentServiceError as exc:
+        raise HTTPException(status_code=404, detail=exc.to_dict()) from exc
+
+    async def event_generator():
+        last_event_id = 0
+        while True:
+            try:
+                run = audio_agent_service.get_run(run_id)
+                events = audio_agent_service.list_events_after(run_id, last_event_id)
+
+                for event in events:
+                    yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+                    last_event_id = event["id"]
+
+                if run["status"] in ("draft_ready", "completed", "failed", "cancelled"):
+                    break
+
+                await asyncio.sleep(1)
+            except Exception as e:
+                yield f"data: {json.dumps({'error': str(e)})}\n\n"
+                break
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")

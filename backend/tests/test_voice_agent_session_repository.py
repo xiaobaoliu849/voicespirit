@@ -4,8 +4,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from backend.services.realtime_voice_service import RealtimeVoiceService, VoiceAgentSessionRecorder
-from backend.services.voice_agent_session_repository import VoiceAgentSessionRepository
+from services.realtime_voice_service import RealtimeVoiceService, VoiceAgentSessionRecorder
+from services.voice_agent_session_repository import VoiceAgentSessionRepository
 
 
 class VoiceAgentSessionRepositoryTests(unittest.IsolatedAsyncioTestCase):

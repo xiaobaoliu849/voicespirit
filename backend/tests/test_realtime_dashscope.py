@@ -1,7 +1,7 @@
 import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
 import asyncio
-from backend.services.realtime_voice_service import RealtimeVoiceService
+from services.realtime_voice_service import RealtimeVoiceService
 
 class TestDashScopeRealtime(unittest.IsolatedAsyncioTestCase):
     def setUp(self):

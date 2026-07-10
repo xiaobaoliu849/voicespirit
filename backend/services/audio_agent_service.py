@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from .audio_overview_service import AudioOverviewService
+from .audio_overview_service import AudioOverviewService, AudioOverviewServiceError
 from .audio_agent_repository import AudioAgentRepository
 from .audio_retrieval_service import AudioRetrievalService
 from .audio_script_writer import AudioScriptWriter
@@ -173,6 +173,50 @@ class AudioAgentService:
         _ = self.get_run(run_id)
         return self.repository.list_events(run_id, limit=limit)
 
+    def list_events_after(self, run_id: int, after_id: int, limit: int = 200) -> list[dict[str, Any]]:
+        _ = self.get_run(run_id)
+        return self.repository.list_events_after(run_id, after_id, limit=limit)
+
+    def cancel_run(self, run_id: int) -> dict[str, Any]:
+        run = self.get_run(run_id)
+        if run["status"] in ("draft_ready", "completed", "failed", "cancelled"):
+            return run
+
+        self.repository.update_run(
+            run_id,
+            status="cancelled",
+            error_code="AUDIO_AGENT_RUN_CANCELLED",
+            error_message="Run was cancelled by user.",
+        )
+        self.repository.add_event(
+            run_id=run_id,
+            event_type="run_cancelled",
+            payload={"reason": "cancelled_by_user"},
+        )
+        return self.get_run(run_id)
+
+    def retry_run(self, run_id: int) -> dict[str, Any]:
+        run = self.get_run(run_id)
+        if run["status"] not in ("failed", "cancelled"):
+            raise AudioAgentServiceError(
+                code="AUDIO_AGENT_RUN_NOT_RETRYABLE",
+                message=f"Run status '{run['status']}' cannot be retried.",
+                meta={"run_id": run_id, "status": run["status"]},
+            )
+
+        self.repository.update_run(
+            run_id,
+            status="pending",
+            error_code="",
+            error_message="",
+        )
+        self.repository.add_event(
+            run_id=run_id,
+            event_type="run_retried",
+            payload={"previous_status": run["status"]},
+        )
+        return self.get_run(run_id)
+
     async def synthesize_run(
         self,
         run_id: int,
@@ -183,6 +227,9 @@ class AudioAgentService:
         language: str | None = None,
         gap_ms: int = 250,
         merge_strategy: str = "auto",
+        intro_music: bool = False,
+        intro_music_style: str = "calm",
+        intro_music_duration_ms: int = 2000,
     ) -> dict[str, Any]:
         run = self.get_run(run_id)
         podcast_id_raw = run.get("podcast_id")
@@ -215,6 +262,9 @@ class AudioAgentService:
                 language=language,
                 gap_ms=gap_ms,
                 merge_strategy=merge_strategy,
+                intro_music=intro_music,
+                intro_music_style=intro_music_style,
+                intro_music_duration_ms=intro_music_duration_ms,
             )
             self.repository.add_step(
                 run_id=run_id,
@@ -227,6 +277,8 @@ class AudioAgentService:
                     "line_count": int(result.get("line_count", 0)),
                     "merge_strategy": str(result.get("merge_strategy", "auto")),
                     "cache_hits": int(result.get("cache_hits", 0)),
+                    "intro_music": bool(result.get("intro_music", intro_music)),
+                    "intro_music_style": str(result.get("intro_music_style", intro_music_style)),
                 },
             )
             current_result_payload = dict(run.get("result_payload", {}))
@@ -241,6 +293,9 @@ class AudioAgentService:
                     "gap_ms": int(result.get("gap_ms", gap_ms)),
                     "gap_ms_applied": int(result.get("gap_ms_applied", 0)),
                     "merge_strategy": str(result.get("merge_strategy", merge_strategy)),
+                    "intro_music": bool(result.get("intro_music", intro_music)),
+                    "intro_music_style": str(result.get("intro_music_style", intro_music_style)),
+                    "intro_music_duration_ms": int(result.get("intro_music_duration_ms", intro_music_duration_ms)),
                 }
             )
             self.repository.add_event(
@@ -250,6 +305,7 @@ class AudioAgentService:
                     "podcast_id": podcast_id_raw,
                     "audio_path": str(result.get("audio_path", "")),
                     "merge_strategy": str(result.get("merge_strategy", merge_strategy)),
+                    "intro_music": bool(result.get("intro_music", intro_music)),
                 },
             )
             self.repository.update_run(
@@ -262,6 +318,24 @@ class AudioAgentService:
             return self.get_run(run_id)
         except AudioAgentServiceError:
             raise
+        except AudioOverviewServiceError as exc:
+            self.repository.update_run(
+                run_id,
+                status="failed",
+                current_step="synthesize_audio",
+                error_code=exc.code,
+                error_message=exc.message,
+            )
+            self.repository.add_event(
+                run_id=run_id,
+                event_type="run_failed",
+                payload={"code": exc.code, "message": exc.message},
+            )
+            raise AudioAgentServiceError(
+                code=exc.code,
+                message=exc.message,
+                meta=exc.meta,
+            ) from exc
         except ValueError as exc:
             self.repository.update_run(
                 run_id,
@@ -356,6 +430,8 @@ class AudioAgentService:
                 payload={"step_name": "retrieve"},
             )
             retrieve_started = self._now_string()
+            if self.repository.get_run(run_id)["status"] == "cancelled":
+                return self.get_run(run_id)
             sources = await self.retrieval_service.collect_sources(
                 topic=topic,
                 use_memory=use_memory,
@@ -363,6 +439,8 @@ class AudioAgentService:
                 source_text=source_text,
                 request_headers=request_headers,
             )
+            if self.repository.get_run(run_id)["status"] == "cancelled":
+                return self.get_run(run_id)
             for source in sources:
                 self.repository.add_source(
                     run_id=run_id,
@@ -396,6 +474,12 @@ class AudioAgentService:
                 current_step="assemble_evidence",
             )
             evidence_summary = self.script_writer._build_evidence_summary(sources)
+            research_brief = self.script_writer._build_research_brief(sources)
+            self.repository.add_event(
+                run_id=run_id,
+                event_type="research_brief_created",
+                payload={"length": len(research_brief)},
+            )
             self.repository.add_step(
                 run_id=run_id,
                 step_name="assemble_evidence",
@@ -404,6 +488,7 @@ class AudioAgentService:
                 finished_at=self._now_string(),
                 meta={
                     "summary_length": len(evidence_summary),
+                    "brief_length": len(research_brief),
                     "source_count": len(sources),
                 },
             )
@@ -423,6 +508,8 @@ class AudioAgentService:
                 payload={"step_name": "generate_script"},
             )
             generate_started = self._now_string()
+            if self.repository.get_run(run_id)["status"] == "cancelled":
+                return self.get_run(run_id)
             script_result = await self.script_writer.generate_script(
                 topic=topic,
                 language=language,
@@ -432,6 +519,8 @@ class AudioAgentService:
                 sources=sources,
                 generation_constraints=generation_constraints,
             )
+            if self.repository.get_run(run_id)["status"] == "cancelled":
+                return self.get_run(run_id)
             self.repository.add_step(
                 run_id=run_id,
                 step_name="generate_script",
@@ -496,6 +585,7 @@ class AudioAgentService:
                     "podcast_id": podcast_id,
                     "script_lines": podcast.get("script_lines", []),
                     "evidence_summary": script_result.get("evidence_summary", ""),
+                    "research_brief": script_result.get("research_brief", research_brief),
                     "provider": script_result["provider"],
                     "model": script_result["model"],
                 },

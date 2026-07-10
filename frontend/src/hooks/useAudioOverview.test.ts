@@ -2,19 +2,29 @@ import { act, renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import useAudioOverview from "./useAudioOverview";
 import { createFormatErrorMessageStub } from "../test/factories";
-import { listAudioOverviewPodcasts } from "../api";
+import {
+  createAudioOverviewPodcast,
+  fetchAudioOverviewPodcastAudio,
+  listAudioOverviewPodcasts,
+  synthesizeAudioOverviewPodcast
+} from "../api";
 
 vi.mock("../api", () => ({
+  createAudioAgentRun: vi.fn(),
   createAudioOverviewPodcast: vi.fn(),
   deleteAudioOverviewPodcast: vi.fn(),
   fetchAudioOverviewPodcastAudio: vi.fn(),
   fetchVoices: vi.fn().mockResolvedValue({ voices: [] }),
   generateAudioOverviewScript: vi.fn(),
   getEverMemRuntimeConfig: vi.fn(() => ({ enabled: false })),
+  getAudioAgentRun: vi.fn(),
   getAudioOverviewPodcast: vi.fn(),
+  listAudioAgentRunEvents: vi.fn(),
+  listAudioAgentRuns: vi.fn(),
   listCustomVoices: vi.fn().mockResolvedValue({ voices: [] }),
   listAudioOverviewPodcasts: vi.fn().mockResolvedValue({ podcasts: [] }),
   saveAudioOverviewScript: vi.fn(),
+  synthesizeAudioAgentRun: vi.fn(),
   synthesizeAudioOverviewPodcast: vi.fn(),
   updateAudioOverviewPodcast: vi.fn()
 }));
@@ -22,10 +32,21 @@ vi.mock("../api", () => ({
 describe("useAudioOverview", () => {
   beforeEach(() => {
     vi.mocked(listAudioOverviewPodcasts).mockClear();
+    vi.mocked(createAudioOverviewPodcast).mockReset();
+    vi.mocked(synthesizeAudioOverviewPodcast).mockReset();
+    vi.mocked(fetchAudioOverviewPodcastAudio).mockReset();
     Object.defineProperty(globalThis.navigator, "clipboard", {
       value: {
         writeText: vi.fn().mockResolvedValue(undefined)
       },
+      configurable: true
+    });
+    Object.defineProperty(globalThis.URL, "createObjectURL", {
+      value: vi.fn(() => "blob:audio-test"),
+      configurable: true
+    });
+    Object.defineProperty(globalThis.URL, "revokeObjectURL", {
+      value: vi.fn(),
       configurable: true
     });
   });
@@ -80,6 +101,71 @@ describe("useAudioOverview", () => {
     );
     expect(navigator.clipboard.writeText).toHaveBeenCalledWith(
       expect.stringContaining("主持人林")
+    );
+  });
+
+  it("passes intro music options when synthesizing a podcast", async () => {
+    const formatErrorMessage = createFormatErrorMessageStub();
+    vi.mocked(createAudioOverviewPodcast).mockResolvedValue({
+      id: 9,
+      topic: "片头测试",
+      language: "zh",
+      audio_path: null,
+      created_at: "2026-01-01",
+      updated_at: "2026-01-01",
+      script_lines: [
+        { role: "A", text: "开场" },
+        { role: "B", text: "回应" }
+      ]
+    });
+    vi.mocked(synthesizeAudioOverviewPodcast).mockResolvedValue({
+      podcast_id: 9,
+      audio_path: "audio.mp3",
+      audio_download_url: "/api/audio-overview/podcasts/9/audio",
+      line_count: 2,
+      voice_a: "voice-a",
+      voice_b: "voice-b",
+      rate: "+0%",
+      cache_hits: 0,
+      gap_ms: 250,
+      gap_ms_applied: 250,
+      merge_strategy: "pydub",
+      intro_music: true,
+      intro_music_style: "calm",
+      intro_music_duration_ms: 3000
+    });
+    vi.mocked(fetchAudioOverviewPodcastAudio).mockResolvedValue(
+      new Blob(["audio"], { type: "audio/mpeg" })
+    );
+
+    const { result } = renderHook(() =>
+      useAudioOverview({ voices: [], formatErrorMessage })
+    );
+
+    act(() => {
+      result.current.onTopicChange("片头测试");
+      result.current.onAddLine();
+      result.current.onLineTextChange(0, "开场");
+      result.current.onAddLine();
+      result.current.onLineRoleChange(1, "B");
+      result.current.onLineTextChange(1, "回应");
+      result.current.onToggleSynthAdvanced();
+      result.current.onIntroMusicChange(true);
+      result.current.onIntroMusicStyleChange("calm");
+      result.current.onIntroMusicDurationChange("3000");
+    });
+
+    await act(async () => {
+      await result.current.onSynthesize();
+    });
+
+    expect(synthesizeAudioOverviewPodcast).toHaveBeenCalledWith(
+      9,
+      expect.objectContaining({
+        intro_music: true,
+        intro_music_style: "calm",
+        intro_music_duration_ms: 3000
+      })
     );
   });
 });

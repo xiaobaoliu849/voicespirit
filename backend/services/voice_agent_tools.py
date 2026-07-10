@@ -21,6 +21,7 @@ class VoiceToolRequest:
     tool_name: str
     query: str
     display_name: str
+    requires_confirmation: bool = False
 
 
 class VoiceAgentToolService:
@@ -141,6 +142,7 @@ class VoiceAgentToolService:
                 tool_name="create_audio_agent_run",
                 query=audio_topic,
                 display_name="创建音频 Agent 草稿任务",
+                requires_confirmation=True,
             )
         search_query = cls.extract_search_query(text)
         if search_query:
@@ -174,6 +176,7 @@ class VoiceAgentToolService:
             tool_name="synthesize_tts",
             query=content[:3000],
             display_name="生成语音文件",
+            requires_confirmation=True,
         )
 
     @classmethod

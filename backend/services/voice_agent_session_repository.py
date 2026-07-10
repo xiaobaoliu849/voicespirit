@@ -506,6 +506,15 @@ class VoiceAgentSessionRepository:
                 str(item.get("id", "")),
             )
         )
+        provider = str(session.get("provider", ""))
+        meta = session.get("meta") or {}
+        transport = str(meta.get("transport", "websocket") if isinstance(meta, dict) else "websocket")
         for item in timeline:
             item.pop("_order", None)
+            item["provider"] = provider
+            item["transport"] = transport
+            if "elapsed_ms" in item["payload"]:
+                item["elapsed_ms"] = item["payload"]["elapsed_ms"]
+            if "stage" in item["payload"]:
+                item["stage"] = item["payload"]["stage"]
         return timeline

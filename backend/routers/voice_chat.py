@@ -62,6 +62,10 @@ class VoiceAgentTimelineEventResponse(BaseModel):
     text: str = ""
     timestamp: str
     payload: dict[str, Any] = Field(default_factory=dict)
+    elapsed_ms: int | None = None
+    provider: str = ""
+    transport: str = ""
+    stage: str = ""
 
 
 class VoiceAgentSessionListResponse(BaseModel):

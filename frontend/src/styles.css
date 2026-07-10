@@ -3871,6 +3871,15 @@ button.danger:focus-visible {
   border-top: 1px solid color-mix(in oklab, var(--accent) 8%, var(--line));
 }
 
+.vsSynthCheckboxLabel {
+  justify-content: center;
+}
+
+.vsSynthCheckboxLabel input {
+  width: 16px;
+  height: 16px;
+}
+
 .roleIndicator {
   display: flex;
   align-items: center;

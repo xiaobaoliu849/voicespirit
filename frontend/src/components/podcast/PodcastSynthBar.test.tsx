@@ -20,5 +20,6 @@ describe("PodcastSynthBar", () => {
 
     expect(screen.getByText("拼接策略")).toBeInTheDocument();
     expect(screen.getByDisplayValue("+0%")).toBeInTheDocument();
+    expect(screen.getByLabelText("片头音乐")).toBeInTheDocument();
   });
 });

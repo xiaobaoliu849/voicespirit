@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import hashlib
+import html
+import json
 import os
 import re
 import threading
@@ -18,6 +21,11 @@ try:
 except ImportError:
     edge_tts = None
 
+try:
+    import azure.cognitiveservices.speech as speechsdk
+except ImportError:
+    speechsdk = None
+
 
 TTS_ENGINE_EDGE = "edge"
 TTS_ENGINE_QWEN_FLASH = "qwen_flash"
@@ -27,6 +35,7 @@ TTS_ENGINE_OPENAI = "openai"
 TTS_ENGINE_ELEVENLABS = "elevenlabs"
 TTS_ENGINE_CHATTTS = "chattts"
 TTS_ENGINE_GPT_SOVITS = "gpt_sovits"
+TTS_ENGINE_AZURE = "azure"
 
 SUPPORTED_TTS_ENGINES = {
     TTS_ENGINE_EDGE,
@@ -37,6 +46,7 @@ SUPPORTED_TTS_ENGINES = {
     TTS_ENGINE_ELEVENLABS,
     TTS_ENGINE_CHATTTS,
     TTS_ENGINE_GPT_SOVITS,
+    TTS_ENGINE_AZURE,
 }
 
 OPENAI_VOICES = [
@@ -1035,3 +1045,97 @@ class TTSService:
             return self._filter_by_locale(normalized, locale)
         except Exception:
             return self._filter_by_locale(FALLBACK_EDGE_VOICES, locale)
+
+    async def stream_azure_tts_with_timestamps(self, text: str, voice: str):
+        def sse(payload: dict[str, Any]) -> str:
+            return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+        if speechsdk is None:
+            yield sse({"type": "error", "message": "azure-cognitiveservices-speech not installed"})
+            return
+
+        clean_text = str(text or "").strip()
+        clean_voice = str(voice or "").strip() or "zh-CN-YunxiNeural"
+        if not clean_text:
+            yield sse({"type": "error", "message": "Text is required"})
+            return
+
+        api_keys = self.config.get_all().get("api_keys", {})
+        speech_key = api_keys.get("azure", "")
+        # Try to parse region if provided, else default to eastus
+        api_urls = self.config.get_all().get("api_urls", {})
+        speech_region = api_urls.get("azure", "eastus")
+
+        if not speech_key:
+            yield sse({"type": "error", "message": "Azure Speech key not configured"})
+            return
+
+        speech_config = speechsdk.SpeechConfig(subscription=speech_key, region=speech_region)
+        speech_config.speech_synthesis_voice_name = clean_voice
+        speech_config.set_speech_synthesis_output_format(
+            speechsdk.SpeechSynthesisOutputFormat.Audio24Khz48KBitRateMonoMp3
+        )
+
+        pull_stream = speechsdk.audio.PullAudioOutputStream()
+        audio_output = speechsdk.audio.AudioOutputConfig(stream=pull_stream)
+        synthesizer = speechsdk.SpeechSynthesizer(
+            speech_config=speech_config,
+            audio_config=audio_output,
+        )
+
+        loop = asyncio.get_running_loop()
+        queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
+
+        def enqueue(message: dict[str, Any]) -> None:
+            loop.call_soon_threadsafe(queue.put_nowait, message)
+
+        def on_word_boundary(evt: Any) -> None:
+            duration = getattr(evt, "duration", 0)
+            if hasattr(duration, "total_seconds"):
+                duration_ms = duration.total_seconds() * 1000
+            else:
+                duration_ms = float(duration or 0) / 10000
+            enqueue({
+                "type": "word",
+                "text": str(getattr(evt, "text", "")),
+                "offset_ms": float(getattr(evt, "audio_offset", 0) or 0) / 10000,
+                "duration_ms": duration_ms,
+            })
+
+        synthesizer.synthesis_word_boundary.connect(on_word_boundary)
+
+        def synthesize() -> None:
+            safe_voice = html.escape(clean_voice, quote=True)
+            safe_text = html.escape(clean_text, quote=False)
+            ssml = f"""<speak version='1.0' xml:lang='zh-CN'>
+              <voice name='{safe_voice}'>{safe_text}</voice>
+            </speak>"""
+            result = synthesizer.speak_ssml_async(ssml).get()
+            if result.reason != speechsdk.ResultReason.SynthesizingAudioCompleted:
+                enqueue({"type": "error", "message": str(getattr(result, "cancellation_details", ""))})
+            enqueue({"type": "done"})
+
+        thread = threading.Thread(target=synthesize, daemon=True)
+        thread.start()
+
+        while True:
+            chunk = bytearray(4096)
+            bytes_read = await loop.run_in_executor(None, pull_stream.read, chunk)
+
+            if bytes_read > 0:
+                audio_base64 = base64.b64encode(chunk[:bytes_read]).decode()
+                yield sse({"type": "audio", "data": audio_base64})
+
+            while not queue.empty():
+                msg = queue.get_nowait()
+                if msg["type"] == "done":
+                    if bytes_read == 0:
+                        return
+                else:
+                    yield sse(msg)
+
+            if bytes_read == 0:
+                thread.join(0.1)
+                if not thread.is_alive() and queue.empty():
+                    break
+                await asyncio.sleep(0.01)

@@ -185,10 +185,9 @@ describe("VoiceChatPage", () => {
 
     expect(screen.getByText("已打开历史会话: voice-session-1")).toBeInTheDocument();
     expect(screen.getByText("轮次 1，工具事件 1，时间线 3")).toBeInTheDocument();
-    expect(screen.getByText("统一事件时间线")).toBeInTheDocument();
-    expect(screen.getByText("用户: 帮我搜索 voice agent")).toBeInTheDocument();
-    expect(screen.getByText("agent_result · search_web")).toBeInTheDocument();
+    expect(screen.getByText("会话时间线回放 (Timeline Replay)")).toBeInTheDocument();
     expect(screen.getByText("用户语音转写")).toBeInTheDocument();
+    expect(screen.getByText("Agent 结果 · search_web")).toBeInTheDocument();
 
     fireEvent.click(screen.getByText("导出 JSON"));
     expect(onExportVoiceAgentSession).toHaveBeenCalledTimes(1);

@@ -87,6 +87,9 @@ class PodcastSynthesizeRequest(BaseModel):
         max_length=20,
         description="Audio merge strategy: auto|pydub|ffmpeg|concat.",
     )
+    intro_music: bool = Field(default=False, description="Prepend a generated intro music bed.")
+    intro_music_style: str = Field(default="warm", min_length=1, max_length=20)
+    intro_music_duration_ms: int = Field(default=2500, ge=800, le=8000)
 
 
 class PodcastSynthesizeResponse(BaseModel):
@@ -101,6 +104,9 @@ class PodcastSynthesizeResponse(BaseModel):
     gap_ms: int
     gap_ms_applied: int
     merge_strategy: str
+    intro_music: bool = False
+    intro_music_style: str = "off"
+    intro_music_duration_ms: int = 0
 
 
 class StructuredErrorDetail(BaseModel):
@@ -465,11 +471,18 @@ async def synthesize_podcast_audio(
             language=payload.language,
             gap_ms=payload.gap_ms,
             merge_strategy=payload.merge_strategy,
+            intro_music=payload.intro_music,
+            intro_music_style=payload.intro_music_style,
+            intro_music_duration_ms=payload.intro_music_duration_ms,
         )
     except AudioOverviewServiceError as exc:
         if exc.code == "AUDIO_MERGE_STRATEGY_INVALID":
             status_code = 400
-        elif exc.code.startswith("AUDIO_MERGE_") or exc.code == "AUDIO_SEGMENT_SYNTHESIS_FAILED":
+        elif (
+            exc.code.startswith("AUDIO_MERGE_")
+            or exc.code.startswith("AUDIO_INTRO_MUSIC_")
+            or exc.code == "AUDIO_SEGMENT_SYNTHESIS_FAILED"
+        ):
             status_code = 503
         else:
             status_code = 500
@@ -506,6 +519,9 @@ async def synthesize_podcast_audio(
         gap_ms=result["gap_ms"],
         gap_ms_applied=result["gap_ms_applied"],
         merge_strategy=result["merge_strategy"],
+        intro_music=bool(result.get("intro_music", False)),
+        intro_music_style=str(result.get("intro_music_style", "off")),
+        intro_music_duration_ms=int(result.get("intro_music_duration_ms", 0)),
     )
 
 
