@@ -77,6 +77,117 @@ describe("VoiceChatPage", () => {
     expect(screen.getByText("Fetched research content")).toBeInTheDocument();
   });
 
+  it("shows confirmed interruption state and live metrics", () => {
+    render(
+      <VoiceChatPage
+        voiceChat={createVoiceChatController({
+          voiceChatAssistantInterrupted: true,
+          voiceChatInterruptionState: {
+            phase: "interrupted",
+            classification: "TRUE_BARGE_IN",
+            rule: "non_backchannel_speech",
+          },
+          voiceChatMetrics: {
+            firstAudioMs: 84,
+            interruptionStopMs: 42,
+            decisionCount: 2,
+            trueBargeInCount: 1,
+            backchannelCount: 1,
+            noiseCount: 0,
+            falseInterruptionRate: 0.5,
+          },
+        })}
+        errorRuntimeContext={{}}
+      />
+    );
+
+    expect(screen.getByText("已打断")).toBeInTheDocument();
+    expect(screen.getByText("首音频: 84ms")).toBeInTheDocument();
+    expect(screen.getByText("中断停止: 42ms")).toBeInTheDocument();
+    expect(screen.getByText("误中断代理: 50%")).toBeInTheDocument();
+  });
+
+  it("renders canonical interruption decisions and interrupted assistant boundaries", () => {
+    render(
+      <VoiceChatPage
+        voiceChat={createVoiceChatController({
+          voiceAgentHistoryDetail: {
+            id: "voice-session-interrupted",
+            provider: "OpenAI",
+            model: "gpt-realtime-2",
+            voice: "alloy",
+            status: "closed",
+            started_at: "2026-07-10 10:00:00",
+            ended_at: "2026-07-10 10:01:00",
+            meta: { transport: "websocket" },
+            turns: [{
+              id: 1,
+              session_id: "voice-session-interrupted",
+              turn_id: "voice-turn-1",
+              user_text: "继续解释",
+              assistant_text: "这是还没说完的回答",
+              completed: true,
+              interrupted: true,
+              completion_status: "interrupted",
+              started_at: "2026-07-10 10:00:01",
+              completed_at: "2026-07-10 10:00:04",
+            }],
+            tool_events: [],
+            timeline: [
+              {
+                id: "event:1",
+                event_type: "assistant_audio_started",
+                source: "metric",
+                turn_id: "voice-turn-1",
+                tool_name: "",
+                query: "",
+                text: "",
+                timestamp: "2026-07-10T10:00:02.000Z",
+                payload: { first_audio_ms: 80, elapsed_ms: 80 },
+              },
+              {
+                id: "event:2",
+                event_type: "interruption_decision",
+                source: "interruption",
+                turn_id: "voice-turn-1",
+                tool_name: "",
+                query: "",
+                text: "等一下",
+                timestamp: "2026-07-10T10:00:03.000Z",
+                provider: "OpenAI",
+                payload: {
+                  classification: "TRUE_BARGE_IN",
+                  decision: "cancel",
+                  rule: "non_backchannel_speech",
+                  stop_latency_ms: 40,
+                  elapsed_ms: 40,
+                },
+              },
+              {
+                id: "event:3",
+                event_type: "assistant_response",
+                source: "turn",
+                turn_id: "voice-turn-1",
+                tool_name: "",
+                query: "",
+                text: "这是还没说完的回答",
+                timestamp: "2026-07-10T10:00:03.100Z",
+                payload: { interrupted: true, status: "interrupted" },
+              },
+            ],
+          },
+        })}
+        errorRuntimeContext={{}}
+      />
+    );
+
+    expect(screen.getByText("中断决策")).toBeInTheDocument();
+    expect(screen.getByText("TRUE_BARGE_IN · cancel · non_backchannel_speech")).toBeInTheDocument();
+    expect(screen.getByText("助手回应 · 已打断")).toBeInTheDocument();
+    expect(screen.getByText("平均首音频: 80ms")).toBeInTheDocument();
+    expect(screen.getByText("平均中断停止: 40ms")).toBeInTheDocument();
+  });
+
   it("shows persisted voice agent sessions and export controls", () => {
     const onLoadVoiceAgentHistory = vi.fn();
     const onOpenVoiceAgentSession = vi.fn();

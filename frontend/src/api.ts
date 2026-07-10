@@ -94,6 +94,8 @@ export type VoiceAgentTurnHistory = {
   assistant_text: string;
   memory_payload?: Record<string, unknown>;
   completed: boolean;
+  interrupted?: boolean;
+  completion_status?: "pending" | "in_progress" | "completed" | "interrupted" | string;
   started_at: string;
   completed_at?: string;
 };
@@ -123,6 +125,7 @@ export type VoiceAgentTimelineEventHistory = {
   provider?: string;
   transport?: string;
   stage?: string;
+  sequence_no?: number;
 };
 
 export type VoiceAgentSessionHistoryListResponse = {
@@ -145,6 +148,8 @@ export type ChatMessage = {
   memorySourceSummary?: string;
   memoryRetrievalAttempted?: boolean;
   toolCalls?: VoiceAgentToolRecord[];
+  turnId?: string;
+  interrupted?: boolean;
 };
 
 export type ChatRequest = {
@@ -526,10 +531,41 @@ export type VoiceChatServerEvent =
       local_pending_count?: number;
       reason?: string;
     }
-  | { type: "user_transcript"; text: string }
-  | { type: "assistant_text"; text: string }
-  | { type: "assistant_audio"; audio: string; encoding: string; sample_rate: number }
-  | { type: "interrupted" }
+  | { type: "user_transcript"; text: string; turn_id?: string }
+  | { type: "assistant_text"; text: string; turn_id?: string }
+  | {
+      type: "assistant_audio";
+      audio: string;
+      encoding: string;
+      sample_rate: number;
+      turn_id?: string;
+      first_audio_ms?: number;
+    }
+  | {
+      type: "interruption_pending";
+      candidate_id: string;
+      provider: string;
+      interrupted_turn_id?: string;
+      provider_event_type?: string;
+    }
+  | {
+      type: "interruption_decision";
+      candidate_id: string;
+      classification: "TRUE_BARGE_IN" | "BACKCHANNEL" | "NOISE_OR_SILENCE";
+      rule: string;
+      decision: "cancel" | "resume" | "ignore";
+      transcript: string;
+      provider: string;
+      interrupted_turn_id?: string;
+      provider_event_type?: string;
+      elapsed_ms: number;
+      decision_latency_ms?: number;
+      stop_latency_ms?: number;
+      assistant_interrupted?: boolean;
+      provider_cancel_requested?: boolean;
+      tool_cancelled?: boolean;
+    }
+  | { type: "interrupted"; turn_id?: string; interrupted?: boolean; stop_latency_ms?: number }
   | {
       type: "tool_call_started";
       tool_name: string;
@@ -596,7 +632,7 @@ export type VoiceChatServerEvent =
       artifact?: VoiceAgentArtifact;
       sources: VoiceAgentSource[];
     }
-  | { type: "turn_complete" }
+  | { type: "turn_complete"; turn_id?: string; interrupted?: boolean }
   | { type: "pong" }
   | { type: "error"; message: string; provider?: string };
 

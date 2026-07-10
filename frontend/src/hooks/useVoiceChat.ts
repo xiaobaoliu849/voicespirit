@@ -36,6 +36,32 @@ type Options = {
   language?: UiLanguage;
 };
 
+export type VoiceChatInterruptionState = {
+  phase: "idle" | "evaluating" | "interrupted";
+  classification?: "TRUE_BARGE_IN" | "BACKCHANNEL" | "NOISE_OR_SILENCE";
+  rule?: string;
+};
+
+export type VoiceChatMetrics = {
+  firstAudioMs: number | null;
+  interruptionStopMs: number | null;
+  decisionCount: number;
+  trueBargeInCount: number;
+  backchannelCount: number;
+  noiseCount: number;
+  falseInterruptionRate: number | null;
+};
+
+const EMPTY_VOICE_CHAT_METRICS: VoiceChatMetrics = {
+  firstAudioMs: null,
+  interruptionStopMs: null,
+  decisionCount: 0,
+  trueBargeInCount: 0,
+  backchannelCount: 0,
+  noiseCount: 0,
+  falseInterruptionRate: null,
+};
+
 type AudioContextWindow = Window & {
   webkitAudioContext?: typeof AudioContext;
 };
@@ -580,6 +606,10 @@ export default function useVoiceChat({
   const [voiceChatAgentToolStatus, setVoiceChatAgentToolStatus] = useState("");
   const [voiceChatAgentSources, setVoiceChatAgentSources] = useState<VoiceAgentSource[]>([]);
   const [voiceChatAgentRunMeta, setVoiceChatAgentRunMeta] = useState("");
+  const [voiceChatInterruptionState, setVoiceChatInterruptionState] =
+    useState<VoiceChatInterruptionState>({ phase: "idle" });
+  const [voiceChatAssistantInterrupted, setVoiceChatAssistantInterrupted] = useState(false);
+  const [voiceChatMetrics, setVoiceChatMetrics] = useState<VoiceChatMetrics>(EMPTY_VOICE_CHAT_METRICS);
   const [voiceChatMemoryGroupId, setVoiceChatMemoryGroupId] = useState(
     () => getPersistedEverMemConversationGroupId("voice_chat")
   );
@@ -596,6 +626,7 @@ export default function useVoiceChat({
   const processorRef = useRef<ScriptProcessorNode | null>(null);
   const sourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
   const muteGainRef = useRef<GainNode | null>(null);
+  const assistantGainRef = useRef<GainNode | null>(null);
   const playingSourcesRef = useRef<AudioBufferSourceNode[]>([]);
   const nextPlaybackTimeRef = useRef(0);
   const audioInputReadyRef = useRef(false);
@@ -607,6 +638,10 @@ export default function useVoiceChat({
   const currentLocalPendingCountRef = useRef(0);
   const currentCloudCountRef = useRef(0);
   const currentToolRecordsRef = useRef<VoiceAgentToolRecord[]>([]);
+  const currentTurnIdRef = useRef("");
+  const currentAssistantInterruptedRef = useRef(false);
+  const pendingInterruptionRef = useRef<{ candidateId: string; receivedAt: number } | null>(null);
+  const handledInterruptionCandidatesRef = useRef<Set<string>>(new Set());
   const lastPreferredProviderRef = useRef(preferredProvider);
   const lastPreferredModelRef = useRef(preferredModel);
   const sessionEpochRef = useRef(0);
@@ -712,6 +747,21 @@ export default function useVoiceChat({
     }
   }
 
+  function setAssistantPlaybackGain(value: number) {
+    const gainNode = assistantGainRef.current;
+    const context = audioContextRef.current;
+    if (!gainNode || !context) {
+      return;
+    }
+    const safeValue = Math.max(0, Math.min(1, value));
+    try {
+      gainNode.gain.cancelScheduledValues(context.currentTime);
+      gainNode.gain.setTargetAtTime(safeValue, context.currentTime, 0.015);
+    } catch {
+      gainNode.gain.value = safeValue;
+    }
+  }
+
   function stopSessionResources() {
     const ws = websocketRef.current;
     websocketRef.current = null;
@@ -727,9 +777,11 @@ export default function useVoiceChat({
     processorRef.current?.disconnect();
     sourceRef.current?.disconnect();
     muteGainRef.current?.disconnect();
+    assistantGainRef.current?.disconnect();
     processorRef.current = null;
     sourceRef.current = null;
     muteGainRef.current = null;
+    assistantGainRef.current = null;
 
     mediaStreamRef.current?.getTracks().forEach((track) => track.stop());
     mediaStreamRef.current = null;
@@ -744,6 +796,7 @@ export default function useVoiceChat({
     setVoiceChatConnected(false);
     setVoiceChatRecording(false);
     setVoiceChatBusy(false);
+    pendingInterruptionRef.current = null;
   }
 
   function markNewSessionEpoch(): number {
@@ -773,6 +826,8 @@ export default function useVoiceChat({
     const toolCalls = cloneCurrentToolRecords();
     const memorySaved = currentMemorySavedRef.current;
     const memoriesUsed = currentMemoriesRetrievedRef.current;
+    const turnId = currentTurnIdRef.current || undefined;
+    const assistantInterrupted = currentAssistantInterruptedRef.current;
     const memorySourceSummary = buildMemorySourceSummary({
       attempted: currentMemoryRetrieveAttemptedRef.current,
       total: memoriesUsed,
@@ -785,7 +840,7 @@ export default function useVoiceChat({
     setVoiceChatMessages((prev) => {
       const next = [...prev];
       if (userText) {
-        next.push({ role: "user", content: userText, memorySaved });
+        next.push({ role: "user", content: userText, memorySaved, turnId });
       }
       if (assistantText || toolCalls.length > 0) {
         const fallbackToolMessage = toolCalls.at(-1)?.message || t("工具调用已记录", "Tool call recorded");
@@ -796,12 +851,16 @@ export default function useVoiceChat({
           memorySourceSummary: memorySourceSummary || undefined,
           memoryRetrievalAttempted: currentMemoryRetrieveAttemptedRef.current,
           toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
+          turnId,
+          interrupted: assistantInterrupted || undefined,
         });
       }
       return next;
     });
     currentUserTurnRef.current = "";
     currentAssistantTurnRef.current = "";
+    currentTurnIdRef.current = "";
+    currentAssistantInterruptedRef.current = false;
     resetCurrentToolRecords();
     currentMemorySavedRef.current = false;
     currentMemoryRetrieveAttemptedRef.current = false;
@@ -908,13 +967,34 @@ export default function useVoiceChat({
 
     const source = context.createBufferSource();
     source.buffer = buffer;
-    source.connect(context.destination);
+    source.connect(assistantGainRef.current || context.destination);
     const startAt = Math.max(context.currentTime + 0.04, nextPlaybackTimeRef.current);
     source.start(startAt);
     nextPlaybackTimeRef.current = startAt + buffer.duration;
     playingSourcesRef.current.push(source);
     source.addEventListener("ended", () => {
       playingSourcesRef.current = playingSourcesRef.current.filter((item) => item !== source);
+    });
+  }
+
+  function recordInterruptionDecision(
+    classification: "TRUE_BARGE_IN" | "BACKCHANNEL" | "NOISE_OR_SILENCE",
+    stopLatencyMs: number | null
+  ) {
+    setVoiceChatMetrics((previous) => {
+      const decisionCount = previous.decisionCount + 1;
+      const trueBargeInCount = previous.trueBargeInCount + (classification === "TRUE_BARGE_IN" ? 1 : 0);
+      const backchannelCount = previous.backchannelCount + (classification === "BACKCHANNEL" ? 1 : 0);
+      const noiseCount = previous.noiseCount + (classification === "NOISE_OR_SILENCE" ? 1 : 0);
+      return {
+        ...previous,
+        decisionCount,
+        trueBargeInCount,
+        backchannelCount,
+        noiseCount,
+        interruptionStopMs: stopLatencyMs ?? previous.interruptionStopMs,
+        falseInterruptionRate: (backchannelCount + noiseCount) / decisionCount,
+      };
     });
   }
 
@@ -925,6 +1005,8 @@ export default function useVoiceChat({
         setVoiceChatRecording(true);
         setVoiceChatBusy(false);
         audioInputReadyRef.current = true;
+        setVoiceChatInterruptionState({ phase: "idle" });
+        setAssistantPlaybackGain(1);
         setVoiceChatStatus(t(`实时会话已连接：${event.model}`, `Realtime session connected: ${event.model}`));
         return;
       case "memory_config":
@@ -954,6 +1036,7 @@ export default function useVoiceChat({
           commitCompletedTurn();
         }
         currentUserTurnRef.current = event.text;
+        currentTurnIdRef.current = event.turn_id || currentTurnIdRef.current;
         currentMemorySavedRef.current = false;
         currentMemoryRetrieveAttemptedRef.current = false;
         currentLocalPendingCountRef.current = 0;
@@ -986,16 +1069,80 @@ export default function useVoiceChat({
         setVoiceChatMemoryWriteStatus(describeMemoryWriteResult(event));
         return;
       case "assistant_text":
+        if (event.turn_id && currentTurnIdRef.current && event.turn_id !== currentTurnIdRef.current) {
+          setVoiceChatAssistantInterrupted(false);
+        }
+        currentTurnIdRef.current = event.turn_id || currentTurnIdRef.current;
+        if (!currentAssistantTurnRef.current && !currentAssistantInterruptedRef.current) {
+          setVoiceChatAssistantInterrupted(false);
+        }
         currentAssistantTurnRef.current = mergeAssistantText(currentAssistantTurnRef.current, event.text);
         setVoiceChatReply(currentAssistantTurnRef.current);
         setVoiceChatStatus(t("助手正在说话…", "Assistant speaking…"));
         return;
       case "assistant_audio":
+        currentTurnIdRef.current = event.turn_id || currentTurnIdRef.current;
+        if (!currentAssistantTurnRef.current && !currentAssistantInterruptedRef.current) {
+          setVoiceChatAssistantInterrupted(false);
+        }
+        if (typeof event.first_audio_ms === "number") {
+          setVoiceChatMetrics((previous) => ({ ...previous, firstAudioMs: event.first_audio_ms ?? null }));
+        }
         void playAssistantAudio(event.audio, event.sample_rate);
         return;
+      case "interruption_pending":
+        if (handledInterruptionCandidatesRef.current.has(event.candidate_id)) {
+          return;
+        }
+        pendingInterruptionRef.current = {
+          candidateId: event.candidate_id,
+          receivedAt: performance.now(),
+        };
+        setAssistantPlaybackGain(0.18);
+        setVoiceChatInterruptionState({ phase: "evaluating" });
+        setVoiceChatStatus(t("检测到说话，正在判断是否打断…", "Speech detected, checking interruption intent…"));
+        return;
+      case "interruption_decision": {
+        if (handledInterruptionCandidatesRef.current.has(event.candidate_id)) {
+          return;
+        }
+        const pending = pendingInterruptionRef.current;
+        const matchesPending = !pending || pending.candidateId === event.candidate_id;
+        if (!matchesPending) {
+          return;
+        }
+        handledInterruptionCandidatesRef.current.add(event.candidate_id);
+        const localStopLatency = pending ? Math.max(0, Math.round(performance.now() - pending.receivedAt)) : null;
+        pendingInterruptionRef.current = null;
+        const stopLatency = event.classification === "TRUE_BARGE_IN"
+          ? localStopLatency ?? event.stop_latency_ms ?? event.decision_latency_ms ?? event.elapsed_ms
+          : null;
+        recordInterruptionDecision(event.classification, stopLatency);
+        setVoiceChatInterruptionState({
+          phase: event.classification === "TRUE_BARGE_IN" ? "interrupted" : "idle",
+          classification: event.classification,
+          rule: event.rule,
+        });
+        if (event.classification === "TRUE_BARGE_IN") {
+          currentAssistantInterruptedRef.current = true;
+          setVoiceChatAssistantInterrupted(true);
+          return;
+        }
+        setAssistantPlaybackGain(1);
+        setVoiceChatStatus(
+          event.classification === "BACKCHANNEL"
+            ? t("已识别为回应语，助手继续说话", "Backchannel detected; assistant continues")
+            : t("已忽略噪声，助手继续说话", "Noise ignored; assistant continues")
+        );
+        return;
+      }
       case "interrupted":
         stopAssistantPlayback();
-        setVoiceChatAgentToolStatus(t("已打断当前语音任务", "Interrupted the current voice task"));
+        setAssistantPlaybackGain(1);
+        currentAssistantInterruptedRef.current = true;
+        currentTurnIdRef.current = event.turn_id || currentTurnIdRef.current;
+        setVoiceChatAssistantInterrupted(true);
+        commitCompletedTurn();
         setVoiceChatStatus(t("已打断助手，继续说话中…", "Assistant interrupted, continue speaking…"));
         return;
       case "tool_call_started":
@@ -1162,6 +1309,11 @@ export default function useVoiceChat({
         return;
       case "turn_complete":
         {
+          currentTurnIdRef.current = event.turn_id || currentTurnIdRef.current;
+          if (event.interrupted) {
+            currentAssistantInterruptedRef.current = true;
+            setVoiceChatAssistantInterrupted(true);
+          }
           const retrievedCount = currentMemoriesRetrievedRef.current;
           const retrieveAttempted = currentMemoryRetrieveAttemptedRef.current;
           commitCompletedTurn();
@@ -1222,6 +1374,10 @@ export default function useVoiceChat({
       memoryGroupId = persistEverMemConversationGroupId("voice_chat", memoryGroupId);
       currentUserTurnRef.current = "";
       currentAssistantTurnRef.current = "";
+      currentTurnIdRef.current = "";
+      currentAssistantInterruptedRef.current = false;
+      pendingInterruptionRef.current = null;
+      handledInterruptionCandidatesRef.current.clear();
       currentMemoriesRetrievedRef.current = 0;
       currentMemorySavedRef.current = false;
       currentMemoryRetrieveAttemptedRef.current = false;
@@ -1235,6 +1391,9 @@ export default function useVoiceChat({
       setVoiceChatAgentToolStatus("");
       setVoiceChatAgentSources([]);
       setVoiceChatAgentRunMeta("");
+      setVoiceChatAssistantInterrupted(false);
+      setVoiceChatInterruptionState({ phase: "idle" });
+      setVoiceChatMetrics(EMPTY_VOICE_CHAT_METRICS);
       setVoiceChatMemoryScope("");
       setVoiceChatMemoryGroupId(memoryGroupId);
 
@@ -1251,6 +1410,10 @@ export default function useVoiceChat({
       const audioContext = new AudioContextCtor();
       audioContextRef.current = audioContext;
       await audioContext.resume();
+      const assistantGain = audioContext.createGain();
+      assistantGain.gain.value = 1;
+      assistantGain.connect(audioContext.destination);
+      assistantGainRef.current = assistantGain;
 
       const wsUrl = buildVoiceChatWebSocketUrl({
         provider: voiceChatProvider,
@@ -1323,6 +1486,9 @@ export default function useVoiceChat({
         const processor = audioContext.createScriptProcessor(4096, 1, 1);
         const muteGain = audioContext.createGain();
         muteGain.gain.value = 0;
+        let localSpeechActive = false;
+        let localSpeechFrames = 0;
+        let localSilenceFrames = 0;
 
         processor.onaudioprocess = (audioEvent) => {
           if (sessionEpochRef.current !== sessionEpoch || ws.readyState !== WebSocket.OPEN) {
@@ -1332,6 +1498,30 @@ export default function useVoiceChat({
             return;
           }
           const input = audioEvent.inputBuffer.getChannelData(0);
+          if (voiceChatProvider === GOOGLE_PROVIDER && !voiceChatLiveTranslate && input.length > 0) {
+            let energy = 0;
+            for (let index = 0; index < input.length; index += 1) {
+              energy += input[index] * input[index];
+            }
+            const rms = Math.sqrt(energy / input.length);
+            if (rms >= 0.025) {
+              localSpeechFrames += 1;
+              localSilenceFrames = 0;
+              if (!localSpeechActive && localSpeechFrames >= 2) {
+                localSpeechActive = true;
+                ws.send(JSON.stringify({ type: "speech_activity_started" }));
+              }
+            } else {
+              localSpeechFrames = 0;
+              if (localSpeechActive) {
+                localSilenceFrames += 1;
+                if (localSilenceFrames >= 5) {
+                  localSpeechActive = false;
+                  localSilenceFrames = 0;
+                }
+              }
+            }
+          }
           const pcm = encodePcm16k(input, audioContext.sampleRate);
           if (pcm.byteLength > 0) {
             ws.send(pcm);
@@ -1455,7 +1645,12 @@ export default function useVoiceChat({
     }
     const next = [...voiceChatMessages];
     if (currentUser) {
-      next.push({ role: "user" as const, content: currentUser, memorySaved: currentMemorySavedRef.current });
+      next.push({
+        role: "user" as const,
+        content: currentUser,
+        memorySaved: currentMemorySavedRef.current,
+        turnId: currentTurnIdRef.current || undefined,
+      });
     }
     if (currentAssistant) {
       next.push({
@@ -1469,6 +1664,8 @@ export default function useVoiceChat({
           cloudCount: currentCloudCountRef.current,
         }) || undefined,
         memoryRetrievalAttempted: currentMemoryRetrieveAttemptedRef.current,
+        turnId: currentTurnIdRef.current || undefined,
+        interrupted: currentAssistantInterruptedRef.current || undefined,
       });
     }
     return next;
@@ -1480,6 +1677,10 @@ export default function useVoiceChat({
     stopSessionResources();
     currentUserTurnRef.current = "";
     currentAssistantTurnRef.current = "";
+    currentTurnIdRef.current = "";
+    currentAssistantInterruptedRef.current = false;
+    pendingInterruptionRef.current = null;
+    handledInterruptionCandidatesRef.current.clear();
     currentMemoriesRetrievedRef.current = 0;
     currentMemorySavedRef.current = false;
     currentMemoryRetrieveAttemptedRef.current = false;
@@ -1496,6 +1697,9 @@ export default function useVoiceChat({
     setVoiceChatAgentToolStatus("");
     setVoiceChatAgentSources([]);
     setVoiceChatAgentRunMeta("");
+    setVoiceChatAssistantInterrupted(false);
+    setVoiceChatInterruptionState({ phase: "idle" });
+    setVoiceChatMetrics(EMPTY_VOICE_CHAT_METRICS);
     setVoiceChatStatus(
       messages.length
         ? t("已恢复历史实时语音会话", "Restored a previous realtime voice session")
@@ -1533,6 +1737,9 @@ export default function useVoiceChat({
     voiceChatMemoriesRetrieved,
     voiceChatMessages,
     voiceChatArchiveMessages,
+    voiceChatInterruptionState,
+    voiceChatAssistantInterrupted,
+    voiceChatMetrics,
     sessionSummary,
     onToggleRecording,
     onProviderChange: (provider: string) => {
@@ -1548,6 +1755,10 @@ export default function useVoiceChat({
       stopSessionResources();
       currentUserTurnRef.current = "";
       currentAssistantTurnRef.current = "";
+      currentTurnIdRef.current = "";
+      currentAssistantInterruptedRef.current = false;
+      pendingInterruptionRef.current = null;
+      handledInterruptionCandidatesRef.current.clear();
       currentMemoriesRetrievedRef.current = 0;
       currentMemoryRetrieveAttemptedRef.current = false;
       currentLocalPendingCountRef.current = 0;
@@ -1565,6 +1776,9 @@ export default function useVoiceChat({
       setVoiceChatAgentToolStatus("");
       setVoiceChatAgentSources([]);
       setVoiceChatAgentRunMeta("");
+      setVoiceChatAssistantInterrupted(false);
+      setVoiceChatInterruptionState({ phase: "idle" });
+      setVoiceChatMetrics(EMPTY_VOICE_CHAT_METRICS);
       clearPersistedEverMemConversationGroupId("voice_chat");
       setVoiceChatMemoryGroupId("");
     },

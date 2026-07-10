@@ -68,6 +68,8 @@ class VoiceAgentSessionRepository:
             "assistant_text": str(row["assistant_text"] or ""),
             "memory_payload": VoiceAgentSessionRepository._decode_json(row["memory_json"], fallback={}),
             "completed": bool(row["completed"]),
+            "interrupted": bool(row["interrupted"]),
+            "completion_status": str(row["completion_status"] or "pending"),
             "started_at": str(row["started_at"]),
             "completed_at": str(row["completed_at"] or ""),
         }
@@ -138,6 +140,8 @@ class VoiceAgentSessionRepository:
                     assistant_text TEXT,
                     memory_json TEXT NOT NULL DEFAULT '{}',
                     completed INTEGER NOT NULL DEFAULT 0,
+                    interrupted INTEGER NOT NULL DEFAULT 0,
+                    completion_status TEXT NOT NULL DEFAULT 'pending',
                     started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     completed_at TIMESTAMP,
                     UNIQUE(session_id, turn_id),
@@ -145,6 +149,18 @@ class VoiceAgentSessionRepository:
                 )
                 """
             )
+            turn_columns = {
+                str(row["name"])
+                for row in conn.execute("PRAGMA table_info(voice_agent_turns)").fetchall()
+            }
+            if "interrupted" not in turn_columns:
+                conn.execute(
+                    "ALTER TABLE voice_agent_turns ADD COLUMN interrupted INTEGER NOT NULL DEFAULT 0"
+                )
+            if "completion_status" not in turn_columns:
+                conn.execute(
+                    "ALTER TABLE voice_agent_turns ADD COLUMN completion_status TEXT NOT NULL DEFAULT 'pending'"
+                )
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS voice_agent_tool_events (
@@ -170,6 +186,27 @@ class VoiceAgentSessionRepository:
                 """
                 CREATE INDEX IF NOT EXISTS idx_voice_agent_tool_events_session
                 ON voice_agent_tool_events(session_id, id)
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS voice_agent_session_events (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    session_id TEXT NOT NULL,
+                    turn_id TEXT,
+                    event_type TEXT NOT NULL,
+                    source TEXT NOT NULL,
+                    text TEXT,
+                    payload_json TEXT NOT NULL DEFAULT '{}',
+                    occurred_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+                    FOREIGN KEY(session_id) REFERENCES voice_agent_sessions(id)
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_voice_agent_session_events_sequence
+                ON voice_agent_session_events(session_id, id)
                 """
             )
             conn.commit()
@@ -211,6 +248,7 @@ class VoiceAgentSessionRepository:
 
     def finish_session(self, session_id: str, *, status: str = "closed") -> None:
         clean_status = str(status or "closed").strip() or "closed"
+        timeline_enabled = self.has_session_events(session_id)
         with self._connect() as conn:
             conn.execute(
                 """
@@ -221,6 +259,13 @@ class VoiceAgentSessionRepository:
                 (clean_status, str(session_id or "")),
             )
             conn.commit()
+        if timeline_enabled:
+            self.add_session_event(
+                session_id,
+                "session_closed",
+                source="session",
+                payload={"status": clean_status},
+            )
 
     def get_session(self, session_id: str) -> dict[str, Any] | None:
         with self._connect() as conn:
@@ -257,10 +302,15 @@ class VoiceAgentSessionRepository:
         assistant_text: str | None = None,
         memory_payload: dict[str, Any] | None = None,
         completed: bool = False,
+        interrupted: bool | None = None,
+        completion_status: str | None = None,
     ) -> dict[str, Any]:
         clean_turn_id = str(turn_id or "").strip()
         if not clean_turn_id:
             raise ValueError("turn_id is required.")
+        effective_completion_status = completion_status
+        if effective_completion_status is None and completed:
+            effective_completion_status = "completed"
         with self._connect() as conn:
             conn.execute(
                 """
@@ -271,8 +321,10 @@ class VoiceAgentSessionRepository:
                     assistant_text,
                     memory_json,
                     completed,
+                    interrupted,
+                    completion_status,
                     completed_at
-                ) VALUES (?, ?, ?, ?, ?, ?, CASE WHEN ? THEN CURRENT_TIMESTAMP ELSE NULL END)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, CASE WHEN ? THEN CURRENT_TIMESTAMP ELSE NULL END)
                 ON CONFLICT(session_id, turn_id) DO UPDATE SET
                     user_text = CASE
                         WHEN excluded.user_text IS NOT NULL AND excluded.user_text != '' THEN excluded.user_text
@@ -291,6 +343,14 @@ class VoiceAgentSessionRepository:
                         WHEN excluded.completed = 1 THEN 1
                         ELSE voice_agent_turns.completed
                     END,
+                    interrupted = CASE
+                        WHEN ? IS NOT NULL THEN ?
+                        ELSE voice_agent_turns.interrupted
+                    END,
+                    completion_status = CASE
+                        WHEN ? IS NOT NULL AND ? != '' THEN ?
+                        ELSE voice_agent_turns.completion_status
+                    END,
                     completed_at = CASE
                         WHEN excluded.completed = 1 THEN CURRENT_TIMESTAMP
                         ELSE voice_agent_turns.completed_at
@@ -303,7 +363,14 @@ class VoiceAgentSessionRepository:
                     assistant_text,
                     self._encode_json(memory_payload or {}),
                     1 if completed else 0,
+                    1 if interrupted else 0,
+                    str(effective_completion_status or "pending"),
                     1 if completed else 0,
+                    None if interrupted is None else 1,
+                    1 if interrupted else 0,
+                    effective_completion_status,
+                    effective_completion_status,
+                    effective_completion_status,
                 ),
             )
             conn.commit()
@@ -355,7 +422,122 @@ class VoiceAgentSessionRepository:
             ).fetchone()
         if row is None:
             raise RuntimeError("Failed to load voice agent tool event.")
-        return self._row_to_event(row)
+        event = self._row_to_event(row)
+        if self.has_session_events(session_id):
+            self.add_session_event(
+                session_id,
+                event_type,
+                source="tool_event",
+                turn_id=turn_id,
+                text=str(payload.get("message") or payload.get("answer") or ""),
+                payload=payload,
+            )
+        return event
+
+    def rename_turn(self, session_id: str, old_turn_id: str, new_turn_id: str) -> None:
+        clean_old = str(old_turn_id or "").strip()
+        clean_new = str(new_turn_id or "").strip()
+        if not clean_old or not clean_new or clean_old == clean_new:
+            return
+        with self._connect() as conn:
+            existing = conn.execute(
+                "SELECT 1 FROM voice_agent_turns WHERE session_id = ? AND turn_id = ? LIMIT 1",
+                (str(session_id or ""), clean_new),
+            ).fetchone()
+            if existing is not None:
+                return
+            conn.execute(
+                "UPDATE voice_agent_turns SET turn_id = ? WHERE session_id = ? AND turn_id = ?",
+                (clean_new, str(session_id or ""), clean_old),
+            )
+            conn.execute(
+                "UPDATE voice_agent_session_events SET turn_id = ? WHERE session_id = ? AND turn_id = ?",
+                (clean_new, str(session_id or ""), clean_old),
+            )
+            conn.commit()
+
+    def has_session_events(self, session_id: str) -> bool:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT 1 FROM voice_agent_session_events WHERE session_id = ? LIMIT 1",
+                (str(session_id or ""),),
+            ).fetchone()
+        return row is not None
+
+    def add_session_event(
+        self,
+        session_id: str,
+        event_type: str,
+        *,
+        source: str,
+        turn_id: str = "",
+        text: str = "",
+        payload: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        clean_payload = dict(payload or {})
+        with self._connect() as conn:
+            cursor = conn.execute(
+                """
+                INSERT INTO voice_agent_session_events (
+                    session_id, turn_id, event_type, source, text, payload_json
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    str(session_id or ""),
+                    str(turn_id or "") or None,
+                    str(event_type or ""),
+                    str(source or "session_event"),
+                    str(text or "") or None,
+                    self._encode_json(clean_payload),
+                ),
+            )
+            conn.commit()
+            event_id = int(cursor.lastrowid)
+            row = conn.execute(
+                """
+                SELECT id, session_id, turn_id, event_type, source, text, payload_json, occurred_at
+                FROM voice_agent_session_events
+                WHERE id = ?
+                """,
+                (event_id,),
+            ).fetchone()
+        if row is None:
+            raise RuntimeError("Failed to load voice agent session event.")
+        return {
+            "id": int(row["id"]),
+            "session_id": str(row["session_id"]),
+            "turn_id": str(row["turn_id"] or ""),
+            "event_type": str(row["event_type"]),
+            "source": str(row["source"]),
+            "text": str(row["text"] or ""),
+            "payload": self._decode_json(row["payload_json"], fallback={}),
+            "occurred_at": str(row["occurred_at"]),
+        }
+
+    def list_session_events(self, session_id: str) -> list[dict[str, Any]]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT id, session_id, turn_id, event_type, source, text, payload_json, occurred_at
+                FROM voice_agent_session_events
+                WHERE session_id = ?
+                ORDER BY id ASC
+                """,
+                (str(session_id or ""),),
+            ).fetchall()
+        return [
+            {
+                "id": int(row["id"]),
+                "session_id": str(row["session_id"]),
+                "turn_id": str(row["turn_id"] or ""),
+                "event_type": str(row["event_type"]),
+                "source": str(row["source"]),
+                "text": str(row["text"] or ""),
+                "payload": self._decode_json(row["payload_json"], fallback={}),
+                "occurred_at": str(row["occurred_at"]),
+            }
+            for row in rows
+        ]
 
     def list_turns(self, session_id: str) -> list[dict[str, Any]]:
         with self._connect() as conn:
@@ -369,6 +551,8 @@ class VoiceAgentSessionRepository:
                     assistant_text,
                     memory_json,
                     completed,
+                    interrupted,
+                    completion_status,
                     started_at,
                     completed_at
                 FROM voice_agent_turns
@@ -398,6 +582,39 @@ class VoiceAgentSessionRepository:
         session = self.get_session(session_id)
         if session is None:
             return []
+
+        provider = str(session.get("provider", ""))
+        meta = session.get("meta") or {}
+        transport = str(meta.get("transport", "websocket") if isinstance(meta, dict) else "websocket")
+        session_events = self.list_session_events(session_id)
+        if session_events:
+            canonical_timeline: list[dict[str, Any]] = []
+            for event in session_events:
+                payload = event.get("payload", {})
+                if not isinstance(payload, dict):
+                    payload = {}
+                item = self._timeline_event(
+                    event_id=f"session_event:{event['id']}",
+                    event_type=str(event.get("event_type", "")),
+                    source=str(event.get("source", "session_event")),
+                    turn_id=str(event.get("turn_id", "")),
+                    tool_name=str(payload.get("tool_name", "")),
+                    query=str(payload.get("query", "")),
+                    text=str(event.get("text", "")),
+                    timestamp=str(event.get("occurred_at", "")),
+                    payload=payload,
+                    order=int(event["id"]),
+                )
+                item.pop("_order", None)
+                item["sequence_no"] = int(event["id"])
+                item["provider"] = provider
+                item["transport"] = transport
+                if "elapsed_ms" in payload:
+                    item["elapsed_ms"] = payload["elapsed_ms"]
+                if "stage" in payload:
+                    item["stage"] = payload["stage"]
+                canonical_timeline.append(item)
+            return canonical_timeline
 
         timeline: list[dict[str, Any]] = [
             self._timeline_event(
@@ -440,7 +657,11 @@ class VoiceAgentSessionRepository:
                         turn_id=turn_id,
                         text=str(turn.get("assistant_text", "")),
                         timestamp=str(turn.get("completed_at") or turn.get("started_at", "")),
-                        payload={"completed": bool(turn.get("completed", False))},
+                        payload={
+                            "completed": bool(turn.get("completed", False)),
+                            "interrupted": bool(turn.get("interrupted", False)),
+                            "status": str(turn.get("completion_status", "pending")),
+                        },
                         order=60,
                     )
                 )
@@ -461,11 +682,18 @@ class VoiceAgentSessionRepository:
                 timeline.append(
                     self._timeline_event(
                         event_id=f"turn:{turn['id']}:complete",
-                        event_type="turn_completed",
+                        event_type=(
+                            "turn_interrupted"
+                            if bool(turn.get("interrupted", False))
+                            else "turn_completed"
+                        ),
                         source="turn",
                         turn_id=turn_id,
                         timestamp=str(turn.get("completed_at") or turn.get("started_at", "")),
-                        payload={},
+                        payload={
+                            "interrupted": bool(turn.get("interrupted", False)),
+                            "status": str(turn.get("completion_status", "completed")),
+                        },
                         order=80,
                     )
                 )
@@ -506,9 +734,6 @@ class VoiceAgentSessionRepository:
                 str(item.get("id", "")),
             )
         )
-        provider = str(session.get("provider", ""))
-        meta = session.get("meta") or {}
-        transport = str(meta.get("transport", "websocket") if isinstance(meta, dict) else "websocket")
         for item in timeline:
             item.pop("_order", None)
             item["provider"] = provider

@@ -804,6 +804,14 @@ class VoiceAgentToolSession:
         self._current_started_at = 0.0
         self._turn_index = 0
 
+    @property
+    def has_active_task(self) -> bool:
+        return self._current_task is not None and not self._current_task.done()
+
+    @property
+    def current_turn_id(self) -> str:
+        return self._current_turn_id
+
     def _next_turn_id(self) -> str:
         self._turn_index += 1
         return f"voice-tool-{self._turn_index}"

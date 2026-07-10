@@ -472,7 +472,7 @@ export default function ChatPage({ chat, voiceChat, errorRuntimeContext }: Props
                 key={`${idx}-${msg.role}`}
                 className={msg.role === "user" ? "bubble user" : "bubble assistant"}
               >
-                {msg.memorySaved || msg.memoriesUsed || msg.memorySourceSummary ? (
+                {msg.memorySaved || msg.memoriesUsed || msg.memorySourceSummary || msg.interrupted ? (
                   <div className="vsBubbleMeta">
                     {msg.memorySaved ? (
                       <span className="vsBubbleMemoryTag saved">{t("✓ 已记忆", "✓ Saved")}</span>
@@ -484,6 +484,9 @@ export default function ChatPage({ chat, voiceChat, errorRuntimeContext }: Props
                     ) : null}
                     {msg.memorySourceSummary ? (
                       <span className="vsBubbleMemoryTag used">{msg.memorySourceSummary}</span>
+                    ) : null}
+                    {msg.interrupted ? (
+                      <span className="vsBubbleMemoryTag used">{t("已打断", "Interrupted")}</span>
                     ) : null}
                   </div>
                 ) : null}

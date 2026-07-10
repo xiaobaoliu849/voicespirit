@@ -1,13 +1,13 @@
 # VoiceSpirit Voice Agent Evolution Roadmap
 
-Last updated: 2026-07-07
+Last updated: 2026-07-10
 
 ## Executive View
 
 VoiceSpirit already has three valuable foundations:
 
-- realtime voice chat through Google Native Audio and DashScope Qwen Omni
-- interruption event handling that stops local assistant playback
+- realtime voice chat through Google Native Audio, DashScope Qwen Omni, and OpenAI Realtime
+- two-phase interruption handling with provider-normalized decisions and interrupted turn boundaries
 - an audio/podcast agent flow with retrieval, research sources, draft generation, persistence, and synthesis
 
 The next product jump is not "add another TTS model". It is to turn voice chat from a realtime talking interface into a task-capable agent runtime.
@@ -53,14 +53,21 @@ Implemented:
 - frontend browsing/export UI for persisted realtime voice agent sessions
 - canonical voice agent timeline built from session, turn, tool, memory, and completion events
 - response gating for search turns through `response_gated`, suppressing direct generic replies while tool results are pending
+- runtime interruption classification into `TRUE_BARGE_IN`, `BACKCHANNEL`, and `NOISE_OR_SILENCE`
+- two-phase `interruption_pending` -> `interruption_decision` protocol with delayed tool/response cancellation
+- explicit response cancellation/manual response creation for OpenAI and DashScope; Google native interruption recovery for backchannels/noise
+- monotonic canonical session-event ledger with interruption decisions, first-audio metrics, and interrupted assistant boundaries
+- provider-independent timeline-first rendering with raw records in a supporting disclosure
+- deterministic raw Provider event replay coverage for Google, DashScope, and OpenAI
+- lightweight live/history UI for first-audio latency, interruption-stop latency, and the false-interruption proxy
 
 Missing:
 
 - richer retrieval and application tools beyond web search, audio-run creation, translation, transcript summarization, and TTS synthesis
-- policy for ignoring backchannels like "嗯嗯" or brief noise
-- aggregate latency and interruption metrics dashboard
-- deeper provider-level response cancellation for every realtime backend
-- provider-independent timeline rendering, filtering, and metrics
+- aggregate cross-session latency and interruption metrics dashboard/API
+- pending-interruption timeout when a Provider never returns a transcription completion
+- strict Google pre-Provider interruption gating (requires a local/independent VAD+ASR front door; Google Live exposes no explicit response cancel)
+- timeline filtering and turn-completion latency
 
 ### Audio/podcast agent
 
@@ -74,12 +81,13 @@ Implemented:
 - API router: `backend/routers/audio_agent.py`
 - frontend API integration in `frontend/src/api.ts`
 - tests around research, agent run flow, and podcast sidebar rendering
+- cancellation endpoint
+- retry endpoint (whole-run retry)
+- SSE progress stream for long-running agent runs
 
 Missing:
 
-- retry endpoint and per-step retry policy
-- cancellation endpoint
-- SSE or WebSocket progress stream for long-running agent runs
+- per-step retry policy
 - source quality ranking beyond simple caps and dedupe
 - stricter grounding/citation validation
 - shared tool abstraction reusable by realtime voice chat
@@ -147,7 +155,8 @@ Backend:
 - done: expose persisted voice agent sessions through a read API
 - done: add frontend browsing/export UI for persisted voice agent sessions
 - done: expose a canonical backend timeline for persisted voice agent sessions
-- next: render timeline as the primary history view and add recorded event sequence tests
+- done: render the canonical timeline as the primary history view with raw records collapsed
+- done: add deterministic Google, DashScope, and OpenAI raw event sequence replay tests
 
 Frontend:
 
@@ -157,7 +166,7 @@ Frontend:
 - done: treat interruption as both playback stop and current-turn cancellation request
 - done: attach structured tool call records to archived voice assistant messages
 - done: browse, inspect, and export persisted backend voice agent sessions
-- next: make the canonical timeline the primary replay/debugging surface
+- done: make the canonical timeline the primary replay/debugging surface
 
 Success criteria:
 
@@ -167,7 +176,7 @@ Success criteria:
 - done: user interruption cancels active tool work
 - done: search context is passed back to the realtime model for a voice answer
 - done: reduce risk of raw model reply racing with tool-grounded reply through response gating
-- next: add scenario tests with recorded realtime event sequences built around the canonical timeline
+- done: add scenario tests with recorded realtime event sequences built around the canonical timeline
 
 ### Milestone 2: Robust Interruption Policy
 
@@ -175,21 +184,22 @@ Goal: make barge-in feel natural rather than just technically possible.
 
 Backend:
 
-- add interruption decision logs
-- distinguish true interruption, short backchannel, silence timeout, and noise-like audio
-- keep the interrupted assistant text boundary so follow-up questions like "刚才最后一句是什么" work
+- done: persist provider-normalized interruption decisions with classification, rule, turn, and latency
+- done: distinguish true interruption, short backchannel, and noise/silence-like transcriptions
+- next: add a bounded timeout for candidates that never receive a transcription completion
+- done: keep the interrupted assistant text boundary and mark its turn `interrupted`
 
 Frontend:
 
-- show a subtle interrupted state
-- avoid committing partial assistant messages as if complete
+- done: show a subtle evaluating/interrupted state
+- done: archive partial assistant messages with an explicit interrupted marker
 
 Metrics:
 
-- time to first audio
-- interruption-to-stop latency
-- false interruption rate
-- turn completion latency
+- done: time to first audio (per-turn event and live/history UI)
+- done: interruption-to-stop latency (server decision proxy plus client-local playback stop)
+- done: false interruption proxy `(BACKCHANNEL + NOISE_OR_SILENCE) / candidates`
+- next: aggregate these metrics across sessions and add turn completion latency
 
 ### Milestone 3: Unified Agent Runs
 
@@ -198,9 +208,10 @@ Goal: voice chat can start durable tasks and resume them later.
 Tasks:
 
 - promote audio agent run events to a shared `agent_runs` concept or adapter
-- add cancellation/retry APIs to audio agent runs
-- add SSE progress for run execution
-- persist voice session transcript and linked runs
+- done: add cancellation and whole-run retry APIs to audio agent runs
+- done: add SSE progress for run execution
+- done: persist voice session transcripts and run artifacts in event payloads
+- next: add a durable relational link from voice turns to unified agent runs
 
 ### Milestone 4: Action Agent
 
@@ -208,10 +219,10 @@ Goal: user can ask the voice agent to do app-local work.
 
 Candidate actions:
 
-- create a podcast draft from a spoken topic
-- summarize a transcript job
-- translate selected text
-- generate TTS from a drafted answer
+- done: create a podcast/audio-agent draft from a spoken topic
+- done: summarize transcript text
+- done: translate selected text
+- done: generate TTS from a drafted answer
 - save user voice preferences
 
 Permission model:
@@ -221,10 +232,10 @@ Permission model:
 
 ## Immediate Development Backlog
 
-1. Promote the canonical voice agent timeline to the primary frontend history/replay view.
-2. Add recorded event sequence tests for search, interruption, cancellation, and memory-write turns.
+1. **[DONE]** Promote the canonical voice agent timeline to the primary frontend history/replay view.
+2. **[DONE]** Add deterministic Provider event sequence tests for interruption/cancellation, while retaining projection tests for search and memory-write turns.
 3. **[DONE]** Add aggregate latency fields to timeline events (`elapsed_ms`, provider, transport, stage).
-4. Add interruption classification: true barge-in, backchannel, silence timeout, and noise-like audio.
+4. **[DONE]** Add runtime interruption classification: true barge-in, backchannel, and noise/silence-like audio; keep the missing-transcript timeout as follow-up.
 5. **[DONE]** Add audio agent cancellation/retry endpoints.
 6. **[DONE]** Add SSE or WebSocket progress for durable audio agent runs.
 7. **[DONE]** Add a shared tool/action permission model for read-only versus confirm-required actions.
@@ -234,9 +245,10 @@ Permission model:
 
 Start with the narrowest slice that proves the higher-level model:
 
-- backend timeline builder from session, turn, tool, memory, and completion records
-- API detail response that includes both raw records and canonical timeline
-- frontend history view that renders the timeline first and raw records as supporting detail
-- tests with deterministic recorded event sequences
+- done: backend timeline builder from a monotonic session event ledger
+- done: API detail response that includes both raw records and canonical timeline
+- done: frontend history view that renders the timeline first and raw records as supporting detail
+- done: deterministic Google, DashScope, and OpenAI recorded event sequences
+- next: cross-session metric aggregation, timeline filtering, and a local/independent VAD+ASR front door if strict Google pre-cancel semantics are required
 
 This proves VoiceSpirit can reason about voice agent sessions independently of provider transport before taking on a LiveKit/WebRTC migration.

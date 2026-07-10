@@ -47,11 +47,25 @@ class FakeProcessorNode extends FakeAudioNode {
 }
 
 class FakeGainNode extends FakeAudioNode {
-  gain = { value: 1 };
+  gain = {
+    value: 1,
+    cancelScheduledValues: vi.fn(),
+    setTargetAtTime: vi.fn((value: number) => {
+      this.gain.value = value;
+    }),
+  };
+}
+
+class FakeBufferSourceNode extends FakeAudioNode {
+  buffer: { duration: number } | null = null;
+  start = vi.fn();
+  stop = vi.fn();
+  addEventListener = vi.fn();
 }
 
 class FakeAudioContext {
   static processors: FakeProcessorNode[] = [];
+  static gains: FakeGainNode[] = [];
   state = "running";
   currentTime = 0;
   sampleRate = 48000;
@@ -65,7 +79,16 @@ class FakeAudioContext {
     FakeAudioContext.processors.push(processor);
     return processor;
   });
-  createGain = vi.fn(() => new FakeGainNode());
+  createGain = vi.fn(() => {
+    const gain = new FakeGainNode();
+    FakeAudioContext.gains.push(gain);
+    return gain;
+  });
+  createBuffer = vi.fn((_channels: number, length: number, sampleRate: number) => ({
+    duration: length / sampleRate,
+    getChannelData: () => new Float32Array(length),
+  }));
+  createBufferSource = vi.fn(() => new FakeBufferSourceNode());
 }
 
 class FakeWebSocket {
@@ -113,6 +136,7 @@ describe("useVoiceChat", () => {
   beforeEach(() => {
     FakeWebSocket.instances = [];
     FakeAudioContext.processors = [];
+    FakeAudioContext.gains = [];
     localStorage.clear();
     configureEverMemRuntime({
       enabled: true,
@@ -987,5 +1011,110 @@ describe("useVoiceChat", () => {
     expect(result.current.voiceAgentHistoryDetail).toBeNull();
     expect(result.current.voiceAgentHistoryExportText).toBe("");
     expect(result.current.voiceAgentHistoryError).toBe("加载历史语音 Agent 会话详情失败。");
+  });
+
+  it("ducks on a candidate, resumes backchannels, and archives confirmed interruptions", async () => {
+    ensureEverMemConversationGroupIdMock.mockResolvedValue("voice-group-interruption");
+    const { result } = renderHook(() =>
+      useVoiceChat({
+        formatErrorMessage: createFormatErrorMessageStub(),
+        providerOptions: ["OpenAI"],
+        preferredProvider: "OpenAI",
+        preferredModel: "gpt-realtime-2",
+        providerModelCatalog: {
+          OpenAI: { defaultModel: "gpt-realtime-2", availableModels: ["gpt-realtime-2"] },
+        },
+      })
+    );
+
+    await act(async () => {
+      await result.current.onToggleRecording();
+    });
+    const socket = FakeWebSocket.instances[0];
+    act(() => {
+      socket.emitOpen();
+      socket.emitMessage({ type: "session_open", provider: "OpenAI", model: "gpt-realtime-2", voice: "alloy" });
+      socket.emitMessage({ type: "user_transcript", text: "继续解释", turn_id: "voice-turn-1" });
+      socket.emitMessage({ type: "assistant_text", text: "这是还没说完的回答", turn_id: "voice-turn-1" });
+      socket.emitMessage({
+        type: "interruption_pending",
+        candidate_id: "interruption-1",
+        provider: "OpenAI",
+        interrupted_turn_id: "voice-turn-1",
+      });
+    });
+
+    expect(result.current.voiceChatInterruptionState.phase).toBe("evaluating");
+    expect(FakeAudioContext.gains[0].gain.value).toBe(0.18);
+
+    act(() => {
+      socket.emitMessage({
+        type: "interruption_decision",
+        candidate_id: "interruption-1",
+        classification: "BACKCHANNEL",
+        rule: "backchannel_pattern:^嗯(嗯)?$",
+        decision: "resume",
+        transcript: "嗯嗯",
+        provider: "OpenAI",
+        interrupted_turn_id: "voice-turn-1",
+        elapsed_ms: 37,
+      });
+    });
+
+    expect(result.current.voiceChatMessages).toHaveLength(0);
+    expect(result.current.voiceChatReply).toBe("这是还没说完的回答");
+    expect(result.current.voiceChatMetrics.falseInterruptionRate).toBe(1);
+    expect(FakeAudioContext.gains[0].gain.value).toBe(1);
+
+    await act(async () => {
+      socket.emitMessage({
+        type: "assistant_audio",
+        audio: "AAA=",
+        encoding: "pcm_s16le",
+        sample_rate: 24000,
+        turn_id: "voice-turn-1",
+        first_audio_ms: 84,
+      });
+      socket.emitMessage({
+        type: "interruption_pending",
+        candidate_id: "interruption-2",
+        provider: "OpenAI",
+        interrupted_turn_id: "voice-turn-1",
+      });
+      socket.emitMessage({
+        type: "interruption_decision",
+        candidate_id: "interruption-2",
+        classification: "TRUE_BARGE_IN",
+        rule: "non_backchannel_speech",
+        decision: "cancel",
+        transcript: "等一下",
+        provider: "OpenAI",
+        interrupted_turn_id: "voice-turn-1",
+        elapsed_ms: 42,
+        stop_latency_ms: 42,
+      });
+      socket.emitMessage({
+        type: "interrupted",
+        turn_id: "voice-turn-1",
+        interrupted: true,
+        stop_latency_ms: 42,
+      });
+      await Promise.resolve();
+    });
+
+    expect(result.current.voiceChatAssistantInterrupted).toBe(true);
+    expect(result.current.voiceChatMetrics.firstAudioMs).toBe(84);
+    expect(result.current.voiceChatMetrics.decisionCount).toBe(2);
+    expect(result.current.voiceChatMetrics.falseInterruptionRate).toBe(0.5);
+    expect(result.current.voiceChatMetrics.interruptionStopMs).not.toBeNull();
+    expect(result.current.voiceChatMessages).toEqual([
+      expect.objectContaining({ role: "user", content: "继续解释", turnId: "voice-turn-1" }),
+      expect.objectContaining({
+        role: "assistant",
+        content: "这是还没说完的回答",
+        turnId: "voice-turn-1",
+        interrupted: true,
+      }),
+    ]);
   });
 });

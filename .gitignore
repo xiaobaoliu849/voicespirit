@@ -26,7 +26,11 @@ backend/temp_audio/
 *.png
 *.mp3
 *.jpg
+*.wav
 backup_before_cleanup/
+backend/temp_stream_test.html
+backend/patch_tts_router.py
+backend/patch_tts_service.py
 
 # OS
 Thumbs.db

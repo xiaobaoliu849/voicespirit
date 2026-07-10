@@ -3,6 +3,7 @@ import type { VoiceAgentTimelineEventHistory } from "../api";
 import type { UseVoiceChatResult } from "../hooks/useVoiceChat";
 import { useI18n } from "../i18n";
 import type { ErrorRuntimeContext } from "../types/ui";
+import { buildVoiceTimelineMetrics } from "../utils/voiceTimelineMetrics";
 
 type Props = {
   voiceChat: UseVoiceChatResult;
@@ -10,18 +11,37 @@ type Props = {
 };
 
 function timelineText(event: VoiceAgentTimelineEventHistory): string {
+  if (event.event_type === "interruption_decision") {
+    const classification = String(event.payload.classification || "");
+    const decision = String(event.payload.decision || "");
+    const rule = String(event.payload.rule || "");
+    return [classification, decision, rule].filter(Boolean).join(" · ");
+  }
+  if (event.event_type === "assistant_audio_started") {
+    const firstAudioMs = event.payload.first_audio_ms ?? event.payload.elapsed_ms;
+    return typeof firstAudioMs === "number" ? `first audio: ${firstAudioMs}ms` : "";
+  }
   return event.text || event.query || "";
+}
+
+function formatMetric(value: number | null): string {
+  return value === null ? "—" : `${Math.round(value)}ms`;
 }
 
 export default function VoiceChatPage({ voiceChat, errorRuntimeContext }: Props) {
   const { t } = useI18n();
   const selectedHistory = voiceChat.voiceAgentHistoryDetail;
   const selectedHistoryTimeline = selectedHistory?.timeline ?? [];
+  const selectedHistoryMetrics = buildVoiceTimelineMetrics(selectedHistoryTimeline);
   const timelineEventLabels: Record<string, string> = {
     session_open: t("会话开始", "Session opened"),
     session_closed: t("会话结束", "Session closed"),
     user_transcript: t("用户语音转写", "User transcript"),
     assistant_response: t("助手回应", "Assistant response"),
+    assistant_audio_started: t("首段音频", "First audio"),
+    interruption_pending: t("中断候选", "Interruption candidate"),
+    interruption_decision: t("中断决策", "Interruption decision"),
+    turn_interrupted: t("轮次已打断", "Turn interrupted"),
     memory_commit: t("记忆写入", "Memory commit"),
     turn_completed: t("轮次完成", "Turn completed"),
     tool_call_started: t("工具开始", "Tool started"),
@@ -49,6 +69,12 @@ export default function VoiceChatPage({ voiceChat, errorRuntimeContext }: Props)
             </div>
             <div className="vsTtsPrimaryStats">
               <span>{voiceChat.voiceChatConnected ? t("实时会话中", "Live session") : t("待机", "Idle")}</span>
+            {voiceChat.voiceChatInterruptionState.phase === "evaluating" ? (
+              <span className="vsVoiceMemoryChip">{t("判断中断中", "Evaluating interruption")}</span>
+            ) : null}
+            {voiceChat.voiceChatAssistantInterrupted ? (
+              <span className="vsVoiceMemoryChip">{t("已打断", "Interrupted")}</span>
+            ) : null}
             {voiceChat.voiceChatMemoriesRetrieved > 0 ? (
               <span className="vsVoiceMemoryChip">
                 {t(`已回忆 ${voiceChat.voiceChatMemoriesRetrieved} 条记忆`, `Recalled ${voiceChat.voiceChatMemoriesRetrieved} memories`)}
@@ -176,6 +202,23 @@ export default function VoiceChatPage({ voiceChat, errorRuntimeContext }: Props)
                 {voiceChat.voiceChatRecording ? t("结束会话", "End session") : t("开始实时聊天", "Start realtime chat")}
               </button>
               <div className="vsEmptyDesc">{voiceChat.voiceChatStatus}</div>
+            </div>
+
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "center" }}>
+              <span className="vsVoiceMemoryChip">
+                {t("首音频", "First audio")}: {formatMetric(voiceChat.voiceChatMetrics.firstAudioMs)}
+              </span>
+              <span className="vsVoiceMemoryChip">
+                {t("中断停止", "Interruption stop")}: {formatMetric(voiceChat.voiceChatMetrics.interruptionStopMs)}
+              </span>
+              <span
+                className="vsVoiceMemoryChip"
+                title={t("代理指标：(回应语 + 噪声) / 全部中断候选", "Proxy: (backchannels + noise) / all interruption candidates")}
+              >
+                {t("误中断代理", "False-interruption proxy")}: {voiceChat.voiceChatMetrics.falseInterruptionRate === null
+                  ? "—"
+                  : `${Math.round(voiceChat.voiceChatMetrics.falseInterruptionRate * 100)}%`}
+              </span>
             </div>
 
             <ErrorNotice
@@ -326,6 +369,19 @@ export default function VoiceChatPage({ voiceChat, errorRuntimeContext }: Props)
                       `${selectedHistory.turns.length} turns, ${selectedHistory.tool_events.length} tool events, ${selectedHistoryTimeline.length} timeline events`
                     )}
                   </div>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
+                    <span className="vsVoiceMemoryChip">
+                      {t("平均首音频", "Avg first audio")}: {formatMetric(selectedHistoryMetrics.firstAudioMs)}
+                    </span>
+                    <span className="vsVoiceMemoryChip">
+                      {t("平均中断停止", "Avg interruption stop")}: {formatMetric(selectedHistoryMetrics.interruptionStopMs)}
+                    </span>
+                    <span className="vsVoiceMemoryChip">
+                      {t("误中断代理", "False-interruption proxy")}: {selectedHistoryMetrics.falseInterruptionRate === null
+                        ? "—"
+                        : `${Math.round(selectedHistoryMetrics.falseInterruptionRate * 100)}%`}
+                    </span>
+                  </div>
                 </div>
 
                 {selectedHistoryTimeline.length > 0 ? (
@@ -362,6 +418,9 @@ export default function VoiceChatPage({ voiceChat, errorRuntimeContext }: Props)
                               <div style={{ fontWeight: 700 }}>
                                 {label}
                                 {event.tool_name ? ` · ${event.tool_name}` : ""}
+                                {event.event_type === "assistant_response" && event.payload.interrupted === true
+                                  ? ` · ${t("已打断", "Interrupted")}`
+                                  : ""}
                               </div>
                               {event.elapsed_ms !== undefined ? (
                                 <span className="vsVoiceMemoryChip" style={{ margin: 0, opacity: 0.8 }}>
@@ -404,6 +463,7 @@ export default function VoiceChatPage({ voiceChat, errorRuntimeContext }: Props)
                               style={{ border: "1px solid var(--line)", borderRadius: 10, padding: 12, background: "white" }}
                             >
                               <div style={{ fontWeight: 700 }}>{turn.turn_id || t("未记录 turn_id", "turn_id not recorded")}</div>
+                              {turn.interrupted ? <span className="vsVoiceMemoryChip">{t("已打断", "Interrupted")}</span> : null}
                               {turn.user_text ? <div>{t("用户", "User")}: {turn.user_text}</div> : null}
                               {turn.assistant_text ? <div>{t("助手", "Assistant")}: {turn.assistant_text}</div> : null}
                             </div>
