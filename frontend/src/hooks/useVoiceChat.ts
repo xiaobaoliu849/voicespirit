@@ -628,6 +628,7 @@ export default function useVoiceChat({
   const muteGainRef = useRef<GainNode | null>(null);
   const assistantGainRef = useRef<GainNode | null>(null);
   const playingSourcesRef = useRef<AudioBufferSourceNode[]>([]);
+  const assistantPlaybackGenerationRef = useRef(0);
   const nextPlaybackTimeRef = useRef(0);
   const audioInputReadyRef = useRef(false);
   const currentUserTurnRef = useRef("");
@@ -641,7 +642,10 @@ export default function useVoiceChat({
   const currentTurnIdRef = useRef("");
   const currentAssistantInterruptedRef = useRef(false);
   const pendingInterruptionRef = useRef<{ candidateId: string; receivedAt: number } | null>(null);
+  const interruptionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const handledInterruptionCandidatesRef = useRef<Set<string>>(new Set());
+  const finalizedInterruptionCandidatesRef = useRef<Set<string>>(new Set());
+  const finalizedInterruptedTurnsRef = useRef<Set<string>>(new Set());
   const lastPreferredProviderRef = useRef(preferredProvider);
   const lastPreferredModelRef = useRef(preferredModel);
   const sessionEpochRef = useRef(0);
@@ -734,6 +738,7 @@ export default function useVoiceChat({
   }, []);
 
   function stopAssistantPlayback() {
+    assistantPlaybackGenerationRef.current += 1;
     playingSourcesRef.current.forEach((source) => {
       try {
         source.stop();
@@ -759,6 +764,13 @@ export default function useVoiceChat({
       gainNode.gain.setTargetAtTime(safeValue, context.currentTime, 0.015);
     } catch {
       gainNode.gain.value = safeValue;
+    }
+  }
+
+  function clearInterruptionTimeout() {
+    if (interruptionTimeoutRef.current !== null) {
+      clearTimeout(interruptionTimeoutRef.current);
+      interruptionTimeoutRef.current = null;
     }
   }
 
@@ -796,7 +808,10 @@ export default function useVoiceChat({
     setVoiceChatConnected(false);
     setVoiceChatRecording(false);
     setVoiceChatBusy(false);
+    clearInterruptionTimeout();
     pendingInterruptionRef.current = null;
+    setVoiceChatInterruptionState({ phase: "idle" });
+    setVoiceChatAssistantInterrupted(false);
   }
 
   function markNewSessionEpoch(): number {
@@ -835,6 +850,8 @@ export default function useVoiceChat({
       cloudCount: currentCloudCountRef.current,
     });
     if (!userText && !assistantText && toolCalls.length === 0) {
+      currentTurnIdRef.current = "";
+      currentAssistantInterruptedRef.current = false;
       return;
     }
     setVoiceChatMessages((prev) => {
@@ -947,8 +964,15 @@ export default function useVoiceChat({
     if (!context) {
       return;
     }
+    const playbackGeneration = assistantPlaybackGenerationRef.current;
     if (context.state === "suspended") {
       await context.resume();
+    }
+    if (
+      playbackGeneration !== assistantPlaybackGenerationRef.current
+      || context !== audioContextRef.current
+    ) {
+      return;
     }
     if (nextPlaybackTimeRef.current < context.currentTime) {
       nextPlaybackTimeRef.current = context.currentTime + 0.08;
@@ -1035,6 +1059,9 @@ export default function useVoiceChat({
           }
           commitCompletedTurn();
         }
+        setVoiceChatInterruptionState({ phase: "idle" });
+        setVoiceChatAssistantInterrupted(false);
+        currentAssistantInterruptedRef.current = false;
         currentUserTurnRef.current = event.text;
         currentTurnIdRef.current = event.turn_id || currentTurnIdRef.current;
         currentMemorySavedRef.current = false;
@@ -1069,8 +1096,11 @@ export default function useVoiceChat({
         setVoiceChatMemoryWriteStatus(describeMemoryWriteResult(event));
         return;
       case "assistant_text":
+        if (event.turn_id && finalizedInterruptedTurnsRef.current.has(event.turn_id)) {
+          return;
+        }
         if (event.turn_id && currentTurnIdRef.current && event.turn_id !== currentTurnIdRef.current) {
-          setVoiceChatAssistantInterrupted(false);
+          commitCompletedTurn();
         }
         currentTurnIdRef.current = event.turn_id || currentTurnIdRef.current;
         if (!currentAssistantTurnRef.current && !currentAssistantInterruptedRef.current) {
@@ -1081,6 +1111,12 @@ export default function useVoiceChat({
         setVoiceChatStatus(t("助手正在说话…", "Assistant speaking…"));
         return;
       case "assistant_audio":
+        if (event.turn_id && finalizedInterruptedTurnsRef.current.has(event.turn_id)) {
+          return;
+        }
+        if (event.turn_id && currentTurnIdRef.current && event.turn_id !== currentTurnIdRef.current) {
+          commitCompletedTurn();
+        }
         currentTurnIdRef.current = event.turn_id || currentTurnIdRef.current;
         if (!currentAssistantTurnRef.current && !currentAssistantInterruptedRef.current) {
           setVoiceChatAssistantInterrupted(false);
@@ -1094,13 +1130,32 @@ export default function useVoiceChat({
         if (handledInterruptionCandidatesRef.current.has(event.candidate_id)) {
           return;
         }
+        clearInterruptionTimeout();
+        const receivedAt = performance.now();
         pendingInterruptionRef.current = {
           candidateId: event.candidate_id,
-          receivedAt: performance.now(),
+          receivedAt,
         };
         setAssistantPlaybackGain(0.18);
         setVoiceChatInterruptionState({ phase: "evaluating" });
         setVoiceChatStatus(t("检测到说话，正在判断是否打断…", "Speech detected, checking interruption intent…"));
+        interruptionTimeoutRef.current = setTimeout(() => {
+          interruptionTimeoutRef.current = null;
+          const pending = pendingInterruptionRef.current;
+          if (!pending || pending.candidateId !== event.candidate_id) {
+            return;
+          }
+          const socket = websocketRef.current;
+          if (socket?.readyState === WebSocket.OPEN) {
+            socket.send(JSON.stringify({
+              type: "interruption_timeout",
+              candidate_id: event.candidate_id,
+            }));
+          }
+          setAssistantPlaybackGain(1);
+          setVoiceChatInterruptionState({ phase: "idle" });
+          setVoiceChatStatus(t("中断判断超时，已恢复助手播放", "Interruption check timed out; playback resumed"));
+        }, 2500);
         return;
       case "interruption_decision": {
         if (handledInterruptionCandidatesRef.current.has(event.candidate_id)) {
@@ -1112,12 +1167,17 @@ export default function useVoiceChat({
           return;
         }
         handledInterruptionCandidatesRef.current.add(event.candidate_id);
-        const localStopLatency = pending ? Math.max(0, Math.round(performance.now() - pending.receivedAt)) : null;
+        clearInterruptionTimeout();
         pendingInterruptionRef.current = null;
-        const stopLatency = event.classification === "TRUE_BARGE_IN"
-          ? localStopLatency ?? event.stop_latency_ms ?? event.decision_latency_ms ?? event.elapsed_ms
-          : null;
-        recordInterruptionDecision(event.classification, stopLatency);
+        let stopLatencyMs: number | null = null;
+        if (event.classification === "TRUE_BARGE_IN") {
+          stopAssistantPlayback();
+          setAssistantPlaybackGain(1);
+          stopLatencyMs = pending
+            ? Math.max(0, Math.round(performance.now() - pending.receivedAt))
+            : null;
+        }
+        recordInterruptionDecision(event.classification, stopLatencyMs);
         setVoiceChatInterruptionState({
           phase: event.classification === "TRUE_BARGE_IN" ? "interrupted" : "idle",
           classification: event.classification,
@@ -1137,11 +1197,26 @@ export default function useVoiceChat({
         return;
       }
       case "interrupted":
+        if (event.candidate_id && finalizedInterruptionCandidatesRef.current.has(event.candidate_id)) {
+          return;
+        }
+        if (event.turn_id && finalizedInterruptedTurnsRef.current.has(event.turn_id)) {
+          return;
+        }
+        if (event.turn_id && currentTurnIdRef.current && event.turn_id !== currentTurnIdRef.current) {
+          return;
+        }
         stopAssistantPlayback();
         setAssistantPlaybackGain(1);
         currentAssistantInterruptedRef.current = true;
         currentTurnIdRef.current = event.turn_id || currentTurnIdRef.current;
         setVoiceChatAssistantInterrupted(true);
+        if (event.candidate_id) {
+          finalizedInterruptionCandidatesRef.current.add(event.candidate_id);
+        }
+        if (event.turn_id) {
+          finalizedInterruptedTurnsRef.current.add(event.turn_id);
+        }
         commitCompletedTurn();
         setVoiceChatStatus(t("已打断助手，继续说话中…", "Assistant interrupted, continue speaking…"));
         return;
@@ -1309,6 +1384,12 @@ export default function useVoiceChat({
         return;
       case "turn_complete":
         {
+          if (event.turn_id && finalizedInterruptedTurnsRef.current.has(event.turn_id)) {
+            return;
+          }
+          if (event.turn_id && currentTurnIdRef.current && event.turn_id !== currentTurnIdRef.current) {
+            return;
+          }
           currentTurnIdRef.current = event.turn_id || currentTurnIdRef.current;
           if (event.interrupted) {
             currentAssistantInterruptedRef.current = true;
@@ -1378,6 +1459,8 @@ export default function useVoiceChat({
       currentAssistantInterruptedRef.current = false;
       pendingInterruptionRef.current = null;
       handledInterruptionCandidatesRef.current.clear();
+      finalizedInterruptionCandidatesRef.current.clear();
+      finalizedInterruptedTurnsRef.current.clear();
       currentMemoriesRetrievedRef.current = 0;
       currentMemorySavedRef.current = false;
       currentMemoryRetrieveAttemptedRef.current = false;
@@ -1681,6 +1764,8 @@ export default function useVoiceChat({
     currentAssistantInterruptedRef.current = false;
     pendingInterruptionRef.current = null;
     handledInterruptionCandidatesRef.current.clear();
+    finalizedInterruptionCandidatesRef.current.clear();
+    finalizedInterruptedTurnsRef.current.clear();
     currentMemoriesRetrievedRef.current = 0;
     currentMemorySavedRef.current = false;
     currentMemoryRetrieveAttemptedRef.current = false;
@@ -1759,6 +1844,8 @@ export default function useVoiceChat({
       currentAssistantInterruptedRef.current = false;
       pendingInterruptionRef.current = null;
       handledInterruptionCandidatesRef.current.clear();
+      finalizedInterruptionCandidatesRef.current.clear();
+      finalizedInterruptedTurnsRef.current.clear();
       currentMemoriesRetrievedRef.current = 0;
       currentMemoryRetrieveAttemptedRef.current = false;
       currentLocalPendingCountRef.current = 0;

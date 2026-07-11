@@ -1,9 +1,10 @@
+import asyncio
 import re
 import time
 from dataclasses import dataclass
 from enum import Enum
 import logging
-from typing import Callable
+from typing import Awaitable, Callable
 
 logger = logging.getLogger(__name__)
 
@@ -39,10 +40,30 @@ class InterruptionDecisionCoordinator:
         self._pending: PendingInterruption | None = None
         self._buffered_output: list[dict[str, object]] = []
         self._deferred_terminal: dict[str, object] | None = None
+        self._active_response_id = ""
+        self._resolving = False
+        self._resume_provider: Callable[[], Awaitable[None]] | None = None
+        self.decision_lock = asyncio.Lock()
+        self.output_lock = asyncio.Lock()
 
     @property
     def pending(self) -> PendingInterruption | None:
         return self._pending
+
+    @property
+    def active_response_id(self) -> str:
+        return self._active_response_id
+
+    @active_response_id.setter
+    def active_response_id(self, response_id: str) -> None:
+        self._active_response_id = str(response_id or "")
+
+    @property
+    def resume_provider(self) -> Callable[[], Awaitable[None]] | None:
+        return self._resume_provider
+
+    def set_resume_provider(self, callback: Callable[[], Awaitable[None]] | None) -> None:
+        self._resume_provider = callback
 
     def begin(
         self,
@@ -84,9 +105,11 @@ class InterruptionDecisionCoordinator:
     def discard_buffered_output(self) -> None:
         self._buffered_output = []
 
-    def defer_terminal(self, event: dict[str, object]) -> None:
-        if self._pending is not None:
-            self._deferred_terminal = dict(event)
+    def defer_terminal(self, event: dict[str, object]) -> bool:
+        if self._pending is None:
+            return False
+        self._deferred_terminal = dict(event)
+        return True
 
     def has_deferred_terminal(self) -> bool:
         return self._deferred_terminal is not None
@@ -94,15 +117,38 @@ class InterruptionDecisionCoordinator:
     def take_deferred_terminal(self) -> dict[str, object] | None:
         terminal = self._deferred_terminal
         self._deferred_terminal = None
+        self._clear_terminal_response(terminal)
         return terminal
 
     def discard_deferred_terminal(self) -> None:
+        self._clear_terminal_response(self._deferred_terminal)
         self._deferred_terminal = None
+
+    def _clear_terminal_response(self, terminal: dict[str, object] | None) -> None:
+        if not terminal:
+            return
+        response_id = str(terminal.get("response_id", "") or "")
+        if not response_id:
+            response = terminal.get("response")
+            if isinstance(response, dict):
+                response_id = str(response.get("id", "") or "")
+        if self._active_response_id and (
+            not response_id
+            or self._active_response_id == "active"
+            or response_id == self._active_response_id
+        ):
+            self._active_response_id = ""
+
+    def complete_decision(self) -> None:
+        self._pending = None
+        self._resolving = False
+        self._resume_provider = None
 
     def decide(self, text: str) -> dict[str, object] | None:
         pending = self._pending
-        if pending is None:
+        if pending is None or self._resolving:
             return None
+        self._resolving = True
         classification = InterruptionClassifier.classify_with_rule(text)
         elapsed_ms = max(0, int((self._clock() - pending.started_at) * 1000))
         action = {
@@ -110,7 +156,6 @@ class InterruptionDecisionCoordinator:
             InterruptionIntent.BACKCHANNEL: "resume",
             InterruptionIntent.NOISE_OR_SILENCE: "ignore",
         }[classification.intent]
-        self._pending = None
         return {
             "candidate_id": pending.candidate_id,
             "classification": classification.intent.value,

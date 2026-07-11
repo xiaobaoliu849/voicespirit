@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+import sqlite3
 from pathlib import Path
 
 from services.realtime_voice_service import RealtimeVoiceService, VoiceAgentSessionRecorder
@@ -148,6 +149,43 @@ class VoiceAgentSessionRepositoryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(stored["model"], "qwen-realtime")
         self.assertEqual(stored["voice"], "Cherry")
         self.assertEqual(stored["meta"]["transport"], "websocket")
+
+    def test_migration_backfills_completed_legacy_turn_status(self) -> None:
+        legacy_path = Path(self.tmpdir.name) / "legacy_voice.db"
+        conn = sqlite3.connect(legacy_path)
+        try:
+            conn.execute(
+                """
+                CREATE TABLE voice_agent_turns (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    session_id TEXT NOT NULL,
+                    turn_id TEXT NOT NULL,
+                    user_text TEXT,
+                    assistant_text TEXT,
+                    memory_json TEXT NOT NULL DEFAULT '{}',
+                    completed INTEGER NOT NULL DEFAULT 0,
+                    started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    completed_at TIMESTAMP,
+                    UNIQUE(session_id, turn_id)
+                )
+                """
+            )
+            conn.execute(
+                """
+                INSERT INTO voice_agent_turns (
+                    session_id, turn_id, user_text, assistant_text, completed, completed_at
+                ) VALUES ('legacy-session', 'legacy-turn', '问题', '回答', 1, CURRENT_TIMESTAMP)
+                """
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+        migrated = VoiceAgentSessionRepository(db_path=legacy_path)
+        turns = migrated.list_turns("legacy-session")
+        self.assertEqual(len(turns), 1)
+        self.assertEqual(turns[0]["completion_status"], "completed")
+        self.assertFalse(turns[0]["interrupted"])
 
 
 if __name__ == "__main__":

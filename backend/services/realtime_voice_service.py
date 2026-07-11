@@ -1490,16 +1490,17 @@ class RealtimeVoiceService:
         recorder: VoiceAgentSessionRecorder | None,
         record_memory: bool = True,
     ) -> None:
-        if coordinator.pending is not None:
-            coordinator.buffer_output(event)
-            return
-        await self._deliver_assistant_output(
-            websocket,
-            event,
-            memory_session=memory_session,
-            recorder=recorder,
-            record_memory=record_memory,
-        )
+        async with coordinator.output_lock:
+            if coordinator.pending is not None:
+                coordinator.buffer_output(event)
+                return
+            await self._deliver_assistant_output(
+                websocket,
+                event,
+                memory_session=memory_session,
+                recorder=recorder,
+                record_memory=record_memory,
+            )
 
     async def _flush_interruption_output(
         self,
@@ -1531,64 +1532,79 @@ class RealtimeVoiceService:
         cancel_provider: Callable[[], Awaitable[None]] | None = None,
         resume_provider: Callable[[], Awaitable[None]] | None = None,
         record_memory: bool = True,
+        expected_candidate_id: str = "",
     ) -> tuple[bool, dict[str, Any] | None]:
-        decision = coordinator.decide(text)
-        if decision is None:
-            return True, None
-        classification = str(decision.get("classification", ""))
-        interrupted_turn_id = str(decision.get("interrupted_turn_id", ""))
-        is_true_barge_in = classification == InterruptionIntent.TRUE_BARGE_IN.value
-        decision["assistant_interrupted"] = is_true_barge_in
-        decision["provider_cancel_requested"] = bool(is_true_barge_in and cancel_provider is not None)
-        decision["tool_cancelled"] = bool(is_true_barge_in and tool_session.has_active_task)
-        decision["stop_latency_ms"] = int(decision.get("decision_latency_ms", 0) or 0)
-        if recorder is not None:
-            await recorder.record_session_event(
-                "interruption_decision",
-                source="interruption",
-                turn_id=interrupted_turn_id,
-                text=str(text or "").strip(),
-                payload=dict(decision),
-            )
-        if is_true_barge_in:
-            coordinator.discard_buffered_output()
-            coordinator.discard_deferred_terminal()
-            await self._send_event(websocket, "interruption_decision", **decision)
-            if cancel_provider is not None:
-                try:
-                    await cancel_provider()
-                except Exception:
-                    logger.exception(
-                        "provider_response_cancel_failed provider=%s turn_id=%s",
-                        decision.get("provider", ""),
-                        interrupted_turn_id,
+        async with coordinator.decision_lock:
+            if expected_candidate_id and (
+                coordinator.pending is None
+                or coordinator.pending.candidate_id != expected_candidate_id
+            ):
+                return True, None
+            decision = coordinator.decide(text)
+            if decision is None:
+                return True, None
+            classification = str(decision.get("classification", ""))
+            interrupted_turn_id = str(decision.get("interrupted_turn_id", ""))
+            is_true_barge_in = classification == InterruptionIntent.TRUE_BARGE_IN.value
+            decision["assistant_interrupted"] = is_true_barge_in
+            decision["provider_cancel_requested"] = bool(is_true_barge_in and cancel_provider is not None)
+            decision["tool_cancelled"] = bool(is_true_barge_in and tool_session.has_active_task)
+            decision["stop_latency_ms"] = int(decision.get("decision_latency_ms", 0) or 0)
+            try:
+                if recorder is not None:
+                    await recorder.record_session_event(
+                        "interruption_decision",
+                        source="interruption",
+                        turn_id=interrupted_turn_id,
+                        text=str(text or "").strip(),
+                        payload=dict(decision),
                     )
-            await tool_session.cancel(send_event=self._tool_event_sender(websocket, recorder), reason="true_barge_in")
-            discard_memory_turn = getattr(memory_session, "discard_turn", None)
-            if callable(discard_memory_turn):
-                discard_memory_turn()
-            if recorder is not None:
-                await recorder.interrupt_current_turn()
-            await self._send_event(
-                websocket,
-                "interrupted",
-                turn_id=interrupted_turn_id,
-                interrupted=True,
-                stop_latency_ms=decision["stop_latency_ms"],
-            )
-            return True, decision
-
-        if resume_provider is not None:
-            await resume_provider()
-        await self._send_event(websocket, "interruption_decision", **decision)
-        await self._flush_interruption_output(
-            websocket,
-            coordinator,
-            memory_session=memory_session,
-            recorder=recorder,
-            record_memory=record_memory,
-        )
-        return False, decision
+                async with coordinator.output_lock:
+                    if is_true_barge_in:
+                        coordinator.discard_buffered_output()
+                        coordinator.discard_deferred_terminal()
+                        await self._send_event(websocket, "interruption_decision", **decision)
+                        if cancel_provider is not None:
+                            try:
+                                await cancel_provider()
+                            except Exception:
+                                logger.exception(
+                                    "provider_response_cancel_failed provider=%s turn_id=%s",
+                                    decision.get("provider", ""),
+                                    interrupted_turn_id,
+                                )
+                        await tool_session.cancel(
+                            send_event=self._tool_event_sender(websocket, recorder),
+                            reason="true_barge_in",
+                        )
+                        discard_memory_turn = getattr(memory_session, "discard_turn", None)
+                        if callable(discard_memory_turn):
+                            discard_memory_turn()
+                        if recorder is not None:
+                            await recorder.interrupt_current_turn()
+                        await self._send_event(
+                            websocket,
+                            "interrupted",
+                            candidate_id=str(decision.get("candidate_id", "")),
+                            turn_id=interrupted_turn_id,
+                            interrupted=True,
+                            stop_latency_ms=decision["stop_latency_ms"],
+                        )
+                    else:
+                        effective_resume_provider = resume_provider or coordinator.resume_provider
+                        if effective_resume_provider is not None:
+                            await effective_resume_provider()
+                        await self._send_event(websocket, "interruption_decision", **decision)
+                        await self._flush_interruption_output(
+                            websocket,
+                            coordinator,
+                            memory_session=memory_session,
+                            recorder=recorder,
+                            record_memory=record_memory,
+                        )
+                return is_true_barge_in, decision
+            finally:
+                coordinator.complete_decision()
 
     def _tool_event_sender(
         self,
@@ -1763,7 +1779,9 @@ class RealtimeVoiceService:
                         )
                     continue
                 if command_type == "interruption_timeout" and interruption.pending is not None:
-                    had_deferred_terminal = interruption.has_deferred_terminal()
+                    timeout_candidate_id = str(payload.get("candidate_id", ""))
+                    if timeout_candidate_id and timeout_candidate_id != interruption.pending.candidate_id:
+                        continue
                     should_process_user, _ = await self._decide_interruption(
                         websocket,
                         interruption,
@@ -1772,14 +1790,18 @@ class RealtimeVoiceService:
                         tool_session=tool_session,
                         recorder=recorder,
                         record_memory=not is_live_translate,
+                        expected_candidate_id=(timeout_candidate_id or interruption.pending.candidate_id),
                     )
-                    if not should_process_user and had_deferred_terminal:
-                        interruption.take_deferred_terminal()
+                    if (
+                        not should_process_user
+                        and interruption.take_deferred_terminal() is not None
+                    ):
                         if not is_live_translate:
                             await self._finalize_realtime_turn(
                                 websocket,
                                 memory_session,
                                 recorder,
+                                gated=tool_session.has_active_task,
                             )
                     continue
                 if command_type == "stop":
@@ -1818,6 +1840,20 @@ class RealtimeVoiceService:
         google_provider_interrupted_early = False
         suppress_interrupted_google_response = False
         consume_next_google_terminal = False
+
+        async def resume_interrupted_google_response() -> None:
+            nonlocal google_provider_interrupted_early
+            if is_live_translate or not google_provider_interrupted_early:
+                return
+            await session.send(
+                input=(
+                    "The latest user audio was only a backchannel or noise. "
+                    "Continue the previous answer naturally from the point where it stopped; "
+                    "do not acknowledge this instruction."
+                ),
+                end_of_turn=True,
+            )
+            google_provider_interrupted_early = False
 
         async def send_tool_event(event_type: str, payload: dict[str, Any]) -> None:
             if recorder is not None:
@@ -1862,6 +1898,7 @@ class RealtimeVoiceService:
 
                 if getattr(server_content, "interrupted", False):
                     google_provider_interrupted_early = True
+                    interruption.set_resume_provider(resume_interrupted_google_response)
                     await self._begin_interruption(
                         websocket,
                         interruption,
@@ -1895,19 +1932,20 @@ class RealtimeVoiceService:
                 if input_transcription_value is not None and transcription_finished:
                     user_text = pending_google_user_transcript or user_text_chunk
                     pending_google_user_transcript = ""
-                    had_deferred_terminal = interruption.has_deferred_terminal()
-
-                    async def resume_google_response() -> None:
-                        if is_live_translate or not google_provider_interrupted_early or had_deferred_terminal:
-                            return
-                        await session.send(
-                            input=(
-                                "The latest user audio was only a backchannel or noise. "
-                                "Continue the previous answer naturally from the point where it stopped; "
-                                "do not acknowledge this instruction."
-                            ),
-                            end_of_turn=True,
+                    if interruption.pending is None and (
+                        google_provider_interrupted_early
+                        or tool_session.has_active_task
+                        or (recorder is not None and bool(recorder.current_assistant_text))
+                    ):
+                        await self._begin_interruption(
+                            websocket,
+                            interruption,
+                            provider="Google",
+                            provider_event_type="input_transcription.without_pending_vad",
+                            recorder=recorder,
+                            tool_session=tool_session,
                         )
+                    had_deferred_terminal = interruption.has_deferred_terminal()
 
                     should_process_user, interruption_decision = await self._decide_interruption(
                         websocket,
@@ -1916,7 +1954,7 @@ class RealtimeVoiceService:
                         memory_session=memory_session,
                         tool_session=tool_session,
                         recorder=recorder,
-                        resume_provider=resume_google_response,
+                        resume_provider=resume_interrupted_google_response,
                         record_memory=not is_live_translate,
                     )
                     if not should_process_user:
@@ -1941,10 +1979,11 @@ class RealtimeVoiceService:
                         )
                         consume_next_google_terminal = bool(
                             not had_deferred_terminal
-                            and (google_provider_interrupted_early or is_true_barge_in)
+                            and is_true_barge_in
+                            and not google_provider_interrupted_early
                         )
                         google_provider_interrupted_early = False
-                    if not user_text.strip():
+                    if InterruptionClassifier.classify_interruption(user_text) == InterruptionIntent.NOISE_OR_SILENCE:
                         continue
                     voice_turn_id = ""
                     if not is_live_translate:
@@ -2014,10 +2053,9 @@ class RealtimeVoiceService:
                         )
 
                 if getattr(server_content, "turn_complete", False):
-                    if interruption.pending is not None:
-                        interruption.defer_terminal(
-                            {"type": "turn_complete", "provider": "Google"}
-                        )
+                    if interruption.defer_terminal(
+                        {"type": "turn_complete", "provider": "Google"}
+                    ):
                         continue
                     if consume_next_google_terminal:
                         consume_next_google_terminal = False
@@ -2087,14 +2125,28 @@ class RealtimeVoiceService:
                     await self._send_event(websocket, "pong")
                     continue
                 if command_type == "interruption_timeout" and interruption.pending is not None:
-                    await self._decide_interruption(
+                    timeout_candidate_id = str(payload.get("candidate_id", ""))
+                    if timeout_candidate_id and timeout_candidate_id != interruption.pending.candidate_id:
+                        continue
+                    should_process_user, _ = await self._decide_interruption(
                         websocket,
                         interruption,
                         "",
                         memory_session=memory_session,
                         tool_session=tool_session,
                         recorder=recorder,
+                        expected_candidate_id=(timeout_candidate_id or interruption.pending.candidate_id),
                     )
+                    if (
+                        not should_process_user
+                        and interruption.take_deferred_terminal() is not None
+                    ):
+                        await self._finalize_realtime_turn(
+                            websocket,
+                            memory_session,
+                            recorder,
+                            gated=tool_session.has_active_task,
+                        )
                     continue
                 if command_type == "stop":
                     async def send_stop_tool_event(event_type: str, payload: dict[str, Any]) -> None:
@@ -2131,8 +2183,6 @@ class RealtimeVoiceService:
 
         gated_tool_turn_id = ""
         interruption = interruption or InterruptionDecisionCoordinator()
-        active_response_id = ""
-        suppressed_response_ids: set[str] = set()
         suppressed_response_ids: set[str] = set()
         while True:
             event = await queue.get()
@@ -2140,7 +2190,7 @@ class RealtimeVoiceService:
             if event_type == "closed":
                 break
             if event_type == "speech_started":
-                if active_response_id or tool_session.has_active_task or (
+                if interruption.active_response_id or tool_session.has_active_task or (
                     recorder is not None and bool(recorder.current_assistant_text)
                 ):
                     await self._begin_interruption(
@@ -2153,11 +2203,28 @@ class RealtimeVoiceService:
                     )
                 continue
             if event_type == "response_started":
-                active_response_id = str(event.get("response_id", "")) or active_response_id or "active"
+                interruption.active_response_id = (
+                    str(event.get("response_id", "")) or interruption.active_response_id or "active"
+                )
                 continue
             if event_type == "user_transcript":
                 user_text = str(event.get("text", ""))
-                interrupted_response_id = active_response_id
+                if interruption.pending is None and (
+                    interruption.active_response_id
+                    or tool_session.has_active_task
+                    or (recorder is not None and bool(recorder.current_assistant_text))
+                ):
+                    await self._begin_interruption(
+                        websocket,
+                        interruption,
+                        provider="DashScope",
+                        provider_event_type=str(
+                            event.get("provider_event_type", "input_transcription.without_pending_vad")
+                        ),
+                        recorder=recorder,
+                        tool_session=tool_session,
+                    )
+                interrupted_response_id = interruption.active_response_id
                 had_deferred_terminal = interruption.has_deferred_terminal()
                 async def cancel_dashscope_response() -> None:
                     try:
@@ -2176,11 +2243,10 @@ class RealtimeVoiceService:
                 )
                 if interruption_decision is not None and (
                     interruption_decision.get("classification") == InterruptionIntent.TRUE_BARGE_IN.value
-                ) and interrupted_response_id:
+                ) and interrupted_response_id and not had_deferred_terminal:
                     suppressed_response_ids.add(interrupted_response_id)
                 if not should_process_user:
-                    if had_deferred_terminal:
-                        interruption.take_deferred_terminal()
+                    if had_deferred_terminal and interruption.take_deferred_terminal() is not None:
                         await self._finalize_realtime_turn(
                             websocket,
                             memory_session,
@@ -2295,14 +2361,13 @@ class RealtimeVoiceService:
                 response_id = str(event.get("response_id", ""))
                 if response_id in suppressed_response_ids:
                     suppressed_response_ids.discard(response_id)
-                    if response_id == active_response_id:
-                        active_response_id = ""
+                    if response_id == interruption.active_response_id:
+                        interruption.active_response_id = ""
                     continue
-                if interruption.pending is not None:
-                    interruption.defer_terminal(dict(event))
+                if interruption.defer_terminal(dict(event)):
                     continue
-                if not response_id or response_id == active_response_id:
-                    active_response_id = ""
+                if not response_id or response_id == interruption.active_response_id:
+                    interruption.active_response_id = ""
                 if str(event.get("status", "completed")) in {"cancelled", "canceled", "failed"}:
                     continue
                 memory_result = await memory_session.flush_turn()
@@ -2430,14 +2495,28 @@ class RealtimeVoiceService:
                     await self._send_event(websocket, "pong")
                     continue
                 if command_type == "interruption_timeout" and interruption.pending is not None:
-                    await self._decide_interruption(
+                    timeout_candidate_id = str(payload.get("candidate_id", ""))
+                    if timeout_candidate_id and timeout_candidate_id != interruption.pending.candidate_id:
+                        continue
+                    should_process_user, _ = await self._decide_interruption(
                         websocket,
                         interruption,
                         "",
                         memory_session=memory_session,
                         tool_session=tool_session,
                         recorder=recorder,
+                        expected_candidate_id=(timeout_candidate_id or interruption.pending.candidate_id),
                     )
+                    if (
+                        not should_process_user
+                        and interruption.take_deferred_terminal() is not None
+                    ):
+                        await self._finalize_realtime_turn(
+                            websocket,
+                            memory_session,
+                            recorder,
+                            gated=tool_session.has_active_task,
+                        )
                     continue
                 if command_type == "stop":
                     async def send_stop_tool_event(event_type: str, payload: dict[str, Any]) -> None:
@@ -2476,7 +2555,7 @@ class RealtimeVoiceService:
         gated_tool_turn_id = ""
         pending_prefill_context = ""
         interruption = interruption or InterruptionDecisionCoordinator()
-        active_response_id = ""
+        suppressed_response_ids: set[str] = set()
 
         async for raw_message in openai_ws:
             try:
@@ -2504,14 +2583,27 @@ class RealtimeVoiceService:
                 continue
 
             if event_type == "response.created":
-                active_response_id = str((event.get("response") or {}).get("id", ""))
+                interruption.active_response_id = str((event.get("response") or {}).get("id", ""))
                 continue
 
             # Input audio transcription completed (user speech)
             if event_type == "conversation.item.input_audio_transcription.completed":
                 user_text = str(event.get("transcript", "")).strip()
                 item_id = str(event.get("item_id", ""))
-                interrupted_response_id = active_response_id
+                if interruption.pending is None and (
+                    interruption.active_response_id
+                    or tool_session.has_active_task
+                    or (recorder is not None and bool(recorder.current_assistant_text))
+                ):
+                    await self._begin_interruption(
+                        websocket,
+                        interruption,
+                        provider="OpenAI",
+                        provider_event_type="conversation.item.input_audio_transcription.completed_without_vad",
+                        recorder=recorder,
+                        tool_session=tool_session,
+                    )
+                interrupted_response_id = interruption.active_response_id
                 had_deferred_terminal = interruption.has_deferred_terminal()
 
                 async def cancel_openai_response() -> None:
@@ -2541,8 +2633,9 @@ class RealtimeVoiceService:
                 ) and interrupted_response_id and not had_deferred_terminal:
                     suppressed_response_ids.add(interrupted_response_id)
                 if not should_process_user:
-                    if had_deferred_terminal:
-                        interruption.take_deferred_terminal()
+                    if interruption_decision is None:
+                        await discard_openai_candidate()
+                    if had_deferred_terminal and interruption.take_deferred_terminal() is not None:
                         await self._finalize_realtime_turn(
                             websocket,
                             memory_session,
@@ -2610,7 +2703,7 @@ class RealtimeVoiceService:
 
             # Speech started (VAD detected user speaking → interruption)
             if event_type == "input_audio_buffer.speech_started":
-                if active_response_id or tool_session.has_active_task or (
+                if interruption.active_response_id or tool_session.has_active_task or (
                     recorder is not None and bool(recorder.current_assistant_text)
                 ):
                     await self._begin_interruption(
@@ -2667,14 +2760,13 @@ class RealtimeVoiceService:
                 response_id = str(response_data.get("id", ""))
                 if response_id in suppressed_response_ids:
                     suppressed_response_ids.discard(response_id)
-                    if response_id == active_response_id:
-                        active_response_id = ""
+                    if response_id == interruption.active_response_id:
+                        interruption.active_response_id = ""
                     continue
-                if interruption.pending is not None:
-                    interruption.defer_terminal(dict(event))
+                if interruption.defer_terminal(dict(event)):
                     continue
-                if response_id and response_id == active_response_id:
-                    active_response_id = ""
+                if response_id and response_id == interruption.active_response_id:
+                    interruption.active_response_id = ""
                 if response_status in {"cancelled", "canceled", "failed"}:
                     continue
                 if pending_prefill_context:

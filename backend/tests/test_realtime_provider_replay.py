@@ -28,11 +28,30 @@ class FakeClock:
 
 
 class CollectingWebSocket:
-    def __init__(self) -> None:
+    def __init__(self, inbound: list[dict] | None = None) -> None:
         self.events: list[dict] = []
+        self.inbound = list(inbound or [])
 
     async def send_json(self, payload: dict) -> None:
         self.events.append(dict(payload))
+
+    async def receive(self) -> dict:
+        if self.inbound:
+            return self.inbound.pop(0)
+        return {"type": "websocket.disconnect"}
+
+
+class BlockingDecisionWebSocket(CollectingWebSocket):
+    def __init__(self) -> None:
+        super().__init__()
+        self.decision_started = asyncio.Event()
+        self.release_decision = asyncio.Event()
+
+    async def send_json(self, payload: dict) -> None:
+        self.events.append(dict(payload))
+        if payload.get("type") == "interruption_decision":
+            self.decision_started.set()
+            await self.release_decision.wait()
 
 
 class FakeMemorySession:
@@ -126,6 +145,27 @@ class FakeGoogleSession:
         self.sent.append(dict(payload))
 
 
+class BlockingGoogleSession(FakeGoogleSession):
+    def __init__(self, response: SimpleNamespace) -> None:
+        super().__init__([])
+        self.response = response
+        self.response_processed = asyncio.Event()
+        self.release_receive = asyncio.Event()
+        self._served = False
+
+    def receive(self):
+        if self._served:
+            raise ReplayComplete()
+        self._served = True
+
+        async def iterator():
+            yield self.response
+            self.response_processed.set()
+            await self.release_receive.wait()
+
+        return iterator()
+
+
 class FakeOpenAIWebSocket:
     def __init__(self, events: list[dict]) -> None:
         self.events = list(events)
@@ -159,7 +199,7 @@ class RealtimeProviderReplayTests(unittest.IsolatedAsyncioTestCase):
     async def asyncTearDown(self) -> None:
         self.temp_dir.cleanup()
 
-    async def _recorder(self, provider: str) -> VoiceAgentSessionRecorder:
+    async def _recorder(self, provider: str, *, active_turn: bool = True) -> VoiceAgentSessionRecorder:
         session = self.repository.create_session(
             provider=provider,
             model=f"{provider.lower()}-replay",
@@ -176,15 +216,25 @@ class RealtimeProviderReplayTests(unittest.IsolatedAsyncioTestCase):
                 "meta": {"transport": "websocket"},
             }
         )
-        await recorder.note_user_transcript("请解释实时语音")
-        await recorder.note_assistant_text("这是还没有说完的回答")
+        if active_turn:
+            await recorder.note_user_transcript("请解释实时语音")
+            await recorder.note_assistant_text("这是还没有说完的回答")
         return recorder
 
-    async def _replay(self, provider: str, transcript: str, *, true_barge_in: bool) -> dict:
+    async def _replay(
+        self,
+        provider: str,
+        transcript: str,
+        *,
+        true_barge_in: bool,
+        active_turn: bool = True,
+        terminal_before_transcript: bool = False,
+    ) -> dict:
         websocket = CollectingWebSocket()
         memory = FakeMemorySession()
         tools = RecordingToolSession(active=true_barge_in)
-        recorder = await self._recorder(provider)
+        recorder = await self._recorder(provider, active_turn=active_turn)
+        provider_sent: list[dict] = []
 
         coordinator_factory = lambda: InterruptionDecisionCoordinator(clock=FakeClock())
         with patch(
@@ -194,7 +244,8 @@ class RealtimeProviderReplayTests(unittest.IsolatedAsyncioTestCase):
             if provider == "DashScope":
                 queue: asyncio.Queue[dict] = asyncio.Queue()
                 callback = DashScopeRealtimeCallback(loop=asyncio.get_running_loop(), queue=queue)
-                callback.on_event({"type": "response.created", "response": {"id": "response-1"}})
+                if active_turn:
+                    callback.on_event({"type": "response.created", "response": {"id": "response-1"}})
                 callback.on_event(
                     {
                         "type": "input_audio_buffer.speech_started",
@@ -203,6 +254,25 @@ class RealtimeProviderReplayTests(unittest.IsolatedAsyncioTestCase):
                         "audio_start_ms": 100,
                     }
                 )
+                if active_turn:
+                    callback.on_event(
+                        {
+                            "type": "response.audio.delta",
+                            "response_id": "response-1",
+                            "delta": "Q0FORElEQVRF",
+                        }
+                    )
+                    callback.on_event(
+                        {
+                            "type": "response.audio_transcript.delta",
+                            "response_id": "response-1",
+                            "delta": "候选期间尾部",
+                        }
+                    )
+                if active_turn and terminal_before_transcript:
+                    callback.on_event(
+                        {"type": "response.done", "response": {"id": "response-1", "status": "completed"}}
+                    )
                 callback.on_event(
                     {
                         "type": "conversation.item.input_audio_transcription.completed",
@@ -210,7 +280,33 @@ class RealtimeProviderReplayTests(unittest.IsolatedAsyncioTestCase):
                         "transcript": transcript,
                     }
                 )
-                if not true_barge_in:
+                if active_turn and terminal_before_transcript and not true_barge_in:
+                    callback.on_event(
+                        {
+                            "type": "input_audio_buffer.speech_started",
+                            "item_id": "item-after-complete",
+                            "audio_start_ms": 400,
+                        }
+                    )
+                if active_turn and true_barge_in:
+                    callback.on_event(
+                        {
+                            "type": "response.audio.delta",
+                            "response_id": "response-1",
+                            "delta": "TEFURQ==",
+                        }
+                    )
+                    callback.on_event(
+                        {
+                            "type": "response.audio_transcript.delta",
+                            "response_id": "response-1",
+                            "delta": "不应下发的迟到内容",
+                        }
+                    )
+                    callback.on_event(
+                        {"type": "response.done", "response": {"id": "response-1", "status": "cancelled"}}
+                    )
+                elif active_turn and not terminal_before_transcript:
                     callback.on_event(
                         {"type": "response.done", "response": {"id": "response-1", "status": "completed"}}
                     )
@@ -226,17 +322,61 @@ class RealtimeProviderReplayTests(unittest.IsolatedAsyncioTestCase):
                     recorder,
                 )
                 provider_stop_count = conversation.cancel_response.call_count
+                provider_sent = [
+                    {"name": call[0], "args": call[1], "kwargs": call[2]}
+                    for call in conversation.method_calls
+                ]
             elif provider == "OpenAI":
-                raw_events = [
-                    {"type": "response.created", "response": {"id": "response-1"}},
-                    {"type": "input_audio_buffer.speech_started", "item_id": "item-1"},
+                raw_events = []
+                if active_turn:
+                    raw_events.extend([
+                        {"type": "response.created", "response": {"id": "response-1"}},
+                        {"type": "input_audio_buffer.speech_started", "item_id": "item-1"},
+                        {
+                            "type": "response.audio.delta",
+                            "response_id": "response-1",
+                            "delta": "Q0FORElEQVRF",
+                        },
+                        {
+                            "type": "response.audio_transcript.delta",
+                            "response_id": "response-1",
+                            "delta": "候选期间尾部",
+                        },
+                    ])
+                else:
+                    raw_events.append({"type": "input_audio_buffer.speech_started", "item_id": "item-1"})
+                if active_turn and terminal_before_transcript:
+                    raw_events.append(
+                        {"type": "response.done", "response": {"id": "response-1", "status": "completed"}}
+                    )
+                raw_events.append(
                     {
                         "type": "conversation.item.input_audio_transcription.completed",
                         "item_id": "item-1",
                         "transcript": transcript,
-                    },
-                ]
-                if not true_barge_in:
+                    }
+                )
+                if active_turn and terminal_before_transcript and not true_barge_in:
+                    raw_events.append(
+                        {"type": "input_audio_buffer.speech_started", "item_id": "item-after-complete"}
+                    )
+                if active_turn and true_barge_in:
+                    raw_events.extend(
+                        [
+                            {
+                                "type": "response.audio.delta",
+                                "response_id": "response-1",
+                                "delta": "TEFURQ==",
+                            },
+                            {
+                                "type": "response.audio_transcript.delta",
+                                "response_id": "response-1",
+                                "delta": "不应下发的迟到内容",
+                            },
+                            {"type": "response.done", "response": {"id": "response-1", "status": "cancelled"}},
+                        ]
+                    )
+                elif active_turn and not terminal_before_transcript:
                     raw_events.append(
                         {"type": "response.done", "response": {"id": "response-1", "status": "completed"}}
                     )
@@ -249,12 +389,40 @@ class RealtimeProviderReplayTests(unittest.IsolatedAsyncioTestCase):
                     recorder,
                 )
                 provider_stop_count = sum(item.get("type") == "response.cancel" for item in upstream.sent)
+                provider_sent = upstream.sent
             else:
-                batches = [
-                    [google_response(interrupted=True)],
-                    [google_response(input_transcription=SimpleNamespace(text=transcript))],
-                ]
-                if not true_barge_in:
+                interruption = coordinator_factory()
+                if active_turn:
+                    await self.service._begin_interruption(
+                        websocket,
+                        interruption,
+                        provider="Google",
+                        provider_event_type="client_vad.speech_started",
+                        recorder=recorder,
+                        tool_session=tools,
+                    )
+                batches = []
+                if active_turn:
+                    batches.append(
+                        [SimpleNamespace(data=b"CANDIDATE", text="候选期间尾部", server_content=None)]
+                    )
+                if active_turn and terminal_before_transcript:
+                    batches.append([google_response(turn_complete=True)])
+                batches.append(
+                    [
+                        google_response(
+                            input_transcription=SimpleNamespace(text=transcript, finished=True)
+                        )
+                    ]
+                )
+                if active_turn and true_barge_in:
+                    batches.extend(
+                        [
+                            [SimpleNamespace(data=b"LATE", text="不应下发的迟到内容", server_content=None)],
+                            [google_response(turn_complete=True)],
+                        ]
+                    )
+                elif active_turn and not terminal_before_transcript:
                     batches.append([google_response(turn_complete=True)])
                 session = FakeGoogleSession(batches)
                 with self.assertRaises(ReplayComplete):
@@ -264,10 +432,11 @@ class RealtimeProviderReplayTests(unittest.IsolatedAsyncioTestCase):
                         memory,
                         tools,
                         recorder,
+                        False,
+                        interruption,
                     )
-                # Google reports a provider-native interruption before transcription;
-                # the public Live session has no explicit response.cancel method.
-                provider_stop_count = 1 if true_barge_in else 0
+                provider_stop_count = 0
+                provider_sent = session.sent
 
         await recorder.finish()
         return {
@@ -276,6 +445,7 @@ class RealtimeProviderReplayTests(unittest.IsolatedAsyncioTestCase):
             "turns": self.repository.list_turns(recorder.session_id),
             "tool_cancel_count": tools.cancel_count,
             "provider_stop_count": provider_stop_count,
+            "provider_sent": provider_sent,
             "handled_texts": tools.handled_texts,
         }
 
@@ -292,7 +462,11 @@ class RealtimeProviderReplayTests(unittest.IsolatedAsyncioTestCase):
                     "classification": payload.get("classification"),
                     "decision": payload.get("decision"),
                     "rule": payload.get("rule"),
-                    "elapsed_ms": payload.get("elapsed_ms"),
+                    "elapsed_ms": (
+                        payload.get("elapsed_ms")
+                        if event["event_type"] == "interruption_decision"
+                        else None
+                    ),
                     "interrupted": payload.get("interrupted"),
                     "status": payload.get("status"),
                 }
@@ -318,6 +492,23 @@ class RealtimeProviderReplayTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(result["handled_texts"], [])
                 self.assertEqual(len(result["turns"]), 1)
                 self.assertFalse(result["turns"][0]["interrupted"])
+                self.assertLess(event_types.index("interruption_decision"), event_types.index("assistant_text"))
+                self.assertIn(
+                    "候选期间尾部",
+                    [event.get("text") for event in result["events"] if event["type"] == "assistant_text"],
+                )
+                delivered_audio = [
+                    event.get("audio") for event in result["events"] if event["type"] == "assistant_audio"
+                ]
+                self.assertEqual(delivered_audio, ["Q0FORElEQVRF"])
+                timeline_decision = next(
+                    event for event in result["timeline"] if event["event_type"] == "interruption_decision"
+                )
+                self.assertEqual(timeline_decision["provider"], provider)
+                self.assertEqual(timeline_decision["transport"], "websocket")
+                self.assertEqual(timeline_decision["payload"]["decision_latency_ms"], 37)
+                self.assertTrue(str(timeline_decision["payload"]["rule"]).startswith("backchannel_pattern:"))
+        self.assertEqual(results["Google"]["provider_sent"], [])
         canonical = [self._canonical_timeline(result["timeline"]) for result in results.values()]
         self.assertEqual(canonical[0], canonical[1])
         self.assertEqual(canonical[1], canonical[2])
@@ -334,16 +525,445 @@ class RealtimeProviderReplayTests(unittest.IsolatedAsyncioTestCase):
                 self.assertLess(event_types.index("interruption_decision"), event_types.index("interrupted"))
                 decision = next(event for event in result["events"] if event["type"] == "interruption_decision")
                 self.assertEqual(decision["classification"], "TRUE_BARGE_IN")
+                self.assertEqual(decision["rule"], "non_backchannel_speech")
+                self.assertEqual(decision["provider"], provider)
+                self.assertEqual(decision["interrupted_turn_id"], "voice-turn-1")
+                self.assertEqual(decision["decision_latency_ms"], 37)
                 self.assertEqual(result["tool_cancel_count"], 1)
-                self.assertEqual(result["provider_stop_count"], 1)
+                self.assertEqual(result["provider_stop_count"], 0 if provider == "Google" else 1)
                 self.assertEqual(result["handled_texts"], ["等一下"])
                 self.assertEqual(len(result["turns"]), 2)
                 self.assertTrue(result["turns"][0]["interrupted"])
                 self.assertEqual(result["turns"][0]["assistant_text"], "这是还没有说完的回答")
                 self.assertEqual(result["turns"][1]["user_text"], "等一下")
+                delivered_text = "".join(
+                    str(event.get("text", ""))
+                    for event in result["events"]
+                    if event["type"] == "assistant_text"
+                )
+                self.assertNotIn("候选期间尾部", delivered_text)
+                self.assertNotIn("不应下发的迟到内容", delivered_text)
+                self.assertNotIn("assistant_audio", event_types)
         canonical = [self._canonical_timeline(result["timeline"]) for result in results.values()]
         self.assertEqual(canonical[0], canonical[1])
         self.assertEqual(canonical[1], canonical[2])
+
+    async def test_terminal_before_transcript_is_deferred_then_finalized(self) -> None:
+        for provider in ("Google", "DashScope", "OpenAI"):
+            with self.subTest(provider=provider):
+                result = await self._replay(
+                    provider,
+                    "嗯嗯",
+                    true_barge_in=False,
+                    terminal_before_transcript=True,
+                )
+                event_types = [event["type"] for event in result["events"]]
+                self.assertLess(event_types.index("interruption_decision"), event_types.index("assistant_text"))
+                self.assertIn("turn_complete", event_types)
+                self.assertTrue(result["turns"][0]["completed"])
+                self.assertEqual(event_types.count("interruption_pending"), 1)
+
+    async def test_idle_noise_never_creates_a_turn(self) -> None:
+        for provider in ("Google", "DashScope", "OpenAI"):
+            with self.subTest(provider=provider):
+                result = await self._replay(
+                    provider,
+                    "。！？",
+                    true_barge_in=False,
+                    active_turn=False,
+                )
+                self.assertEqual(result["turns"], [])
+                self.assertNotIn("user_transcript", [event["type"] for event in result["events"]])
+
+    async def test_google_waits_for_finished_transcription_before_classifying(self) -> None:
+        websocket = CollectingWebSocket()
+        memory = FakeMemorySession()
+        tools = RecordingToolSession(active=True)
+        recorder = await self._recorder("Google")
+        clock = FakeClock()
+        interruption = InterruptionDecisionCoordinator(clock=clock)
+        await self.service._begin_interruption(
+            websocket,
+            interruption,
+            provider="Google",
+            provider_event_type="client_vad.speech_started",
+            recorder=recorder,
+            tool_session=tools,
+        )
+        session = FakeGoogleSession(
+            [
+                [google_response(input_transcription=SimpleNamespace(text="嗯", finished=False))],
+                [google_response(input_transcription=SimpleNamespace(text="，等一下", finished=True))],
+                [google_response(turn_complete=True)],
+            ]
+        )
+        with self.assertRaises(ReplayComplete):
+            await self.service._google_to_client_loop(
+                websocket,
+                session,
+                memory,
+                tools,
+                recorder,
+                False,
+                interruption,
+            )
+        decisions = [event for event in websocket.events if event["type"] == "interruption_decision"]
+        self.assertEqual(len(decisions), 1)
+        self.assertEqual(decisions[0]["classification"], "TRUE_BARGE_IN")
+        self.assertEqual(decisions[0]["transcript"], "嗯，等一下")
+
+    async def test_google_client_vad_command_drives_shared_provider_decision(self) -> None:
+        websocket = CollectingWebSocket(
+            [
+                {
+                    "type": "websocket.receive",
+                    "text": json.dumps({"type": "speech_activity_started"}),
+                }
+            ]
+        )
+        memory = FakeMemorySession()
+        tools = RecordingToolSession(active=False)
+        recorder = await self._recorder("Google")
+        interruption = InterruptionDecisionCoordinator(clock=FakeClock())
+        session = FakeGoogleSession(
+            [[google_response(input_transcription=SimpleNamespace(text="嗯嗯", finished=True))]]
+        )
+
+        await self.service._client_to_google_loop(
+            websocket,
+            session,
+            memory,
+            tools,
+            recorder,
+            False,
+            interruption,
+        )
+        self.assertIsNotNone(interruption.pending)
+        self.assertEqual(interruption.pending.provider, "Google")
+        self.assertEqual(interruption.pending.provider_event_type, "client_vad.speech_started")
+        self.assertEqual(interruption.pending.interrupted_turn_id, "voice-turn-1")
+
+        with self.assertRaises(ReplayComplete):
+            await self.service._google_to_client_loop(
+                websocket,
+                session,
+                memory,
+                tools,
+                recorder,
+                False,
+                interruption,
+            )
+
+        decisions = [event for event in websocket.events if event["type"] == "interruption_decision"]
+        self.assertEqual(len(decisions), 1)
+        self.assertEqual(decisions[0]["classification"], "BACKCHANNEL")
+        self.assertIsNone(interruption.pending)
+
+    async def test_google_provider_interrupted_timeout_resumes_response(self) -> None:
+        websocket = CollectingWebSocket(
+            [
+                {
+                    "type": "websocket.receive",
+                    "text": json.dumps(
+                        {"type": "interruption_timeout", "candidate_id": "interruption-1"}
+                    ),
+                }
+            ]
+        )
+        memory = FakeMemorySession()
+        tools = RecordingToolSession(active=False)
+        recorder = await self._recorder("Google")
+        interruption = InterruptionDecisionCoordinator(clock=FakeClock())
+        session = BlockingGoogleSession(google_response(interrupted=True))
+
+        provider_task = asyncio.create_task(
+            self.service._google_to_client_loop(
+                websocket,
+                session,
+                memory,
+                tools,
+                recorder,
+                False,
+                interruption,
+            )
+        )
+        await session.response_processed.wait()
+        self.assertIsNotNone(interruption.pending)
+        self.assertIsNotNone(interruption.resume_provider)
+
+        await self.service._client_to_google_loop(
+            websocket,
+            session,
+            memory,
+            tools,
+            recorder,
+            False,
+            interruption,
+        )
+
+        self.assertEqual(len(session.sent), 1)
+        self.assertIn("Continue the previous answer", str(session.sent[0].get("input", "")))
+        self.assertIsNone(interruption.pending)
+        session.release_receive.set()
+        with self.assertRaises(ReplayComplete):
+            await provider_task
+
+    async def test_google_native_interrupted_true_barge_in_does_not_swallow_new_turn_terminal(self) -> None:
+        websocket = CollectingWebSocket()
+        memory = FakeMemorySession()
+        tools = RecordingToolSession(active=False)
+        recorder = await self._recorder("Google")
+        interruption = InterruptionDecisionCoordinator(clock=FakeClock())
+        session = FakeGoogleSession(
+            [
+                [google_response(interrupted=True)],
+                [google_response(input_transcription=SimpleNamespace(text="等一下", finished=True))],
+                [SimpleNamespace(data=None, text="新的回答", server_content=None)],
+                [google_response(turn_complete=True)],
+            ]
+        )
+
+        with self.assertRaises(ReplayComplete):
+            await self.service._google_to_client_loop(
+                websocket,
+                session,
+                memory,
+                tools,
+                recorder,
+                False,
+                interruption,
+            )
+
+        decisions = [event for event in websocket.events if event["type"] == "interruption_decision"]
+        self.assertEqual(len(decisions), 1)
+        self.assertEqual(decisions[0]["classification"], "TRUE_BARGE_IN")
+        self.assertIn(
+            "新的回答",
+            [event.get("text") for event in websocket.events if event["type"] == "assistant_text"],
+        )
+        completed = [event for event in websocket.events if event["type"] == "turn_complete"]
+        self.assertEqual(len(completed), 1)
+        self.assertEqual(completed[0]["turn_id"], "voice-turn-2")
+
+    async def test_missing_transcription_timeout_resolves_pending_candidate_for_all_providers(self) -> None:
+        for provider in ("Google", "DashScope", "OpenAI"):
+            with self.subTest(provider=provider):
+                websocket = CollectingWebSocket(
+                    [
+                        {
+                            "type": "websocket.receive",
+                            "text": json.dumps(
+                                {"type": "interruption_timeout", "candidate_id": "stale-candidate"}
+                            ),
+                        },
+                        {
+                            "type": "websocket.receive",
+                            "text": json.dumps(
+                                {"type": "interruption_timeout", "candidate_id": "interruption-1"}
+                            ),
+                        }
+                    ]
+                )
+                memory = FakeMemorySession()
+                tools = RecordingToolSession(active=False)
+                recorder = await self._recorder(provider)
+                interruption = InterruptionDecisionCoordinator(clock=FakeClock())
+                await self.service._begin_interruption(
+                    websocket,
+                    interruption,
+                    provider=provider,
+                    provider_event_type="test.speech_started",
+                    recorder=recorder,
+                    tool_session=tools,
+                )
+
+                if provider == "Google":
+                    await self.service._client_to_google_loop(
+                        websocket,
+                        FakeGoogleSession([]),
+                        memory,
+                        tools,
+                        recorder,
+                        False,
+                        interruption,
+                    )
+                elif provider == "DashScope":
+                    await self.service._client_to_dashscope_loop(
+                        websocket,
+                        MagicMock(),
+                        memory,
+                        tools,
+                        recorder,
+                        interruption,
+                    )
+                else:
+                    await self.service._client_to_openai_loop(
+                        websocket,
+                        FakeOpenAIWebSocket([]),
+                        memory,
+                        tools,
+                        recorder,
+                        interruption,
+                    )
+
+                decisions = [event for event in websocket.events if event["type"] == "interruption_decision"]
+                self.assertEqual(len(decisions), 1)
+                self.assertEqual(decisions[0]["classification"], "NOISE_OR_SILENCE")
+                self.assertIsNone(interruption.pending)
+
+    async def test_timeout_resolution_is_atomic_with_concurrent_transcript_and_output(self) -> None:
+        websocket = BlockingDecisionWebSocket()
+        memory = FakeMemorySession()
+        tools = RecordingToolSession(active=False)
+        interruption = InterruptionDecisionCoordinator(clock=FakeClock())
+        interruption.begin(
+            provider="OpenAI",
+            interrupted_turn_id="voice-turn-1",
+            provider_event_type="input_audio_buffer.speech_started",
+        )
+
+        timeout_task = asyncio.create_task(
+            self.service._decide_interruption(
+                websocket,
+                interruption,
+                "",
+                memory_session=memory,
+                tool_session=tools,
+                recorder=None,
+                expected_candidate_id="interruption-1",
+            )
+        )
+        await websocket.decision_started.wait()
+        self.assertIsNotNone(interruption.pending)
+
+        late_transcript_task = asyncio.create_task(
+            self.service._decide_interruption(
+                websocket,
+                interruption,
+                "等一下",
+                memory_session=memory,
+                tool_session=tools,
+                recorder=None,
+            )
+        )
+        output_task = asyncio.create_task(
+            self.service._emit_assistant_output(
+                websocket,
+                interruption,
+                {"type": "assistant_text", "text": "timeout期间的尾部"},
+                memory_session=memory,
+                recorder=None,
+            )
+        )
+        await asyncio.sleep(0)
+        self.assertFalse(late_transcript_task.done())
+        self.assertFalse(output_task.done())
+
+        websocket.release_decision.set()
+        timeout_result, late_transcript_result, _ = await asyncio.gather(
+            timeout_task,
+            late_transcript_task,
+            output_task,
+        )
+
+        self.assertEqual(timeout_result[0], False)
+        self.assertEqual(late_transcript_result, (True, None))
+        self.assertIsNone(interruption.pending)
+        event_types = [event["type"] for event in websocket.events]
+        self.assertLess(event_types.index("interruption_decision"), event_types.index("assistant_text"))
+
+    async def test_stale_timeout_cannot_resolve_a_new_candidate_after_waiting_for_lock(self) -> None:
+        clock_values = iter((1.0, 1.1, 2.0))
+        interruption = InterruptionDecisionCoordinator(clock=lambda: next(clock_values))
+        interruption.begin(provider="OpenAI", interrupted_turn_id="voice-turn-1")
+        await interruption.decision_lock.acquire()
+        try:
+            timeout_task = asyncio.create_task(
+                self.service._decide_interruption(
+                    CollectingWebSocket(),
+                    interruption,
+                    "",
+                    memory_session=FakeMemorySession(),
+                    tool_session=RecordingToolSession(active=False),
+                    recorder=None,
+                    expected_candidate_id="interruption-1",
+                )
+            )
+            await asyncio.sleep(0)
+            self.assertFalse(timeout_task.done())
+            interruption.decide("嗯嗯")
+            interruption.complete_decision()
+            interruption.begin(provider="OpenAI", interrupted_turn_id="voice-turn-2")
+        finally:
+            interruption.decision_lock.release()
+
+        self.assertEqual(await timeout_task, (True, None))
+        self.assertIsNotNone(interruption.pending)
+        self.assertEqual(interruption.pending.candidate_id, "interruption-2")
+        self.assertEqual(interruption.pending.interrupted_turn_id, "voice-turn-2")
+
+    async def test_late_openai_transcript_after_timeout_is_reclassified_as_new_candidate(self) -> None:
+        websocket = CollectingWebSocket(
+            [
+                {
+                    "type": "websocket.receive",
+                    "text": json.dumps(
+                        {"type": "interruption_timeout", "candidate_id": "interruption-1"}
+                    ),
+                }
+            ]
+        )
+        memory = FakeMemorySession()
+        tools = RecordingToolSession(active=False)
+        recorder = await self._recorder("OpenAI")
+        clock_values = iter((5.0, 5.05, 6.0, 6.04))
+        interruption = InterruptionDecisionCoordinator(clock=lambda: next(clock_values))
+        interruption.active_response_id = "response-1"
+        await self.service._begin_interruption(
+            websocket,
+            interruption,
+            provider="OpenAI",
+            provider_event_type="input_audio_buffer.speech_started",
+            recorder=recorder,
+            tool_session=tools,
+        )
+        upstream = FakeOpenAIWebSocket([])
+
+        await self.service._client_to_openai_loop(
+            websocket,
+            upstream,
+            memory,
+            tools,
+            recorder,
+            interruption,
+        )
+        upstream.events = [
+            {
+                "type": "conversation.item.input_audio_transcription.completed",
+                "item_id": "late-item",
+                "transcript": "等一下",
+            },
+            {"type": "response.done", "response": {"id": "response-1", "status": "cancelled"}},
+        ]
+        await self.service._openai_to_client_loop(
+            websocket,
+            upstream,
+            memory,
+            tools,
+            recorder,
+            interruption,
+        )
+
+        decisions = [event for event in websocket.events if event["type"] == "interruption_decision"]
+        self.assertEqual(
+            [event["classification"] for event in decisions],
+            ["NOISE_OR_SILENCE", "TRUE_BARGE_IN"],
+        )
+        self.assertEqual(
+            [event["candidate_id"] for event in decisions],
+            ["interruption-1", "interruption-2"],
+        )
+        self.assertTrue(any(payload.get("type") == "response.cancel" for payload in upstream.sent))
 
     async def test_noise_does_not_create_a_turn_or_cancel_answer(self) -> None:
         results = {

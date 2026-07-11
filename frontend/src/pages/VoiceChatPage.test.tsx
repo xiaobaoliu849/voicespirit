@@ -159,8 +159,28 @@ describe("VoiceChatPage", () => {
                   classification: "TRUE_BARGE_IN",
                   decision: "cancel",
                   rule: "non_backchannel_speech",
-                  stop_latency_ms: 40,
+                  stop_latency_ms: 999,
+                  decision_latency_ms: 40,
                   elapsed_ms: 40,
+                },
+              },
+              {
+                id: "event:2b",
+                event_type: "interruption_decision",
+                source: "interruption",
+                turn_id: "voice-turn-1",
+                tool_name: "",
+                query: "",
+                text: "嗯嗯",
+                timestamp: "2026-07-10T10:00:03.050Z",
+                provider: "OpenAI",
+                payload: {
+                  classification: "BACKCHANNEL",
+                  decision: "resume",
+                  rule: "backchannel_pattern:^嗯(嗯)?$",
+                  stop_latency_ms: 1000,
+                  decision_latency_ms: 60,
+                  elapsed_ms: 60,
                 },
               },
               {
@@ -181,11 +201,11 @@ describe("VoiceChatPage", () => {
       />
     );
 
-    expect(screen.getByText("中断决策")).toBeInTheDocument();
+    expect(screen.getAllByText("中断决策")).toHaveLength(2);
     expect(screen.getByText("TRUE_BARGE_IN · cancel · non_backchannel_speech")).toBeInTheDocument();
     expect(screen.getByText("助手回应 · 已打断")).toBeInTheDocument();
     expect(screen.getByText("平均首音频: 80ms")).toBeInTheDocument();
-    expect(screen.getByText("平均中断停止: 40ms")).toBeInTheDocument();
+    expect(screen.getByText("平均中断决策: 50ms")).toBeInTheDocument();
   });
 
   it("shows persisted voice agent sessions and export controls", () => {

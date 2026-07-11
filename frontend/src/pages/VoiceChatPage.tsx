@@ -374,7 +374,7 @@ export default function VoiceChatPage({ voiceChat, errorRuntimeContext }: Props)
                       {t("平均首音频", "Avg first audio")}: {formatMetric(selectedHistoryMetrics.firstAudioMs)}
                     </span>
                     <span className="vsVoiceMemoryChip">
-                      {t("平均中断停止", "Avg interruption stop")}: {formatMetric(selectedHistoryMetrics.interruptionStopMs)}
+                      {t("平均中断决策", "Avg interruption decision")}: {formatMetric(selectedHistoryMetrics.interruptionDecisionMs)}
                     </span>
                     <span className="vsVoiceMemoryChip">
                       {t("误中断代理", "False-interruption proxy")}: {selectedHistoryMetrics.falseInterruptionRate === null

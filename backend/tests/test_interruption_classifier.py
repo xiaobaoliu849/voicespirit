@@ -44,3 +44,20 @@ class TestInterruptionClassifier(unittest.TestCase):
         self.assertEqual(decision["decision"], "resume")
         self.assertTrue(str(decision["rule"]).startswith("backchannel_pattern:"))
         self.assertEqual(decision["decision_latency_ms"], 125)
+        self.assertIsNotNone(coordinator.pending)
+        self.assertIsNone(coordinator.decide("等一下"))
+
+        coordinator.complete_decision()
+        self.assertIsNone(coordinator.pending)
+
+    def test_deferred_terminal_clears_shared_active_response(self):
+        clock_values = iter((8.0, 8.25))
+        coordinator = InterruptionDecisionCoordinator(clock=lambda: next(clock_values))
+        coordinator.active_response_id = "response-1"
+        coordinator.begin(provider="DashScope", interrupted_turn_id="voice-turn-1")
+        coordinator.defer_terminal({"type": "turn_complete", "response_id": "response-1"})
+        coordinator.decide("")
+        coordinator.complete_decision()
+
+        self.assertIsNotNone(coordinator.take_deferred_terminal())
+        self.assertEqual(coordinator.active_response_id, "")

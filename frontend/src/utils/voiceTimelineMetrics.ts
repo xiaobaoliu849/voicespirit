@@ -2,7 +2,7 @@ import type { VoiceAgentTimelineEventHistory } from "../api";
 
 export type VoiceTimelineMetrics = {
   firstAudioMs: number | null;
-  interruptionStopMs: number | null;
+  interruptionDecisionMs: number | null;
   decisionCount: number;
   falseInterruptionRate: number | null;
 };
@@ -15,7 +15,7 @@ export function buildVoiceTimelineMetrics(
   timeline: VoiceAgentTimelineEventHistory[]
 ): VoiceTimelineMetrics {
   const firstAudioSamples: number[] = [];
-  const stopSamples: number[] = [];
+  const decisionSamples: number[] = [];
   let decisionCount = 0;
   let nonBargeInCount = 0;
 
@@ -31,13 +31,10 @@ export function buildVoiceTimelineMetrics(
       const classification = String(event.payload.classification || "");
       if (classification !== "TRUE_BARGE_IN") {
         nonBargeInCount += 1;
-      } else {
-        const sample = finiteNumber(
-          event.payload.stop_latency_ms ?? event.payload.decision_latency_ms ?? event.payload.elapsed_ms
-        );
-        if (sample !== null) {
-          stopSamples.push(sample);
-        }
+      }
+      const sample = finiteNumber(event.payload.decision_latency_ms ?? event.payload.elapsed_ms);
+      if (sample !== null) {
+        decisionSamples.push(sample);
       }
     }
   });
@@ -48,7 +45,7 @@ export function buildVoiceTimelineMetrics(
 
   return {
     firstAudioMs: average(firstAudioSamples),
-    interruptionStopMs: average(stopSamples),
+    interruptionDecisionMs: average(decisionSamples),
     decisionCount,
     falseInterruptionRate: decisionCount > 0 ? nonBargeInCount / decisionCount : null,
   };

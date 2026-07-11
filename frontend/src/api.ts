@@ -565,7 +565,13 @@ export type VoiceChatServerEvent =
       provider_cancel_requested?: boolean;
       tool_cancelled?: boolean;
     }
-  | { type: "interrupted"; turn_id?: string; interrupted?: boolean; stop_latency_ms?: number }
+  | {
+      type: "interrupted";
+      candidate_id?: string;
+      turn_id?: string;
+      interrupted?: boolean;
+      stop_latency_ms?: number;
+    }
   | {
       type: "tool_call_started";
       tool_name: string;

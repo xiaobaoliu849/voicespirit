@@ -1,6 +1,6 @@
 # VoiceSpirit Voice Agent Evolution Roadmap
 
-Last updated: 2026-07-10
+Last updated: 2026-07-11
 
 ## Executive View
 
@@ -45,7 +45,7 @@ Implemented:
 - application action tool for translating short spoken text through `LLMService.translate_text`
 - application action tool for summarizing spoken transcript text through `LLMService.chat_completion`
 - application action tool for generating TTS audio files through `TTSService.generate_audio`
-- tool result injection back into Google and DashScope realtime sessions for voice answers
+- tool result injection back into Google, DashScope, and OpenAI realtime sessions for voice answers
 - frontend tool status, run metadata, and source cards
 - frontend-local session history now stores structured realtime tool call records on assistant messages
 - backend SQLite persistence for realtime voice agent sessions, turn transcripts, and tool event payloads
@@ -55,7 +55,7 @@ Implemented:
 - response gating for search turns through `response_gated`, suppressing direct generic replies while tool results are pending
 - runtime interruption classification into `TRUE_BARGE_IN`, `BACKCHANNEL`, and `NOISE_OR_SILENCE`
 - two-phase `interruption_pending` -> `interruption_decision` protocol with delayed tool/response cancellation
-- explicit response cancellation/manual response creation for OpenAI and DashScope; Google native interruption recovery for backchannels/noise
+- explicit response cancellation/manual response creation for OpenAI and DashScope; client-side VAD plus application-level output suppression for Google (whose Live session has no explicit response-cancel method)
 - monotonic canonical session-event ledger with interruption decisions, first-audio metrics, and interrupted assistant boundaries
 - provider-independent timeline-first rendering with raw records in a supporting disclosure
 - deterministic raw Provider event replay coverage for Google, DashScope, and OpenAI
@@ -65,8 +65,7 @@ Missing:
 
 - richer retrieval and application tools beyond web search, audio-run creation, translation, transcript summarization, and TTS synthesis
 - aggregate cross-session latency and interruption metrics dashboard/API
-- pending-interruption timeout when a Provider never returns a transcription completion
-- strict Google pre-Provider interruption gating (requires a local/independent VAD+ASR front door; Google Live exposes no explicit response cancel)
+- strict remote Google response cancellation after semantic classification (the public Live session exposes no explicit response-cancel method)
 - timeline filtering and turn-completion latency
 
 ### Audio/podcast agent
@@ -143,7 +142,7 @@ Backend:
 - done: add `search_web` behavior by wrapping `AudioResearchService.search` and `fetch_document`
 - done: emit structured tool/progress events over `/api/voice-chat/ws`
 - done: track cancellable tool tasks per voice turn
-- done: inject completed search context into Google and DashScope realtime models
+- done: inject completed search context into Google, DashScope, and OpenAI realtime models
 - done: gate search-intent turns so raw realtime replies are suppressed until tool context is ready
 - done: add lightweight multi-tool request dispatch
 - done: add `create_audio_agent_run` as a callable voice action
@@ -186,7 +185,7 @@ Backend:
 
 - done: persist provider-normalized interruption decisions with classification, rule, turn, and latency
 - done: distinguish true interruption, short backchannel, and noise/silence-like transcriptions
-- next: add a bounded timeout for candidates that never receive a transcription completion
+- done: add a bounded client watchdog that resolves missing-transcript candidates as noise and restores playback
 - done: keep the interrupted assistant text boundary and mark its turn `interrupted`
 
 Frontend:
@@ -197,7 +196,8 @@ Frontend:
 Metrics:
 
 - done: time to first audio (per-turn event and live/history UI)
-- done: interruption-to-stop latency (server decision proxy plus client-local playback stop)
+- done: client-local interruption-to-stop latency measured at the actual playback stop
+- done: server decision latency shown separately in persisted history
 - done: false interruption proxy `(BACKCHANNEL + NOISE_OR_SILENCE) / candidates`
 - next: aggregate these metrics across sessions and add turn completion latency
 
@@ -235,7 +235,7 @@ Permission model:
 1. **[DONE]** Promote the canonical voice agent timeline to the primary frontend history/replay view.
 2. **[DONE]** Add deterministic Provider event sequence tests for interruption/cancellation, while retaining projection tests for search and memory-write turns.
 3. **[DONE]** Add aggregate latency fields to timeline events (`elapsed_ms`, provider, transport, stage).
-4. **[DONE]** Add runtime interruption classification: true barge-in, backchannel, and noise/silence-like audio; keep the missing-transcript timeout as follow-up.
+4. **[DONE]** Add runtime interruption classification plus a bounded missing-transcript timeout.
 5. **[DONE]** Add audio agent cancellation/retry endpoints.
 6. **[DONE]** Add SSE or WebSocket progress for durable audio agent runs.
 7. **[DONE]** Add a shared tool/action permission model for read-only versus confirm-required actions.
@@ -249,6 +249,6 @@ Start with the narrowest slice that proves the higher-level model:
 - done: API detail response that includes both raw records and canonical timeline
 - done: frontend history view that renders the timeline first and raw records as supporting detail
 - done: deterministic Google, DashScope, and OpenAI recorded event sequences
-- next: cross-session metric aggregation, timeline filtering, and a local/independent VAD+ASR front door if strict Google pre-cancel semantics are required
+- next: cross-session metric aggregation, timeline filtering, and an independent ASR front door if strict remote Google cancellation before audio reaches Gemini is required
 
 This proves VoiceSpirit can reason about voice agent sessions independently of provider transport before taking on a LiveKit/WebRTC migration.

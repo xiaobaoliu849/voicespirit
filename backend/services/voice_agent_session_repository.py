@@ -163,6 +163,13 @@ class VoiceAgentSessionRepository:
                 )
             conn.execute(
                 """
+                UPDATE voice_agent_turns
+                SET completion_status = 'completed'
+                WHERE completed = 1 AND completion_status = 'pending'
+                """
+            )
+            conn.execute(
+                """
                 CREATE TABLE IF NOT EXISTS voice_agent_tool_events (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     session_id TEXT NOT NULL,

@@ -64,14 +64,20 @@ class FakeBufferSourceNode extends FakeAudioNode {
 }
 
 class FakeAudioContext {
+  static instances: FakeAudioContext[] = [];
   static processors: FakeProcessorNode[] = [];
   static gains: FakeGainNode[] = [];
+  static bufferSources: FakeBufferSourceNode[] = [];
   state = "running";
   currentTime = 0;
   sampleRate = 48000;
   destination = {};
 
-  resume = vi.fn(async () => undefined);
+  constructor() {
+    FakeAudioContext.instances.push(this);
+  }
+
+  resume = vi.fn(async (): Promise<void> => undefined);
   close = vi.fn(async () => undefined);
   createMediaStreamSource = vi.fn(() => new FakeAudioNode());
   createScriptProcessor = vi.fn(() => {
@@ -88,7 +94,11 @@ class FakeAudioContext {
     duration: length / sampleRate,
     getChannelData: () => new Float32Array(length),
   }));
-  createBufferSource = vi.fn(() => new FakeBufferSourceNode());
+  createBufferSource = vi.fn(() => {
+    const source = new FakeBufferSourceNode();
+    FakeAudioContext.bufferSources.push(source);
+    return source;
+  });
 }
 
 class FakeWebSocket {
@@ -135,8 +145,10 @@ class FakeWebSocket {
 describe("useVoiceChat", () => {
   beforeEach(() => {
     FakeWebSocket.instances = [];
+    FakeAudioContext.instances = [];
     FakeAudioContext.processors = [];
     FakeAudioContext.gains = [];
+    FakeAudioContext.bufferSources = [];
     localStorage.clear();
     configureEverMemRuntime({
       enabled: true,
@@ -1093,13 +1105,20 @@ describe("useVoiceChat", () => {
         elapsed_ms: 42,
         stop_latency_ms: 42,
       });
+      await Promise.resolve();
+    });
+
+    expect(FakeAudioContext.bufferSources[0].stop).toHaveBeenCalledTimes(1);
+    expect(result.current.voiceChatMessages).toHaveLength(0);
+
+    act(() => {
       socket.emitMessage({
         type: "interrupted",
+        candidate_id: "interruption-2",
         turn_id: "voice-turn-1",
         interrupted: true,
         stop_latency_ms: 42,
       });
-      await Promise.resolve();
     });
 
     expect(result.current.voiceChatAssistantInterrupted).toBe(true);
@@ -1107,6 +1126,7 @@ describe("useVoiceChat", () => {
     expect(result.current.voiceChatMetrics.decisionCount).toBe(2);
     expect(result.current.voiceChatMetrics.falseInterruptionRate).toBe(0.5);
     expect(result.current.voiceChatMetrics.interruptionStopMs).not.toBeNull();
+    expect(FakeAudioContext.bufferSources[0].stop).toHaveBeenCalledTimes(1);
     expect(result.current.voiceChatMessages).toEqual([
       expect.objectContaining({ role: "user", content: "继续解释", turnId: "voice-turn-1" }),
       expect.objectContaining({
@@ -1116,5 +1136,172 @@ describe("useVoiceChat", () => {
         interrupted: true,
       }),
     ]);
+
+    act(() => {
+      socket.emitMessage({ type: "user_transcript", text: "现在继续", turn_id: "voice-turn-2" });
+      socket.emitMessage({ type: "assistant_text", text: "这是新一轮", turn_id: "voice-turn-2" });
+      socket.emitMessage({
+        type: "interrupted",
+        candidate_id: "interruption-2",
+        turn_id: "voice-turn-1",
+        interrupted: true,
+      });
+      socket.emitMessage({ type: "turn_complete", turn_id: "voice-turn-1", interrupted: true });
+    });
+
+    expect(result.current.voiceChatReply).toBe("这是新一轮");
+    expect(result.current.voiceChatMessages).toHaveLength(2);
+    expect(result.current.voiceChatAssistantInterrupted).toBe(false);
+  });
+
+  it("recovers while timeout is pending and still accepts the authoritative decision", async () => {
+    ensureEverMemConversationGroupIdMock.mockResolvedValue("voice-group-timeout");
+    const { result } = renderHook(() =>
+      useVoiceChat({
+        formatErrorMessage: createFormatErrorMessageStub(),
+        providerOptions: ["OpenAI"],
+        preferredProvider: "OpenAI",
+        preferredModel: "gpt-realtime-2",
+        providerModelCatalog: {
+          OpenAI: { defaultModel: "gpt-realtime-2", availableModels: ["gpt-realtime-2"] },
+        },
+      })
+    );
+
+    await act(async () => {
+      await result.current.onToggleRecording();
+    });
+    const socket = FakeWebSocket.instances[0];
+    act(() => {
+      socket.emitOpen();
+      socket.emitMessage({ type: "session_open", provider: "OpenAI", model: "gpt-realtime-2", voice: "alloy" });
+      socket.emitMessage({ type: "user_transcript", text: "解释一下", turn_id: "voice-turn-timeout" });
+      socket.emitMessage({ type: "assistant_text", text: "正在回答", turn_id: "voice-turn-timeout" });
+      socket.emitMessage({
+        type: "assistant_audio",
+        audio: "AAA=",
+        encoding: "pcm_s16le",
+        sample_rate: 24000,
+        turn_id: "voice-turn-timeout",
+      });
+      socket.emitMessage({
+        type: "interruption_pending",
+        candidate_id: "interruption-timeout",
+        provider: "OpenAI",
+        interrupted_turn_id: "voice-turn-timeout",
+      });
+    });
+    expect(result.current.voiceChatInterruptionState.phase).toBe("evaluating");
+
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 2600));
+    });
+
+    expect(result.current.voiceChatInterruptionState.phase).toBe("idle");
+    expect(FakeAudioContext.gains[0].gain.value).toBe(1);
+    expect(
+      socket.sent.some(
+        (payload) => typeof payload === "string" && payload.includes('"type":"interruption_timeout"')
+      )
+    ).toBe(true);
+
+    act(() => {
+      socket.emitMessage({
+        type: "interruption_decision",
+        candidate_id: "interruption-timeout",
+        classification: "TRUE_BARGE_IN",
+        rule: "non_backchannel_speech",
+        decision: "cancel",
+        transcript: "等一下",
+        provider: "OpenAI",
+        interrupted_turn_id: "voice-turn-timeout",
+        elapsed_ms: 2800,
+      });
+      socket.emitMessage({
+        type: "interrupted",
+        candidate_id: "interruption-timeout",
+        turn_id: "voice-turn-timeout",
+        interrupted: true,
+      });
+    });
+
+    expect(FakeAudioContext.bufferSources[0].stop).toHaveBeenCalledTimes(1);
+    expect(result.current.voiceChatInterruptionState.phase).toBe("interrupted");
+    expect(result.current.voiceChatAssistantInterrupted).toBe(true);
+    expect(result.current.voiceChatMetrics.interruptionStopMs).not.toBeNull();
+    expect(result.current.voiceChatMessages).toEqual([
+      expect.objectContaining({ role: "user", content: "解释一下", turnId: "voice-turn-timeout" }),
+      expect.objectContaining({
+        role: "assistant",
+        content: "正在回答",
+        turnId: "voice-turn-timeout",
+        interrupted: true,
+      }),
+    ]);
+  }, 5000);
+
+  it("does not schedule stale audio after interruption while the audio context resumes", async () => {
+    ensureEverMemConversationGroupIdMock.mockResolvedValue("voice-group-resume-race");
+    const { result } = renderHook(() =>
+      useVoiceChat({
+        formatErrorMessage: createFormatErrorMessageStub(),
+        providerOptions: ["OpenAI"],
+        preferredProvider: "OpenAI",
+        preferredModel: "gpt-realtime-2",
+        providerModelCatalog: {
+          OpenAI: { defaultModel: "gpt-realtime-2", availableModels: ["gpt-realtime-2"] },
+        },
+      })
+    );
+
+    await act(async () => {
+      await result.current.onToggleRecording();
+    });
+    const socket = FakeWebSocket.instances[0];
+    const context = FakeAudioContext.instances[0];
+    let finishResume: (() => void) | undefined;
+    const resumePromise = new Promise<void>((resolve) => {
+      finishResume = resolve;
+    });
+    context.state = "suspended";
+    context.resume = vi.fn(() => resumePromise);
+
+    act(() => {
+      socket.emitOpen();
+      socket.emitMessage({ type: "session_open", provider: "OpenAI", model: "gpt-realtime-2", voice: "alloy" });
+      socket.emitMessage({ type: "user_transcript", text: "解释一下", turn_id: "voice-turn-race" });
+      socket.emitMessage({
+        type: "assistant_audio",
+        audio: "AAA=",
+        encoding: "pcm_s16le",
+        sample_rate: 24000,
+        turn_id: "voice-turn-race",
+      });
+      socket.emitMessage({
+        type: "interruption_pending",
+        candidate_id: "interruption-race",
+        provider: "OpenAI",
+        interrupted_turn_id: "voice-turn-race",
+      });
+      socket.emitMessage({
+        type: "interruption_decision",
+        candidate_id: "interruption-race",
+        classification: "TRUE_BARGE_IN",
+        rule: "non_backchannel_speech",
+        decision: "cancel",
+        transcript: "等一下",
+        provider: "OpenAI",
+        interrupted_turn_id: "voice-turn-race",
+        elapsed_ms: 30,
+      });
+    });
+
+    await act(async () => {
+      finishResume?.();
+      await resumePromise;
+    });
+
+    expect(context.resume).toHaveBeenCalledTimes(1);
+    expect(FakeAudioContext.bufferSources).toHaveLength(0);
   });
 });
