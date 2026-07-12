@@ -344,7 +344,7 @@ textarea {
 }
 
 .vsSidebarNavScroll {
-  flex: 1;
+  flex-shrink: 0;
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -361,6 +361,7 @@ textarea {
   display: flex;
   flex-direction: column;
   height: 100%;
+  overflow: hidden;
 }
 
 .vsSidebarSection {
@@ -505,11 +506,11 @@ textarea {
   border-top: 1px solid color-mix(in oklab, var(--accent) 8%, var(--line));
   transition:
     opacity var(--sidebar-transition),
-    max-height var(--sidebar-transition),
     padding var(--sidebar-transition),
     border-top-color var(--sidebar-transition),
     margin-top var(--sidebar-transition);
-  max-height: 400px;
+  flex: 1;
+  min-height: 0;
   opacity: 1;
   overflow: hidden;
 }
@@ -552,6 +553,8 @@ textarea {
 .vsHistoryList {
   display: grid;
   gap: 6px;
+  overflow-y: auto;
+  max-height: 100%;
 }
 
 .vsHistoryRow {
@@ -2576,6 +2579,30 @@ button:focus-visible {
   background: #a0a7b5;
 }
 
+/* Custom scrollbar class — thin, subtle scrollbar for sidebar lists */
+.custom-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in oklab, var(--text-soft) 30%, transparent) transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: color-mix(in oklab, var(--text-soft) 30%, transparent);
+  border-radius: 999px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in oklab, var(--text-soft) 50%, transparent);
+}
+
 /* =========================================================
    Desktop Interaction Polish
    ========================================================= */
@@ -3123,19 +3150,17 @@ button.danger:focus-visible {
   }
 
   .vsSidebar {
-    display: flex;
-    flex-direction: column;
+    display: grid;
+    grid-template-rows: auto auto minmax(0, 1fr) auto;
     background: var(--sidebar-bg);
     border-right: 1px solid var(--sidebar-line);
     color: var(--sidebar-text);
-    min-height: 100%;
+    min-height: 0;
+    height: 100%;
+    max-height: 100%;
     transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     width: 220px;
     overflow: hidden;
-  }
-
-  .vsHistorySection {
-    max-height: 200px;
   }
 
   .vsChatWorkspace,
