@@ -12,6 +12,7 @@ from .user_auth_service import user_auth_service
 _config = BackendConfig()
 WRITE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 SENSITIVE_READ_PATH_PREFIXES = (
+    "/api/agent-runs",
     "/api/voice-chat/sessions",
 )
 

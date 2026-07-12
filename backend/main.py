@@ -12,7 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from routers import audio_agent, audio_overview, auth, chat, evermem, settings, translate, tts, voice_chat, voices
+from routers import agent_runs, audio_agent, audio_overview, auth, chat, evermem, settings, translate, tts, voice_chat, voices
 from services.auth_service import (
     is_auth_enabled,
     should_enforce_auth,
@@ -280,6 +280,7 @@ def create_app() -> FastAPI:
     app.include_router(translate.router, prefix="/api/translate", tags=["translate"])
     app.include_router(voices.router, prefix="/api/voices", tags=["voices"])
     app.include_router(settings.router, prefix="/api/settings", tags=["settings"])
+    app.include_router(agent_runs.router, prefix="/api/agent-runs", tags=["agent-runs"])
     app.include_router(audio_agent.router, prefix="/api/audio-agent", tags=["audio-agent"])
     app.include_router(audio_overview.router, prefix="/api/audio-overview", tags=["audio-overview"])
     from routers import transcription

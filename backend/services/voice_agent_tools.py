@@ -429,6 +429,8 @@ class VoiceAgentToolService:
                     "status": status,
                     "topic": clean_topic,
                     "current_step": str(run.get("current_step", "")),
+                    "provider": str(run.get("provider", "")),
+                    "model": str(run.get("model", "")),
                 },
             },
         )
@@ -446,6 +448,8 @@ class VoiceAgentToolService:
                 "status": status,
                 "topic": clean_topic,
                 "current_step": str(run.get("current_step", "")),
+                "provider": str(run.get("provider", "")),
+                "model": str(run.get("model", "")),
             },
         }
 

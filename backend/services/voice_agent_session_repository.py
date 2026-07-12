@@ -3,9 +3,11 @@ from __future__ import annotations
 import json
 import sqlite3
 import uuid
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from .agent_run_repository import AgentRunRepository
 from .audio_agent_repository import ClosingConnection
 
 
@@ -13,6 +15,7 @@ class VoiceAgentSessionRepository:
     def __init__(self, db_path: Path | None = None) -> None:
         self.db_path = db_path or self._default_db_path()
         self._init_db()
+        self.agent_run_repository = AgentRunRepository(db_path=self.db_path)
 
     @staticmethod
     def _default_db_path() -> Path:
@@ -286,18 +289,31 @@ class VoiceAgentSessionRepository:
             ).fetchone()
         return self._row_to_session(row)
 
-    def list_sessions(self, limit: int = 20) -> list[dict[str, Any]]:
+    def list_sessions(self, limit: int = 20, *, provider: str = "") -> list[dict[str, Any]]:
         safe_limit = max(1, min(int(limit), 200))
+        clean_provider = str(provider or "").strip()
         with self._connect() as conn:
-            rows = conn.execute(
-                """
-                SELECT id, provider, model, voice, status, started_at, ended_at, meta_json
-                FROM voice_agent_sessions
-                ORDER BY started_at DESC, id DESC
-                LIMIT ?
-                """,
-                (safe_limit,),
-            ).fetchall()
+            if clean_provider:
+                rows = conn.execute(
+                    """
+                    SELECT id, provider, model, voice, status, started_at, ended_at, meta_json
+                    FROM voice_agent_sessions
+                    WHERE lower(provider) = lower(?)
+                    ORDER BY started_at DESC, id DESC
+                    LIMIT ?
+                    """,
+                    (clean_provider, safe_limit),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    """
+                    SELECT id, provider, model, voice, status, started_at, ended_at, meta_json
+                    FROM voice_agent_sessions
+                    ORDER BY started_at DESC, id DESC
+                    LIMIT ?
+                    """,
+                    (safe_limit,),
+                ).fetchall()
         return [session for row in rows if (session := self._row_to_session(row)) is not None]
 
     def upsert_turn(
@@ -584,6 +600,231 @@ class VoiceAgentSessionRepository:
                 (str(session_id or ""), safe_limit),
             ).fetchall()
         return [self._row_to_event(row) for row in rows]
+
+    def link_agent_run_artifact(
+        self,
+        session_id: str,
+        turn_id: str,
+        artifact: dict[str, Any],
+        *,
+        relation_type: str = "created_by",
+        meta: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        if str(artifact.get("type", "")) != "audio_agent_run":
+            raise ValueError("Unsupported agent run artifact type.")
+        run = self.agent_run_repository.upsert_audio_artifact(artifact)
+        return self.agent_run_repository.link_voice_turn(
+            agent_run_id=str(run["id"]),
+            voice_session_id=str(session_id or ""),
+            voice_turn_id=str(turn_id or ""),
+            relation_type=relation_type,
+            meta=meta,
+        )
+
+    def list_agent_run_links(self, session_id: str) -> list[dict[str, Any]]:
+        return self.agent_run_repository.list_links_for_session(session_id)
+
+    @staticmethod
+    def _parse_timestamp(value: Any) -> datetime | None:
+        text = str(value or "").strip()
+        if not text:
+            return None
+        try:
+            return datetime.fromisoformat(text.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+
+    @staticmethod
+    def _metric_summary(samples: list[float]) -> dict[str, int | None]:
+        clean = sorted(max(0.0, float(sample)) for sample in samples)
+        if not clean:
+            return {"count": 0, "avg": None, "p50": None, "p95": None, "min": None, "max": None}
+
+        def percentile(fraction: float) -> int:
+            if len(clean) == 1:
+                return round(clean[0])
+            position = (len(clean) - 1) * fraction
+            lower = int(position)
+            upper = min(lower + 1, len(clean) - 1)
+            weight = position - lower
+            return round(clean[lower] * (1 - weight) + clean[upper] * weight)
+
+        return {
+            "count": len(clean),
+            "avg": round(sum(clean) / len(clean)),
+            "p50": percentile(0.5),
+            "p95": percentile(0.95),
+            "min": round(clean[0]),
+            "max": round(clean[-1]),
+        }
+
+    def summarize_metrics(
+        self,
+        *,
+        limit: int = 200,
+        provider: str = "",
+    ) -> dict[str, Any]:
+        sessions = self.list_sessions(limit=limit, provider=provider)
+
+        def empty_bucket() -> dict[str, Any]:
+            return {
+                "session_count": 0,
+                "turn_count": 0,
+                "completed_turn_count": 0,
+                "interrupted_turn_count": 0,
+                "decision_events": [],
+                "first_audio_samples": [],
+                "decision_samples": [],
+                "stop_samples": [],
+                "turn_completion_samples": [],
+            }
+
+        total = empty_bucket()
+        provider_buckets: dict[str, dict[str, Any]] = {}
+
+        for session in sessions:
+            provider_name = str(session.get("provider", "") or "Unknown")
+            buckets = (total, provider_buckets.setdefault(provider_name, empty_bucket()))
+            for bucket in buckets:
+                bucket["session_count"] += 1
+
+            turns = self.list_turns(str(session["id"]))
+            fallback_turn_durations: dict[str, float] = {}
+            for turn in turns:
+                started_at = self._parse_timestamp(turn.get("started_at"))
+                completed_at = self._parse_timestamp(turn.get("completed_at"))
+                duration_ms = None
+                if started_at is not None and completed_at is not None:
+                    try:
+                        duration_ms = max(0.0, (completed_at - started_at).total_seconds() * 1000)
+                    except TypeError:
+                        duration_ms = None
+                for bucket in buckets:
+                    bucket["turn_count"] += 1
+                    if turn.get("completed"):
+                        bucket["completed_turn_count"] += 1
+                    if turn.get("interrupted"):
+                        bucket["interrupted_turn_count"] += 1
+                if duration_ms is not None:
+                    fallback_turn_durations[str(turn.get("turn_id", ""))] = duration_ms
+
+            session_events = self.list_session_events(str(session["id"]))
+            superseded_candidates = {
+                str((event.get("payload") or {}).get("supersedes_candidate_id", ""))
+                for event in session_events
+                if event.get("event_type") == "interruption_decision"
+                and isinstance(event.get("payload"), dict)
+                and (event.get("payload") or {}).get("supersedes_candidate_id")
+            }
+            true_barge_in_candidates = {
+                str((event.get("payload") or {}).get("candidate_id", ""))
+                for event in session_events
+                if event.get("event_type") == "interruption_decision"
+                and isinstance(event.get("payload"), dict)
+                and str((event.get("payload") or {}).get("candidate_id", "")) not in superseded_candidates
+                and (event.get("payload") or {}).get("classification") == "TRUE_BARGE_IN"
+            }
+            true_barge_in_candidates.discard("")
+            turn_started_at: dict[str, datetime] = {}
+            canonical_completion_turn_ids: set[str] = set()
+            recorded_stop_candidates: set[str] = set()
+            for event in session_events:
+                payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
+                event_type = str(event.get("event_type", ""))
+                event_turn_id = str(event.get("turn_id", ""))
+                event_timestamp = self._parse_timestamp(event.get("occurred_at"))
+                if event_type == "user_transcript" and event_turn_id and event_timestamp is not None:
+                    turn_started_at[event_turn_id] = event_timestamp
+                elif (
+                    event_type in {"turn_completed", "turn_interrupted"}
+                    and event_turn_id
+                    and event_turn_id not in canonical_completion_turn_ids
+                ):
+                    started_at = turn_started_at.get(event_turn_id)
+                    if started_at is not None and event_timestamp is not None:
+                        try:
+                            duration_ms = max(0.0, (event_timestamp - started_at).total_seconds() * 1000)
+                        except TypeError:
+                            duration_ms = None
+                        if duration_ms is not None:
+                            canonical_completion_turn_ids.add(event_turn_id)
+                            for bucket in buckets:
+                                bucket["turn_completion_samples"].append(duration_ms)
+                if event_type == "assistant_audio_started":
+                    value = payload.get("first_audio_ms", payload.get("elapsed_ms"))
+                    if isinstance(value, (int, float)):
+                        for bucket in buckets:
+                            bucket["first_audio_samples"].append(float(value))
+                elif event_type == "interruption_decision":
+                    candidate_id = str(payload.get("candidate_id", ""))
+                    if candidate_id and candidate_id in superseded_candidates:
+                        continue
+                    for bucket in buckets:
+                        bucket["decision_events"].append(payload)
+                    value = payload.get("decision_latency_ms", payload.get("elapsed_ms"))
+                    if isinstance(value, (int, float)):
+                        for bucket in buckets:
+                            bucket["decision_samples"].append(float(value))
+                elif event_type == "interruption_client_stopped":
+                    stop_candidate_id = str(payload.get("candidate_id", ""))
+                    if (
+                        stop_candidate_id not in true_barge_in_candidates
+                        or stop_candidate_id in recorded_stop_candidates
+                    ):
+                        continue
+                    value = payload.get("stop_latency_ms")
+                    if isinstance(value, (int, float)):
+                        recorded_stop_candidates.add(stop_candidate_id)
+                        for bucket in buckets:
+                            bucket["stop_samples"].append(float(value))
+
+            # Historical sessions may predate the canonical event ledger. Use
+            # their coarser turn-table timestamps only when no precise event
+            # pair exists for that turn.
+            for turn_id, duration_ms in fallback_turn_durations.items():
+                if turn_id in canonical_completion_turn_ids:
+                    continue
+                for bucket in buckets:
+                    bucket["turn_completion_samples"].append(duration_ms)
+
+        def finalize(bucket: dict[str, Any]) -> dict[str, Any]:
+            decisions = list(bucket.pop("decision_events"))
+            classifications = {
+                "TRUE_BARGE_IN": 0,
+                "BACKCHANNEL": 0,
+                "NOISE_OR_SILENCE": 0,
+            }
+            for decision in decisions:
+                classification = str(decision.get("classification", ""))
+                if classification in classifications:
+                    classifications[classification] += 1
+            decision_count = sum(classifications.values())
+            result = {
+                "session_count": int(bucket["session_count"]),
+                "turn_count": int(bucket["turn_count"]),
+                "completed_turn_count": int(bucket["completed_turn_count"]),
+                "interrupted_turn_count": int(bucket["interrupted_turn_count"]),
+                "decision_count": decision_count,
+                "classifications": classifications,
+                "false_interruption_rate": (
+                    (classifications["BACKCHANNEL"] + classifications["NOISE_OR_SILENCE"])
+                    / decision_count
+                    if decision_count
+                    else None
+                ),
+                "first_audio_ms": self._metric_summary(bucket.pop("first_audio_samples")),
+                "interruption_decision_ms": self._metric_summary(bucket.pop("decision_samples")),
+                "interruption_stop_ms": self._metric_summary(bucket.pop("stop_samples")),
+                "turn_completion_ms": self._metric_summary(bucket.pop("turn_completion_samples")),
+            }
+            return result
+
+        summary = finalize(total)
+        summary["providers"] = [
+            {"provider": provider_name, **finalize(bucket)}
+            for provider_name, bucket in sorted(provider_buckets.items())
+        ]
+        return summary
 
     def build_timeline(self, session_id: str) -> list[dict[str, Any]]:
         session = self.get_session(session_id)

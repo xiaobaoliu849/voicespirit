@@ -1129,7 +1129,41 @@ class VoiceAgentSessionRecorder:
                 turn_id,
             )
             self._current_turn_id = turn_id
+        linked_agent_run: dict[str, Any] | None = None
+        artifact = payload.get("artifact")
+        effective_turn_id = self._current_turn_id or turn_id
+        if (
+            event_type == "agent_result"
+            and isinstance(artifact, dict)
+            and artifact.get("type") == "audio_agent_run"
+            and artifact.get("run_id")
+            and effective_turn_id
+        ):
+            linked_agent_run = await self._call_repository(
+                "link_agent_run_artifact",
+                self.session_id,
+                effective_turn_id,
+                dict(artifact),
+                relation_type="created_by",
+                meta={"tool_name": "create_audio_agent_run"},
+            )
+            if isinstance(linked_agent_run, dict):
+                artifact["agent_run_id"] = str(linked_agent_run.get("agent_run_id", ""))
+                payload["artifact"] = artifact
         await self._call_repository("add_tool_event", self.session_id, event_type, dict(payload))
+        if isinstance(linked_agent_run, dict):
+            await self.record_session_event(
+                "agent_run_linked",
+                source="agent_run",
+                turn_id=effective_turn_id,
+                text=str(artifact.get("topic", "")) if isinstance(artifact, dict) else "",
+                payload={
+                    "agent_run_id": str(linked_agent_run.get("agent_run_id", "")),
+                    "run_type": str((linked_agent_run.get("run") or {}).get("run_type", "")),
+                    "source_run_id": str((linked_agent_run.get("run") or {}).get("source_run_id", "")),
+                    "relation_type": str(linked_agent_run.get("relation_type", "created_by")),
+                },
+            )
         if turn_id and not self._current_turn_id:
             await self._ensure_turn(turn_id)
 
@@ -1428,6 +1462,7 @@ class RealtimeVoiceService:
         provider_event_type: str,
         recorder: VoiceAgentSessionRecorder | None,
         tool_session: VoiceAgentToolSession,
+        supersede_timed_out: bool = False,
     ) -> None:
         interrupted_turn_id = recorder.current_turn_id if recorder is not None else ""
         if not interrupted_turn_id:
@@ -1436,6 +1471,7 @@ class RealtimeVoiceService:
             provider=provider,
             interrupted_turn_id=interrupted_turn_id,
             provider_event_type=provider_event_type,
+            supersede_timed_out=supersede_timed_out,
         )
         if payload is None:
             return
@@ -1533,6 +1569,7 @@ class RealtimeVoiceService:
         resume_provider: Callable[[], Awaitable[None]] | None = None,
         record_memory: bool = True,
         expected_candidate_id: str = "",
+        timeout_resolution: bool = False,
     ) -> tuple[bool, dict[str, Any] | None]:
         async with coordinator.decision_lock:
             if expected_candidate_id and (
@@ -1550,6 +1587,7 @@ class RealtimeVoiceService:
             decision["provider_cancel_requested"] = bool(is_true_barge_in and cancel_provider is not None)
             decision["tool_cancelled"] = bool(is_true_barge_in and tool_session.has_active_task)
             decision["stop_latency_ms"] = int(decision.get("decision_latency_ms", 0) or 0)
+            decision["timeout_resolution"] = bool(timeout_resolution)
             try:
                 if recorder is not None:
                     await recorder.record_session_event(
@@ -1604,7 +1642,7 @@ class RealtimeVoiceService:
                         )
                 return is_true_barge_in, decision
             finally:
-                coordinator.complete_decision()
+                coordinator.complete_decision(timed_out=timeout_resolution)
 
     def _tool_event_sender(
         self,
@@ -1617,6 +1655,32 @@ class RealtimeVoiceService:
             await self._send_event(websocket, event_type, **payload)
 
         return send_tool_event
+
+    async def _record_client_interruption_stop(
+        self,
+        recorder: VoiceAgentSessionRecorder | None,
+        payload: dict[str, Any],
+        *,
+        provider: str,
+    ) -> None:
+        if recorder is None:
+            return
+        candidate_id = str(payload.get("candidate_id", "") or "").strip()
+        turn_id = str(payload.get("turn_id", "") or "").strip()
+        raw_latency = payload.get("stop_latency_ms")
+        if not candidate_id or not isinstance(raw_latency, (int, float)):
+            return
+        await recorder.record_session_event(
+            "interruption_client_stopped",
+            source="metric",
+            turn_id=turn_id,
+            payload={
+                "candidate_id": candidate_id,
+                "provider": provider,
+                "stop_latency_ms": max(0, min(int(raw_latency), 120_000)),
+                "stage": "client_playback_stopped",
+            },
+        )
 
     async def _finalize_realtime_turn(
         self,
@@ -1764,6 +1828,9 @@ class RealtimeVoiceService:
                 if command_type == "ping":
                     await self._send_event(websocket, "pong")
                     continue
+                if command_type == "interruption_client_stopped":
+                    await self._record_client_interruption_stop(recorder, payload, provider="Google")
+                    continue
                 if command_type == "speech_activity_started":
                     if not is_live_translate and (
                         tool_session.has_active_task
@@ -1791,6 +1858,7 @@ class RealtimeVoiceService:
                         recorder=recorder,
                         record_memory=not is_live_translate,
                         expected_candidate_id=(timeout_candidate_id or interruption.pending.candidate_id),
+                        timeout_resolution=True,
                     )
                     if (
                         not should_process_user
@@ -1944,6 +2012,7 @@ class RealtimeVoiceService:
                             provider_event_type="input_transcription.without_pending_vad",
                             recorder=recorder,
                             tool_session=tool_session,
+                            supersede_timed_out=True,
                         )
                     had_deferred_terminal = interruption.has_deferred_terminal()
 
@@ -2124,6 +2193,9 @@ class RealtimeVoiceService:
                 if command_type == "ping":
                     await self._send_event(websocket, "pong")
                     continue
+                if command_type == "interruption_client_stopped":
+                    await self._record_client_interruption_stop(recorder, payload, provider="DashScope")
+                    continue
                 if command_type == "interruption_timeout" and interruption.pending is not None:
                     timeout_candidate_id = str(payload.get("candidate_id", ""))
                     if timeout_candidate_id and timeout_candidate_id != interruption.pending.candidate_id:
@@ -2136,6 +2208,7 @@ class RealtimeVoiceService:
                         tool_session=tool_session,
                         recorder=recorder,
                         expected_candidate_id=(timeout_candidate_id or interruption.pending.candidate_id),
+                        timeout_resolution=True,
                     )
                     if (
                         not should_process_user
@@ -2223,6 +2296,7 @@ class RealtimeVoiceService:
                         ),
                         recorder=recorder,
                         tool_session=tool_session,
+                        supersede_timed_out=True,
                     )
                 interrupted_response_id = interruption.active_response_id
                 had_deferred_terminal = interruption.has_deferred_terminal()
@@ -2494,6 +2568,9 @@ class RealtimeVoiceService:
                 if command_type == "ping":
                     await self._send_event(websocket, "pong")
                     continue
+                if command_type == "interruption_client_stopped":
+                    await self._record_client_interruption_stop(recorder, payload, provider="OpenAI")
+                    continue
                 if command_type == "interruption_timeout" and interruption.pending is not None:
                     timeout_candidate_id = str(payload.get("candidate_id", ""))
                     if timeout_candidate_id and timeout_candidate_id != interruption.pending.candidate_id:
@@ -2506,6 +2583,7 @@ class RealtimeVoiceService:
                         tool_session=tool_session,
                         recorder=recorder,
                         expected_candidate_id=(timeout_candidate_id or interruption.pending.candidate_id),
+                        timeout_resolution=True,
                     )
                     if (
                         not should_process_user
@@ -2602,6 +2680,7 @@ class RealtimeVoiceService:
                         provider_event_type="conversation.item.input_audio_transcription.completed_without_vad",
                         recorder=recorder,
                         tool_session=tool_session,
+                        supersede_timed_out=True,
                     )
                 interrupted_response_id = interruption.active_response_id
                 had_deferred_terminal = interruption.has_deferred_terminal()

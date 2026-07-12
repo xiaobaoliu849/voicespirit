@@ -187,6 +187,151 @@ class VoiceAgentSessionRepositoryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(turns[0]["completion_status"], "completed")
         self.assertFalse(turns[0]["interrupted"])
 
+    def test_aggregates_cross_session_metrics_and_excludes_superseded_timeout(self) -> None:
+        session = self.repository.create_session(
+            provider="OpenAI",
+            model="gpt-realtime",
+            voice="alloy",
+        )
+        self.repository.upsert_turn(
+            session["id"],
+            "voice-turn-1",
+            user_text="解释一下",
+            assistant_text="回答",
+            completed=True,
+            interrupted=True,
+            completion_status="interrupted",
+        )
+        conn = sqlite3.connect(self.db_path)
+        try:
+            conn.execute(
+                """
+                UPDATE voice_agent_turns
+                SET started_at = '2026-07-12 10:00:00', completed_at = '2026-07-12 10:00:02'
+                WHERE session_id = ? AND turn_id = 'voice-turn-1'
+                """,
+                (session["id"],),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+        self.repository.add_session_event(
+            session["id"],
+            "assistant_audio_started",
+            source="metric",
+            turn_id="voice-turn-1",
+            payload={"first_audio_ms": 120, "elapsed_ms": 120},
+        )
+        self.repository.add_session_event(
+            session["id"],
+            "interruption_decision",
+            source="interruption",
+            turn_id="voice-turn-1",
+            payload={
+                "candidate_id": "interruption-1",
+                "classification": "NOISE_OR_SILENCE",
+                "decision_latency_ms": 2500,
+                "timeout_resolution": True,
+            },
+        )
+        self.repository.add_session_event(
+            session["id"],
+            "interruption_decision",
+            source="interruption",
+            turn_id="voice-turn-1",
+            payload={
+                "candidate_id": "interruption-2",
+                "supersedes_candidate_id": "interruption-1",
+                "classification": "TRUE_BARGE_IN",
+                "decision_latency_ms": 42,
+            },
+        )
+        self.repository.add_session_event(
+            session["id"],
+            "interruption_client_stopped",
+            source="metric",
+            turn_id="voice-turn-1",
+            payload={"candidate_id": "interruption-2", "stop_latency_ms": 55},
+        )
+        self.repository.add_session_event(
+            session["id"],
+            "interruption_client_stopped",
+            source="metric",
+            turn_id="voice-turn-1",
+            payload={"candidate_id": "interruption-2", "stop_latency_ms": 999},
+        )
+        self.repository.add_session_event(
+            session["id"],
+            "interruption_client_stopped",
+            source="metric",
+            turn_id="voice-turn-1",
+            payload={"candidate_id": "unknown-candidate", "stop_latency_ms": 888},
+        )
+        self.repository.add_session_event(
+            session["id"],
+            "user_transcript",
+            source="turn",
+            turn_id="voice-turn-1",
+            text="解释一下",
+        )
+        self.repository.add_session_event(
+            session["id"],
+            "turn_interrupted",
+            source="turn",
+            turn_id="voice-turn-1",
+            payload={"interrupted": True},
+        )
+        self.repository.add_session_event(
+            session["id"],
+            "turn_interrupted",
+            source="turn",
+            turn_id="voice-turn-1",
+            payload={"interrupted": True, "duplicate": True},
+        )
+        conn = sqlite3.connect(self.db_path)
+        try:
+            event_ids = conn.execute(
+                """
+                SELECT id FROM voice_agent_session_events
+                WHERE session_id = ? AND event_type IN ('user_transcript', 'turn_interrupted')
+                ORDER BY id ASC
+                """,
+                (session["id"],),
+            ).fetchall()
+            conn.execute(
+                "UPDATE voice_agent_session_events SET occurred_at = '2026-07-12T10:00:00.125Z' WHERE id = ?",
+                (event_ids[0][0],),
+            )
+            conn.execute(
+                "UPDATE voice_agent_session_events SET occurred_at = '2026-07-12T10:00:01.375Z' WHERE id = ?",
+                (event_ids[1][0],),
+            )
+            conn.execute(
+                "UPDATE voice_agent_session_events SET occurred_at = '2026-07-12T10:00:05.000Z' WHERE id = ?",
+                (event_ids[2][0],),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+        summary = self.repository.summarize_metrics(limit=20)
+        self.assertEqual(summary["session_count"], 1)
+        self.assertEqual(summary["turn_count"], 1)
+        self.assertEqual(summary["interrupted_turn_count"], 1)
+        self.assertEqual(summary["decision_count"], 1)
+        self.assertEqual(summary["classifications"]["TRUE_BARGE_IN"], 1)
+        self.assertEqual(summary["classifications"]["NOISE_OR_SILENCE"], 0)
+        self.assertEqual(summary["first_audio_ms"]["p50"], 120)
+        self.assertEqual(summary["interruption_decision_ms"]["p95"], 42)
+        self.assertEqual(summary["interruption_stop_ms"]["avg"], 55)
+        self.assertEqual(summary["turn_completion_ms"]["p50"], 1250)
+        self.assertEqual(summary["providers"][0]["provider"], "OpenAI")
+
+        self.repository.create_session(provider="Google", model="gemini-live", voice="Puck")
+        provider_summary = self.repository.summarize_metrics(limit=1, provider="openai")
+        self.assertEqual(provider_summary["session_count"], 1)
+        self.assertEqual(provider_summary["providers"][0]["provider"], "OpenAI")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -37,6 +37,8 @@ class VoiceAgentTurnResponse(BaseModel):
     assistant_text: str = ""
     memory_payload: dict[str, Any] = Field(default_factory=dict)
     completed: bool
+    interrupted: bool = False
+    completion_status: str = "pending"
     started_at: str
     completed_at: str = ""
 
@@ -73,10 +75,51 @@ class VoiceAgentSessionListResponse(BaseModel):
     sessions: list[VoiceAgentSessionResponse] = Field(default_factory=list)
 
 
+class VoiceAgentRunLinkResponse(BaseModel):
+    id: int
+    agent_run_id: str
+    voice_session_id: str
+    voice_turn_id: str
+    relation_type: str
+    meta: dict[str, Any] = Field(default_factory=dict)
+    created_at: str
+    run: dict[str, Any] = Field(default_factory=dict)
+
+
+class MetricDistributionResponse(BaseModel):
+    count: int = 0
+    avg: int | None = None
+    p50: int | None = None
+    p95: int | None = None
+    min: int | None = None
+    max: int | None = None
+
+
+class VoiceAgentMetricProviderResponse(BaseModel):
+    provider: str
+    session_count: int
+    turn_count: int
+    completed_turn_count: int
+    interrupted_turn_count: int
+    decision_count: int
+    classifications: dict[str, int] = Field(default_factory=dict)
+    false_interruption_rate: float | None = None
+    first_audio_ms: MetricDistributionResponse
+    interruption_decision_ms: MetricDistributionResponse
+    interruption_stop_ms: MetricDistributionResponse
+    turn_completion_ms: MetricDistributionResponse
+
+
+class VoiceAgentMetricsSummaryResponse(VoiceAgentMetricProviderResponse):
+    provider: str = "all"
+    providers: list[VoiceAgentMetricProviderResponse] = Field(default_factory=list)
+
+
 class VoiceAgentSessionDetailResponse(VoiceAgentSessionResponse):
     turns: list[VoiceAgentTurnResponse] = Field(default_factory=list)
     tool_events: list[VoiceAgentToolEventResponse] = Field(default_factory=list)
     timeline: list[VoiceAgentTimelineEventResponse] = Field(default_factory=list)
+    agent_run_links: list[VoiceAgentRunLinkResponse] = Field(default_factory=list)
 
 
 def _raise_not_found(session_id: str) -> None:
@@ -98,6 +141,15 @@ async def list_voice_agent_sessions(
     return VoiceAgentSessionListResponse(count=len(sessions), sessions=sessions)
 
 
+@router.get("/sessions/metrics/summary", response_model=VoiceAgentMetricsSummaryResponse)
+async def get_voice_agent_metrics_summary(
+    limit: int = Query(default=200, ge=1, le=200),
+    provider: str = Query(default="", max_length=80),
+) -> VoiceAgentMetricsSummaryResponse:
+    summary = voice_agent_session_repository.summarize_metrics(limit=limit, provider=provider)
+    return VoiceAgentMetricsSummaryResponse(provider=(provider or "all"), **summary)
+
+
 @router.get("/sessions/{session_id}", response_model=VoiceAgentSessionDetailResponse)
 async def get_voice_agent_session(session_id: str) -> VoiceAgentSessionDetailResponse:
     session = voice_agent_session_repository.get_session(session_id)
@@ -109,6 +161,7 @@ async def get_voice_agent_session(session_id: str) -> VoiceAgentSessionDetailRes
         turns=voice_agent_session_repository.list_turns(session_id),
         tool_events=voice_agent_session_repository.list_tool_events(session_id),
         timeline=voice_agent_session_repository.build_timeline(session_id),
+        agent_run_links=voice_agent_session_repository.list_agent_run_links(session_id),
     )
 
 

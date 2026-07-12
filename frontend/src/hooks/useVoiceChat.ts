@@ -4,6 +4,7 @@ import {
   buildVoiceChatWebSocketUrl,
   clearPersistedEverMemConversationGroupId,
   ensureEverMemConversationGroupId,
+  fetchVoiceAgentMetricsSummary,
   fetchVoiceAgentSession,
   getPersistedEverMemConversationGroupId,
   listVoiceAgentSessions,
@@ -12,6 +13,7 @@ import {
   type VoiceAgentSource,
   type VoiceAgentSessionHistory,
   type VoiceAgentSessionHistoryDetailResponse,
+  type VoiceAgentMetricsSummary,
   type VoiceChatServerEvent,
   type VoiceAgentToolRecord,
 } from "../api";
@@ -619,6 +621,8 @@ export default function useVoiceChat({
   const [voiceAgentHistoryBusy, setVoiceAgentHistoryBusy] = useState(false);
   const [voiceAgentHistoryError, setVoiceAgentHistoryError] = useState("");
   const [voiceAgentHistoryExportText, setVoiceAgentHistoryExportText] = useState("");
+  const [voiceAgentMetricsSummary, setVoiceAgentMetricsSummary] =
+    useState<VoiceAgentMetricsSummary | null>(null);
 
   const websocketRef = useRef<WebSocket | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
@@ -1176,6 +1180,15 @@ export default function useVoiceChat({
           stopLatencyMs = pending
             ? Math.max(0, Math.round(performance.now() - pending.receivedAt))
             : null;
+          const socket = websocketRef.current;
+          if (stopLatencyMs !== null && socket?.readyState === WebSocket.OPEN) {
+            socket.send(JSON.stringify({
+              type: "interruption_client_stopped",
+              candidate_id: event.candidate_id,
+              turn_id: event.interrupted_turn_id || currentTurnIdRef.current,
+              stop_latency_ms: stopLatencyMs,
+            }));
+          }
         }
         recordInterruptionDecision(event.classification, stopLatencyMs);
         setVoiceChatInterruptionState({
@@ -1658,8 +1671,12 @@ export default function useVoiceChat({
     setVoiceAgentHistoryBusy(true);
     setVoiceAgentHistoryError("");
     try {
-      const response = await listVoiceAgentSessions(limit);
+      const [response, metrics] = await Promise.all([
+        listVoiceAgentSessions(limit),
+        fetchVoiceAgentMetricsSummary(200),
+      ]);
       setVoiceAgentHistorySessions(Array.isArray(response.sessions) ? response.sessions : []);
+      setVoiceAgentMetricsSummary(metrics);
     } catch (err) {
       setVoiceAgentHistoryError(
         formatErrorMessage(
@@ -1881,6 +1898,7 @@ export default function useVoiceChat({
     voiceAgentHistoryBusy,
     voiceAgentHistoryError,
     voiceAgentHistoryExportText,
+    voiceAgentMetricsSummary,
     onLoadVoiceAgentHistory,
     onOpenVoiceAgentSession,
     onExportVoiceAgentSession,

@@ -3,8 +3,9 @@ import {
   getChatQuickActions,
   type QuickAction
 } from "../appConfig";
-import { extractPdfText } from "../api";
+import { extractPdfText, type VoiceAgentRunLink } from "../api";
 import ErrorNotice from "../components/ErrorNotice";
+import VoiceAgentHistoryPanel from "../components/VoiceAgentHistoryPanel";
 import type { UseChatResult } from "../hooks/useChat";
 import type { UseVoiceChatResult } from "../hooks/useVoiceChat";
 import { useI18n } from "../i18n";
@@ -14,6 +15,7 @@ type Props = {
   chat: UseChatResult;
   voiceChat: UseVoiceChatResult;
   errorRuntimeContext: ErrorRuntimeContext;
+  onResumeAgentRun?: (link: VoiceAgentRunLink) => void | Promise<void>;
 };
 
 /* ── Inline SVG icons ── */
@@ -368,13 +370,14 @@ function Composer({
   );
 }
 
-export default function ChatPage({ chat, voiceChat, errorRuntimeContext }: Props) {
+export default function ChatPage({ chat, voiceChat, errorRuntimeContext, onResumeAgentRun }: Props) {
   const { t } = useI18n();
   const quickActions: QuickAction[] = getChatQuickActions(t);
   const combinedMessages = [...chat.chatMessages, ...voiceChat.sessionSummary];
   const isEmpty = !combinedMessages.length;
   const bodyRef = useRef<HTMLDivElement>(null);
   const shouldStickToBottomRef = useRef(true);
+  const [showVoiceHistory, setShowVoiceHistory] = useState(false);
 
   const showWelcome = isEmpty && !voiceChat.voiceChatRecording && !voiceChat.voiceChatConnected;
   const isVoiceActive = voiceChat.voiceChatRecording || voiceChat.voiceChatConnected;
@@ -396,7 +399,22 @@ export default function ChatPage({ chat, voiceChat, errorRuntimeContext }: Props
   }
 
   return (
-    <section className="vsChatWorkspace">
+    <section className="vsChatWorkspace" style={{ position: "relative" }}>
+      <div style={{ position: "absolute", top: 12, right: 16, zIndex: 31 }}>
+        <button
+          type="button"
+          className="vsBtnSecondary"
+          aria-expanded={showVoiceHistory}
+          onClick={() => setShowVoiceHistory((value) => !value)}
+        >
+          {showVoiceHistory ? t("返回对话", "Back to chat") : t("语音历史", "Voice history")}
+        </button>
+      </div>
+      {showVoiceHistory ? (
+        <div style={{ position: "absolute", inset: 0, zIndex: 30, overflow: "auto", background: "var(--surface-color)", padding: "64px 18px 24px" }}>
+          <VoiceAgentHistoryPanel voiceChat={voiceChat} onResumeAgentRun={onResumeAgentRun} />
+        </div>
+      ) : null}
       {/* ── Body ── */}
       <div
         ref={bodyRef}

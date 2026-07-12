@@ -27,12 +27,21 @@ class PendingInterruption:
     interrupted_turn_id: str
     provider_event_type: str
     started_at: float
+    supersedes_candidate_id: str = ""
+
+
+@dataclass(frozen=True)
+class TimedOutInterruption:
+    candidate_id: str
+    provider: str
+    timed_out_at: float
 
 
 class InterruptionDecisionCoordinator:
     """Provider-neutral state for the detect -> transcribe -> decide flow."""
 
     _MAX_BUFFERED_OUTPUT_EVENTS = 256
+    _TIMED_OUT_SUPERSESSION_WINDOW_SECONDS = 5.0
 
     def __init__(self, *, clock: Callable[[], float] = time.perf_counter) -> None:
         self._clock = clock
@@ -42,7 +51,9 @@ class InterruptionDecisionCoordinator:
         self._deferred_terminal: dict[str, object] | None = None
         self._active_response_id = ""
         self._resolving = False
+        self._decision_at: float | None = None
         self._resume_provider: Callable[[], Awaitable[None]] | None = None
+        self._last_timed_out: TimedOutInterruption | None = None
         self.decision_lock = asyncio.Lock()
         self.output_lock = asyncio.Lock()
 
@@ -71,25 +82,41 @@ class InterruptionDecisionCoordinator:
         provider: str,
         interrupted_turn_id: str = "",
         provider_event_type: str = "speech_started",
+        supersede_timed_out: bool = False,
     ) -> dict[str, object] | None:
         if self._pending is not None:
             return None
         self._candidate_index += 1
         self._buffered_output = []
         self._deferred_terminal = None
+        self._decision_at = None
+        now = self._clock()
+        last_timed_out = self._last_timed_out
+        can_supersede = bool(
+            supersede_timed_out
+            and last_timed_out is not None
+            and last_timed_out.provider == str(provider or "")
+            and 0 <= now - last_timed_out.timed_out_at <= self._TIMED_OUT_SUPERSESSION_WINDOW_SECONDS
+        )
+        supersedes_candidate_id = last_timed_out.candidate_id if can_supersede and last_timed_out else ""
+        self._last_timed_out = None
         self._pending = PendingInterruption(
             candidate_id=f"interruption-{self._candidate_index}",
             provider=str(provider or ""),
             interrupted_turn_id=str(interrupted_turn_id or ""),
             provider_event_type=str(provider_event_type or "speech_started"),
-            started_at=self._clock(),
+            started_at=now,
+            supersedes_candidate_id=supersedes_candidate_id,
         )
-        return {
+        payload: dict[str, object] = {
             "candidate_id": self._pending.candidate_id,
             "provider": self._pending.provider,
             "interrupted_turn_id": self._pending.interrupted_turn_id,
             "provider_event_type": self._pending.provider_event_type,
         }
+        if supersedes_candidate_id:
+            payload["supersedes_candidate_id"] = supersedes_candidate_id
+        return payload
 
     def buffer_output(self, event: dict[str, object]) -> None:
         if self._pending is not None:
@@ -139,9 +166,19 @@ class InterruptionDecisionCoordinator:
         ):
             self._active_response_id = ""
 
-    def complete_decision(self) -> None:
+    def complete_decision(self, *, timed_out: bool = False) -> None:
+        pending = self._pending
+        if timed_out and pending is not None:
+            self._last_timed_out = TimedOutInterruption(
+                candidate_id=pending.candidate_id,
+                provider=pending.provider,
+                timed_out_at=self._decision_at if self._decision_at is not None else pending.started_at,
+            )
+        elif pending is not None and pending.supersedes_candidate_id:
+            self._last_timed_out = None
         self._pending = None
         self._resolving = False
+        self._decision_at = None
         self._resume_provider = None
 
     def decide(self, text: str) -> dict[str, object] | None:
@@ -150,13 +187,14 @@ class InterruptionDecisionCoordinator:
             return None
         self._resolving = True
         classification = InterruptionClassifier.classify_with_rule(text)
-        elapsed_ms = max(0, int((self._clock() - pending.started_at) * 1000))
+        self._decision_at = self._clock()
+        elapsed_ms = max(0, int((self._decision_at - pending.started_at) * 1000))
         action = {
             InterruptionIntent.TRUE_BARGE_IN: "cancel",
             InterruptionIntent.BACKCHANNEL: "resume",
             InterruptionIntent.NOISE_OR_SILENCE: "ignore",
         }[classification.intent]
-        return {
+        decision: dict[str, object] = {
             "candidate_id": pending.candidate_id,
             "classification": classification.intent.value,
             "rule": classification.rule,
@@ -168,6 +206,9 @@ class InterruptionDecisionCoordinator:
             "elapsed_ms": elapsed_ms,
             "decision_latency_ms": elapsed_ms,
         }
+        if pending.supersedes_candidate_id:
+            decision["supersedes_candidate_id"] = pending.supersedes_candidate_id
+        return decision
 
 class InterruptionClassifier:
     """

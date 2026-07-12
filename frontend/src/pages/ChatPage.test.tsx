@@ -1,9 +1,26 @@
-import { render, screen } from '@testing-library/react';
-import { describe, it, expect } from 'vitest';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { describe, it, expect, vi } from 'vitest';
 import ChatPage from './ChatPage';
 import { createChatController, createVoiceChatController } from '../test/factories';
 
 describe('ChatPage', () => {
+    it('opens the reachable voice history workspace from the active chat page', async () => {
+        const onLoadVoiceAgentHistory = vi.fn();
+        render(
+            <ChatPage
+                chat={createChatController()}
+                voiceChat={createVoiceChatController({ onLoadVoiceAgentHistory })}
+                errorRuntimeContext={{}}
+            />
+        );
+
+        fireEvent.click(screen.getByRole('button', { name: '语音历史' }));
+        expect(screen.getByText('语音 Agent 历史与运行')).toBeInTheDocument();
+        await waitFor(() => expect(onLoadVoiceAgentHistory).toHaveBeenCalledTimes(1));
+        fireEvent.click(screen.getByRole('button', { name: '返回对话' }));
+        expect(screen.queryByText('语音 Agent 历史与运行')).not.toBeInTheDocument();
+    });
+
     it('renders correctly empty state', () => {
         render(
             <ChatPage

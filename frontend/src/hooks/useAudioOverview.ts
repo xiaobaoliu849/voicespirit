@@ -504,14 +504,14 @@ export default function useAudioOverview(options: Options) {
     }
   }
 
-  async function onOpenAgentRun(run: AudioAgentRun) {
+  async function onOpenAgentRunById(runId: number) {
     setAudioOverviewError("");
     setAudioOverviewInfo("");
     setAudioOverviewBusy(true);
     try {
-      const detail = await getAudioAgentRun(run.id);
+      const detail = await getAudioAgentRun(runId);
       applyAudioAgentRun(detail);
-      const eventData = await listAudioAgentRunEvents(run.id, 50);
+      const eventData = await listAudioAgentRunEvents(runId, 50);
       applyAudioAgentEvents(eventData.events);
       if (detail.podcast_id && detail.podcast_id > 0) {
         const podcast = await getAudioOverviewPodcast(detail.podcast_id);
@@ -528,13 +528,17 @@ export default function useAudioOverview(options: Options) {
         clearAudioOverviewAudio();
       }
       setAudioOverviewInfo(
-        t(`已载入 Agent 运行 #${run.id}。`, `Loaded agent run #${run.id}.`)
+        t(`已载入 Agent 运行 #${runId}。`, `Loaded agent run #${runId}.`)
       );
     } catch (err) {
       setAudioOverviewError(formatErrorMessage(err, t("加载 Agent 运行记录失败。", "Failed to load agent run.")));
     } finally {
       setAudioOverviewBusy(false);
     }
+  }
+
+  async function onOpenAgentRun(run: AudioAgentRun) {
+    await onOpenAgentRunById(run.id);
   }
 
   async function onSaveScript() {
@@ -902,7 +906,8 @@ export default function useAudioOverview(options: Options) {
     agentRunHistory,
     agentRunHistoryBusy,
     onLoadAgentRunHistory: loadAgentRunHistory,
-    onOpenAgentRun
+    onOpenAgentRun,
+    onOpenAgentRunById,
   };
 }
 

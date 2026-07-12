@@ -30,7 +30,10 @@ vi.mock("./api", async () => {
     fetchTranscriptionJob: vi.fn(),
     createAudioAgentRun: vi.fn(),
     getAudioAgentRun: vi.fn(),
-    listAudioAgentRunEvents: vi.fn()
+    listAudioAgentRunEvents: vi.fn(),
+    listVoiceAgentSessions: vi.fn(),
+    fetchVoiceAgentMetricsSummary: vi.fn(),
+    fetchVoiceAgentSession: vi.fn()
   };
 });
 
@@ -52,6 +55,9 @@ const mockedFetchTranscriptionJob = vi.mocked(api.fetchTranscriptionJob);
 const mockedCreateAudioAgentRun = vi.mocked(api.createAudioAgentRun);
 const mockedGetAudioAgentRun = vi.mocked(api.getAudioAgentRun);
 const mockedListAudioAgentRunEvents = vi.mocked(api.listAudioAgentRunEvents);
+const mockedListVoiceAgentSessions = vi.mocked(api.listVoiceAgentSessions);
+const mockedFetchVoiceAgentMetricsSummary = vi.mocked(api.fetchVoiceAgentMetricsSummary);
+const mockedFetchVoiceAgentSession = vi.mocked(api.fetchVoiceAgentSession);
 
 const mockAgentRunDetail = {
   id: 1,
@@ -226,6 +232,65 @@ describe("App interactions", () => {
     mockedListAudioAgentRunEvents.mockResolvedValue({
       count: 0,
       events: []
+    });
+    mockedListVoiceAgentSessions.mockResolvedValue({
+      count: 1,
+      sessions: [{
+        id: "voice-session-1",
+        provider: "OpenAI",
+        model: "gpt-realtime",
+        voice: "alloy",
+        status: "closed",
+        started_at: "2026-07-12T10:00:00Z"
+      }]
+    });
+    const emptyDistribution = { count: 0, avg: null, p50: null, p95: null, min: null, max: null };
+    mockedFetchVoiceAgentMetricsSummary.mockResolvedValue({
+      provider: "all",
+      session_count: 1,
+      turn_count: 1,
+      completed_turn_count: 1,
+      interrupted_turn_count: 0,
+      decision_count: 0,
+      classifications: {},
+      false_interruption_rate: null,
+      first_audio_ms: emptyDistribution,
+      interruption_decision_ms: emptyDistribution,
+      interruption_stop_ms: emptyDistribution,
+      turn_completion_ms: emptyDistribution,
+      providers: []
+    });
+    mockedFetchVoiceAgentSession.mockResolvedValue({
+      id: "voice-session-1",
+      provider: "OpenAI",
+      model: "gpt-realtime",
+      voice: "alloy",
+      status: "closed",
+      started_at: "2026-07-12T10:00:00Z",
+      turns: [],
+      tool_events: [],
+      timeline: [],
+      agent_run_links: [{
+        id: 1,
+        agent_run_id: "audio_agent:1",
+        voice_session_id: "voice-session-1",
+        voice_turn_id: "voice-turn-1",
+        relation_type: "created_by",
+        created_at: "2026-07-12T10:00:01Z",
+        run: {
+          id: "audio_agent:1",
+          run_type: "audio_agent",
+          source_kind: "audio_agent",
+          source_run_id: "1",
+          title: "新主题",
+          status: "draft_ready",
+          current_step: "persist_draft",
+          provider: "DashScope",
+          model: "qwen-plus",
+          created_at: "2026-07-12T10:00:01Z",
+          updated_at: "2026-07-12T10:00:02Z"
+        }
+      }]
     });
 
     Object.defineProperty(globalThis.URL, "createObjectURL", {
@@ -474,6 +539,21 @@ describe("App interactions", () => {
     expect(screen.getByDisplayValue("第一段内容")).toBeInTheDocument();
     expect(screen.getByDisplayValue("第二段内容")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /合成/ })).toBeInTheDocument();
+  });
+
+  it("resumes a durable audio agent run from voice history", async () => {
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "语音历史" }));
+    fireEvent.click(await screen.findByRole("button", { name: /OpenAI · closed/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "在播客工作台继续" }));
+
+    await waitFor(() => {
+      expect(mockedGetAudioAgentRun).toHaveBeenCalledWith(1);
+      expect(mockedListAudioAgentRunEvents).toHaveBeenCalledWith(1, 50);
+    });
+    expect(await screen.findByText("已载入 Agent 运行 #1。")).toBeInTheDocument();
+    expect(screen.getByTestId("nav-audio_overview")).toHaveClass("active");
   });
 
   it("copies the loaded podcast script to the clipboard", async () => {

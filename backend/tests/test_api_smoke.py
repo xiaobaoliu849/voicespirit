@@ -17,6 +17,7 @@ from starlette.requests import Request
 from starlette.routing import Mount, Route, WebSocketRoute
 
 from main import create_app
+from routers import agent_runs as agent_runs_router
 from routers import audio_agent as audio_agent_router
 from routers import audio_overview as audio_overview_router
 from routers import chat as chat_router
@@ -29,6 +30,7 @@ from routers import voice_chat as voice_chat_router
 from routers import voices as voices_router
 from services.audio_overview_service import AudioOverviewService, AudioOverviewServiceError
 from services.audio_agent_service import AudioAgentService
+from services.agent_run_service import AgentRunService
 from services.config_loader import BackendConfig, GOOGLE_INTERACTIONS_BASE_URL
 from services.evermem_config import EverMemConfig
 from services import realtime_voice_service as realtime_voice_module
@@ -61,7 +63,10 @@ class ApiSmokeTests(unittest.TestCase):
 
     def _request(self, method: str, path: str, **kwargs: Any) -> httpx.Response:
         default_auth = bool(kwargs.pop("default_auth", True))
-        sensitive_read = method.upper() == "GET" and path.startswith("/api/voice-chat/sessions")
+        sensitive_read = method.upper() == "GET" and (
+            path.startswith("/api/agent-runs")
+            or path.startswith("/api/voice-chat/sessions")
+        )
         if (
             default_auth
             and path.startswith("/api/")
@@ -126,6 +131,17 @@ class ApiSmokeTests(unittest.TestCase):
                         "answer": "我查到这些信息。",
                     },
                 )
+                repository.link_agent_run_artifact(
+                    session["id"],
+                    "voice-tool-1",
+                    {
+                        "type": "audio_agent_run",
+                        "run_id": 77,
+                        "status": "queued",
+                        "topic": "语音 Agent 播客",
+                        "current_step": "retrieve",
+                    },
+                )
 
                 missing_auth_response = self._request(
                     "GET",
@@ -171,6 +187,15 @@ class ApiSmokeTests(unittest.TestCase):
                     ],
                 )
                 self.assertEqual(detail_payload["timeline"][2]["source"], "tool_event")
+                self.assertEqual(detail_payload["agent_run_links"][0]["agent_run_id"], "audio_agent:77")
+
+                metrics_response = self._request(
+                    "GET",
+                    "/api/voice-chat/sessions/metrics/summary?limit=20",
+                )
+                self.assertEqual(metrics_response.status_code, 200)
+                self.assertEqual(metrics_response.json()["session_count"], 1)
+                self.assertEqual(metrics_response.json()["turn_count"], 1)
 
                 missing_response = self._request("GET", "/api/voice-chat/sessions/missing")
                 self.assertEqual(missing_response.status_code, 404)
@@ -180,6 +205,42 @@ class ApiSmokeTests(unittest.TestCase):
                 )
             finally:
                 voice_chat_router.voice_agent_session_repository = original_repository
+
+    def test_unified_agent_run_endpoints(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            db_path = Path(tmp_dir) / "unified_agent_runs.db"
+            audio_service = AudioAgentService(db_path=db_path)
+            source = audio_service.create_run(topic="统一任务 API", auto_execute=False)
+            service = AgentRunService(db_path=db_path, audio_agent_service=audio_service)
+            original_service = agent_runs_router.agent_run_service
+            agent_runs_router.agent_run_service = service
+            try:
+                missing_auth = self._request(
+                    "GET",
+                    "/api/agent-runs/?limit=10",
+                    default_auth=False,
+                )
+                self.assertEqual(missing_auth.status_code, 401)
+
+                listed = self._request("GET", "/api/agent-runs/?limit=10")
+                self.assertEqual(listed.status_code, 200)
+                self.assertEqual(listed.json()["count"], 1)
+                canonical_id = listed.json()["runs"][0]["id"]
+                self.assertEqual(canonical_id, f"audio_agent:{source['id']}")
+
+                detail = self._request("GET", f"/api/agent-runs/{canonical_id}")
+                self.assertEqual(detail.status_code, 200)
+                self.assertEqual(detail.json()["title"], "统一任务 API")
+
+                events = self._request("GET", f"/api/agent-runs/{canonical_id}/events")
+                self.assertEqual(events.status_code, 200)
+                self.assertGreaterEqual(events.json()["count"], 1)
+                self.assertEqual(events.json()["events"][0]["agent_run_id"], canonical_id)
+
+                missing = self._request("GET", "/api/agent-runs/audio_agent:999999")
+                self.assertEqual(missing.status_code, 404)
+            finally:
+                agent_runs_router.agent_run_service = original_service
 
     def test_realtime_voice_service_requires_google_api_key(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:

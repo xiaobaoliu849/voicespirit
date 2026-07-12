@@ -1,6 +1,6 @@
 # VoiceSpirit Voice Agent Evolution Roadmap
 
-Last updated: 2026-07-11
+Last updated: 2026-07-12
 
 ## Executive View
 
@@ -35,7 +35,7 @@ Implemented:
 - WebSocket route: `backend/routers/voice_chat.py`
 - provider bridge: `backend/services/realtime_voice_service.py`
 - frontend capture/playback: `frontend/src/hooks/useVoiceChat.ts`
-- UI page: `frontend/src/pages/VoiceChatPage.tsx`
+- active UI surface: `frontend/src/pages/ChatPage.tsx` with `frontend/src/components/VoiceAgentHistoryPanel.tsx`
 - memory integration: `RealtimeMemorySession` with EverMem retrieval and writeback
 - local playback interruption: frontend handles `interrupted` by stopping queued audio buffers
 - voice search tool session: `backend/services/voice_agent_tools.py`
@@ -60,13 +60,15 @@ Implemented:
 - provider-independent timeline-first rendering with raw records in a supporting disclosure
 - deterministic raw Provider event replay coverage for Google, DashScope, and OpenAI
 - lightweight live/history UI for first-audio latency, interruption-stop latency, and the false-interruption proxy
+- cross-session/provider metric aggregation for first audio, interruption decision, actual playback stop, and turn completion latency
+- reachable timeline filtering by event family and turn
+- durable voice-turn links to canonical Agent Run projections, with resume navigation into the audio/podcast workspace
 
 Missing:
 
 - richer retrieval and application tools beyond web search, audio-run creation, translation, transcript summarization, and TTS synthesis
-- aggregate cross-session latency and interruption metrics dashboard/API
 - strict remote Google response cancellation after semantic classification (the public Live session exposes no explicit response-cancel method)
-- timeline filtering and turn-completion latency
+- an operator-oriented long-range metrics dashboard; the current API/UI summary is intentionally lightweight and bounded to recent sessions
 
 ### Audio/podcast agent
 
@@ -83,6 +85,9 @@ Implemented:
 - cancellation endpoint
 - retry endpoint (whole-run retry)
 - SSE progress stream for long-running agent runs
+- canonical `agent_runs` projection and read API without replacing the existing audio-run execution engine
+- durable voice-session/turn-to-run links and migration backfill from historical `agent_result` artifacts
+- resume navigation from voice history into the existing audio/podcast run workspace
 
 Missing:
 
@@ -199,7 +204,8 @@ Metrics:
 - done: client-local interruption-to-stop latency measured at the actual playback stop
 - done: server decision latency shown separately in persisted history
 - done: false interruption proxy `(BACKCHANNEL + NOISE_OR_SILENCE) / candidates`
-- next: aggregate these metrics across sessions and add turn completion latency
+- done: aggregate these metrics across recent sessions and providers
+- done: add turn-completion latency and exclude superseded timeout decisions from interruption rates
 
 ### Milestone 3: Unified Agent Runs
 
@@ -207,11 +213,19 @@ Goal: voice chat can start durable tasks and resume them later.
 
 Tasks:
 
-- promote audio agent run events to a shared `agent_runs` concept or adapter
+- done: promote audio agent run state to a shared `agent_runs` projection/adapter while retaining the existing audio execution source of truth
 - done: add cancellation and whole-run retry APIs to audio agent runs
 - done: add SSE progress for run execution
 - done: persist voice session transcripts and run artifacts in event payloads
-- next: add a durable relational link from voice turns to unified agent runs
+- done: add a durable relational link from voice turns to unified agent runs, including legacy artifact backfill
+- done: expose unified run detail/events reads and resume linked audio runs from active voice history UI
+- next: add capability-aware unified lifecycle commands and event streaming before introducing a second durable run type
+
+Current boundary:
+
+- `agent_runs` is a canonical projection and cross-feature identity, not a second orchestration engine
+- audio cancellation, retry, and SSE remain owned by `AudioAgentService`; the adapter refreshes from that source of truth
+- the minimal product loop is complete for audio runs: voice creates task -> durable link -> history inspection -> resume in audio workspace
 
 ### Milestone 4: Action Agent
 
@@ -239,16 +253,40 @@ Permission model:
 5. **[DONE]** Add audio agent cancellation/retry endpoints.
 6. **[DONE]** Add SSE or WebSocket progress for durable audio agent runs.
 7. **[DONE]** Add a shared tool/action permission model for read-only versus confirm-required actions.
-8. Evaluate LiveKit only after the timeline contract survives Google, DashScope, and OpenAI session replay.
+8. **[DONE]** Evaluate LiveKit after the timeline contract survives Google, DashScope, and OpenAI session replay; defer migration and keep transport behind the canonical timeline/session boundary.
 
 ## Recommended Next Code Iteration
 
-Start with the narrowest slice that proves the higher-level model:
+The timeline/interruption slice is complete:
 
 - done: backend timeline builder from a monotonic session event ledger
 - done: API detail response that includes both raw records and canonical timeline
 - done: frontend history view that renders the timeline first and raw records as supporting detail
 - done: deterministic Google, DashScope, and OpenAI recorded event sequences
-- next: cross-session metric aggregation, timeline filtering, and an independent ASR front door if strict remote Google cancellation before audio reaches Gemini is required
+- done: cross-session metric aggregation and timeline filtering
+
+The next narrow slice is Milestone 3 hardening:
+
+- define run capabilities (`cancel`, `retry`, `stream`, `resume`) without duplicating source orchestration
+- expose capability-aware unified commands that delegate to the owning run service
+- normalize durable-run progress into the canonical event contract
+- retain the independent-ASR option if strict remote Google cancellation before audio reaches Gemini becomes a product requirement
 
 This proves VoiceSpirit can reason about voice agent sessions independently of provider transport before taking on a LiveKit/WebRTC migration.
+
+## Transport Decision: LiveKit
+
+Decision as of 2026-07-12: do not migrate the current realtime path to LiveKit yet.
+
+The present product is a desktop-first, mostly one-user/one-agent application with three provider-native realtime protocols. Its hardest problems are semantic interruption, canonical state, task durability, and replay consistency. LiveKit would improve media transport, room/participant management, telephony, horizontal worker dispatch, and managed network traversal, but it would not remove the provider-specific cancellation and semantic turn-repair work already normalized here.
+
+Keep the current WebSocket/provider adapters while preserving a transport-neutral session boundary. Reconsider LiveKit when at least one of these becomes a committed requirement:
+
+- browser/mobile clients on unreliable networks need production-grade WebRTC and TURN
+- PSTN/SIP or multi-party rooms become a product surface
+- concurrent agent sessions need a distributed worker/dispatch plane
+- managed noise cancellation and media observability justify the operational/cost tradeoff
+
+If those requirements arrive, add LiveKit as a transport adapter behind the existing canonical timeline and Agent Run contracts. Do not rewrite history, metrics, interruption classification, or task orchestration around LiveKit-specific room events.
+
+Pipecat is also not a near-term replacement. It is more relevant if VoiceSpirit later moves from provider-native speech-to-speech sessions to a modular STT -> LLM -> TTS pipeline and wants interchangeable WebRTC/WebSocket transports. At the current stage, adopting it would duplicate orchestration and event normalization that VoiceSpirit already owns. If that pipeline transition becomes intentional, evaluate Pipecat and LiveKit separately: Pipecat for pipeline composition, LiveKit (or a smaller WebRTC transport) for media delivery.

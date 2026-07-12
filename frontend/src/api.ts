@@ -33,6 +33,7 @@ export type VoiceAgentSource = {
 export type VoiceAgentArtifact = {
   type: string;
   run_id?: number;
+  agent_run_id?: string;
   status?: string;
   topic?: string;
   current_step?: string;
@@ -133,10 +134,67 @@ export type VoiceAgentSessionHistoryListResponse = {
   sessions: VoiceAgentSessionHistory[];
 };
 
+export type AgentRunSummary = {
+  id: string;
+  run_type: string;
+  source_kind: string;
+  source_run_id: string;
+  title: string;
+  status: string;
+  current_step: string;
+  provider: string;
+  model: string;
+  input_payload?: Record<string, unknown>;
+  result_payload?: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+  completed_at?: string;
+};
+
+export type VoiceAgentRunLink = {
+  id: number;
+  agent_run_id: string;
+  voice_session_id: string;
+  voice_turn_id: string;
+  relation_type: string;
+  meta?: Record<string, unknown>;
+  created_at: string;
+  run: AgentRunSummary;
+};
+
+export type MetricDistribution = {
+  count: number;
+  avg: number | null;
+  p50: number | null;
+  p95: number | null;
+  min: number | null;
+  max: number | null;
+};
+
+export type VoiceAgentMetricBreakdown = {
+  provider: string;
+  session_count: number;
+  turn_count: number;
+  completed_turn_count: number;
+  interrupted_turn_count: number;
+  decision_count: number;
+  classifications: Record<string, number>;
+  false_interruption_rate: number | null;
+  first_audio_ms: MetricDistribution;
+  interruption_decision_ms: MetricDistribution;
+  interruption_stop_ms: MetricDistribution;
+  turn_completion_ms: MetricDistribution;
+};
+
+export type VoiceAgentMetricsSummary = VoiceAgentMetricBreakdown & {
+  providers: VoiceAgentMetricBreakdown[];
+};
+
 export type VoiceAgentSessionHistoryDetailResponse = VoiceAgentSessionHistory & {
   turns: VoiceAgentTurnHistory[];
   tool_events: VoiceAgentToolEventHistory[];
   timeline: VoiceAgentTimelineEventHistory[];
+  agent_run_links?: VoiceAgentRunLink[];
 };
 
 export type ChatMessage = {
@@ -1057,6 +1115,25 @@ export async function listVoiceAgentSessions(
   return (await response.json()) as VoiceAgentSessionHistoryListResponse;
 }
 
+export async function fetchVoiceAgentMetricsSummary(
+  limit = 200,
+  provider = ""
+): Promise<VoiceAgentMetricsSummary> {
+  const normalizedLimit = Number.isFinite(limit) ? Math.floor(limit) : 200;
+  const safeLimit = Math.max(1, Math.min(normalizedLimit, 200));
+  const params = new URLSearchParams({ limit: String(safeLimit) });
+  if (provider.trim()) {
+    params.set("provider", provider.trim());
+  }
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/voice-chat/sessions/metrics/summary?${params.toString()}`
+  );
+  if (!response.ok) {
+    await throwApiError(response);
+  }
+  return (await response.json()) as VoiceAgentMetricsSummary;
+}
+
 export async function fetchVoiceAgentSession(
   sessionId: string
 ): Promise<VoiceAgentSessionHistoryDetailResponse> {
@@ -1067,6 +1144,16 @@ export async function fetchVoiceAgentSession(
     await throwApiError(response);
   }
   return (await response.json()) as VoiceAgentSessionHistoryDetailResponse;
+}
+
+export async function fetchAgentRun(agentRunId: string): Promise<AgentRunSummary> {
+  const response = await apiFetch(
+    `${API_BASE_URL}/api/agent-runs/${encodeURIComponent(agentRunId)}`
+  );
+  if (!response.ok) {
+    await throwApiError(response);
+  }
+  return (await response.json()) as AgentRunSummary;
 }
 
 export async function fetchApiRuntimeInfo(): Promise<ApiRuntimeInfo> {

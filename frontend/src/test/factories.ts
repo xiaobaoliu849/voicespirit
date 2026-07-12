@@ -151,6 +151,7 @@ export function createVoiceChatController(
     voiceAgentHistoryBusy: false,
     voiceAgentHistoryError: "",
     voiceAgentHistoryExportText: "",
+    voiceAgentMetricsSummary: null,
     voiceChatMessages: [],
     voiceChatArchiveMessages: [],
     sessionSummary: [],
@@ -503,6 +504,7 @@ export function createAudioOverviewController(
     onRetryAgentRun: vi.fn(),
     onLoadAgentRunHistory: vi.fn(),
     onOpenAgentRun: vi.fn(),
+    onOpenAgentRunById: vi.fn(),
     ...overrides
   };
 }

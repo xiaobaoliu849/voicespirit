@@ -3,10 +3,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
   ensureEverMemConversationGroupIdMock,
+  fetchVoiceAgentMetricsSummaryMock,
   fetchVoiceAgentSessionMock,
   listVoiceAgentSessionsMock,
 } = vi.hoisted(() => ({
   ensureEverMemConversationGroupIdMock: vi.fn(),
+  fetchVoiceAgentMetricsSummaryMock: vi.fn(),
   fetchVoiceAgentSessionMock: vi.fn(),
   listVoiceAgentSessionsMock: vi.fn(),
 }));
@@ -16,6 +18,7 @@ vi.mock("../api", async () => {
   return {
     ...actual,
     ensureEverMemConversationGroupId: ensureEverMemConversationGroupIdMock,
+    fetchVoiceAgentMetricsSummary: fetchVoiceAgentMetricsSummaryMock,
     fetchVoiceAgentSession: fetchVoiceAgentSessionMock,
     listVoiceAgentSessions: listVoiceAgentSessionsMock,
   };
@@ -183,6 +186,7 @@ describe("useVoiceChat", () => {
 
   afterEach(() => {
     ensureEverMemConversationGroupIdMock.mockReset();
+    fetchVoiceAgentMetricsSummaryMock.mockReset();
     fetchVoiceAgentSessionMock.mockReset();
     listVoiceAgentSessionsMock.mockReset();
     vi.clearAllMocks();
@@ -886,6 +890,21 @@ describe("useVoiceChat", () => {
 
   it("loads persisted voice agent sessions and exports the selected detail as JSON", async () => {
     const formatErrorMessage = createFormatErrorMessageStub();
+    fetchVoiceAgentMetricsSummaryMock.mockResolvedValue({
+      provider: "all",
+      session_count: 1,
+      turn_count: 1,
+      completed_turn_count: 1,
+      interrupted_turn_count: 0,
+      decision_count: 0,
+      classifications: {},
+      false_interruption_rate: null,
+      first_audio_ms: { count: 1, avg: 80, p50: 80, p95: 80, min: 80, max: 80 },
+      interruption_decision_ms: { count: 0, avg: null, p50: null, p95: null, min: null, max: null },
+      interruption_stop_ms: { count: 0, avg: null, p50: null, p95: null, min: null, max: null },
+      turn_completion_ms: { count: 1, avg: 3000, p50: 3000, p95: 3000, min: 3000, max: 3000 },
+      providers: [],
+    });
     listVoiceAgentSessionsMock.mockResolvedValue({
       count: 1,
       sessions: [
@@ -992,7 +1011,9 @@ describe("useVoiceChat", () => {
     });
 
     expect(listVoiceAgentSessionsMock).toHaveBeenCalledWith(20);
+    expect(fetchVoiceAgentMetricsSummaryMock).toHaveBeenCalledWith(200);
     expect(result.current.voiceAgentHistorySessions).toHaveLength(1);
+    expect(result.current.voiceAgentMetricsSummary?.first_audio_ms.p50).toBe(80);
     expect(result.current.voiceAgentHistorySessions[0].id).toBe("voice-session-1");
 
     await act(async () => {
@@ -1109,6 +1130,11 @@ describe("useVoiceChat", () => {
     });
 
     expect(FakeAudioContext.bufferSources[0].stop).toHaveBeenCalledTimes(1);
+    expect(
+      socket.sent.some(
+        (payload) => typeof payload === "string" && payload.includes('"type":"interruption_client_stopped"')
+      )
+    ).toBe(true);
     expect(result.current.voiceChatMessages).toHaveLength(0);
 
     act(() => {

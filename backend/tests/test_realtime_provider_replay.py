@@ -963,7 +963,68 @@ class RealtimeProviderReplayTests(unittest.IsolatedAsyncioTestCase):
             [event["candidate_id"] for event in decisions],
             ["interruption-1", "interruption-2"],
         )
+        self.assertTrue(decisions[0]["timeout_resolution"])
+        self.assertEqual(decisions[1]["supersedes_candidate_id"], "interruption-1")
         self.assertTrue(any(payload.get("type") == "response.cancel" for payload in upstream.sent))
+
+    async def test_client_stop_metric_is_persisted_for_all_provider_commands(self) -> None:
+        for provider in ("Google", "DashScope", "OpenAI"):
+            with self.subTest(provider=provider):
+                websocket = CollectingWebSocket(
+                    [
+                        {
+                            "type": "websocket.receive",
+                            "text": json.dumps(
+                                {
+                                    "type": "interruption_client_stopped",
+                                    "candidate_id": "interruption-7",
+                                    "turn_id": "voice-turn-1",
+                                    "stop_latency_ms": 63,
+                                }
+                            ),
+                        }
+                    ]
+                )
+                recorder = await self._recorder(provider)
+                memory = FakeMemorySession()
+                tools = RecordingToolSession(active=False)
+                interruption = InterruptionDecisionCoordinator()
+                if provider == "Google":
+                    await self.service._client_to_google_loop(
+                        websocket,
+                        FakeGoogleSession([]),
+                        memory,
+                        tools,
+                        recorder,
+                        False,
+                        interruption,
+                    )
+                elif provider == "DashScope":
+                    await self.service._client_to_dashscope_loop(
+                        websocket,
+                        MagicMock(),
+                        memory,
+                        tools,
+                        recorder,
+                        interruption,
+                    )
+                else:
+                    await self.service._client_to_openai_loop(
+                        websocket,
+                        FakeOpenAIWebSocket([]),
+                        memory,
+                        tools,
+                        recorder,
+                        interruption,
+                    )
+                persisted = [
+                    event
+                    for event in self.repository.list_session_events(recorder.session_id)
+                    if event["event_type"] == "interruption_client_stopped"
+                ]
+                self.assertEqual(len(persisted), 1)
+                self.assertEqual(persisted[0]["payload"]["provider"], provider)
+                self.assertEqual(persisted[0]["payload"]["stop_latency_ms"], 63)
 
     async def test_noise_does_not_create_a_turn_or_cancel_answer(self) -> None:
         results = {

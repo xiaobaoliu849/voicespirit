@@ -61,3 +61,34 @@ class TestInterruptionClassifier(unittest.TestCase):
 
         self.assertIsNotNone(coordinator.take_deferred_terminal())
         self.assertEqual(coordinator.active_response_id, "")
+
+    def test_only_recent_same_provider_transcript_supersedes_timeout(self):
+        now = [10.0]
+        coordinator = InterruptionDecisionCoordinator(clock=lambda: now[0])
+        first = coordinator.begin(provider="OpenAI", provider_event_type="speech_started")
+        self.assertEqual(first["candidate_id"], "interruption-1")
+        now[0] = 12.5
+        coordinator.decide("")
+        coordinator.complete_decision(timed_out=True)
+
+        now[0] = 13.0
+        late = coordinator.begin(
+            provider="OpenAI",
+            provider_event_type="transcript_without_vad",
+            supersede_timed_out=True,
+        )
+        self.assertEqual(late["supersedes_candidate_id"], "interruption-1")
+        coordinator.decide("等一下")
+        coordinator.complete_decision()
+
+        now[0] = 20.0
+        second = coordinator.begin(provider="Google", provider_event_type="speech_started")
+        coordinator.decide("")
+        coordinator.complete_decision(timed_out=True)
+        now[0] = 20.1
+        wrong_provider = coordinator.begin(
+            provider="OpenAI",
+            provider_event_type="transcript_without_vad",
+            supersede_timed_out=True,
+        )
+        self.assertNotIn("supersedes_candidate_id", wrong_provider)
