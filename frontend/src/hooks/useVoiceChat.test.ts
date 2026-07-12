@@ -185,6 +185,7 @@ describe("useVoiceChat", () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     ensureEverMemConversationGroupIdMock.mockReset();
     fetchVoiceAgentMetricsSummaryMock.mockReset();
     fetchVoiceAgentSessionMock.mockReset();
@@ -592,6 +593,265 @@ describe("useVoiceChat", () => {
     ]);
     expect(result.current.voiceChatTranscript).toBe("今何時ですか？");
     expect(result.current.voiceChatReply).toBe("");
+  });
+
+  it("archives each completed Live Translate pair before streaming the next sentence", async () => {
+    const formatErrorMessage = createFormatErrorMessageStub();
+    ensureEverMemConversationGroupIdMock.mockResolvedValue("voice-group-live-translate-turns");
+
+    const { result } = renderHook(() =>
+      useVoiceChat({
+        formatErrorMessage,
+        providerOptions: ["Google"],
+        preferredProvider: "Google",
+        preferredModel: "gemini-3.5-live-translate-preview",
+        providerModelCatalog: {
+          Google: {
+            defaultModel: "gemini-3.5-live-translate-preview",
+            availableModels: ["gemini-3.5-live-translate-preview"],
+          },
+        },
+      })
+    );
+
+    await act(async () => {
+      await result.current.onToggleRecording();
+    });
+
+    const socket = FakeWebSocket.instances[0];
+    act(() => {
+      socket.emitOpen();
+      socket.emitMessage({
+        type: "session_open",
+        provider: "Google",
+        model: "gemini-3.5-live-translate-preview",
+        voice: "Puck",
+        mode: "live_translate",
+      });
+      socket.emitMessage({ type: "user_transcript", text: "How are you?", turn_id: "turn-1" });
+      socket.emitMessage({ type: "assistant_text", text: "你好吗？", turn_id: "turn-1" });
+      socket.emitMessage({ type: "turn_complete", turn_id: "turn-1" });
+      socket.emitMessage({ type: "user_transcript", text: "Nice to meet you.", turn_id: "turn-2" });
+    });
+
+    expect(result.current.voiceChatMessages).toEqual([
+      { role: "user", content: "How are you?", memorySaved: false, turnId: "turn-1" },
+      {
+        role: "assistant",
+        content: "你好吗？",
+        memoriesUsed: undefined,
+        memorySourceSummary: undefined,
+        memoryRetrievalAttempted: false,
+        turnId: "turn-1",
+        interrupted: undefined,
+        toolCalls: undefined,
+      },
+    ]);
+    expect(result.current.voiceChatTranscript).toBe("Nice to meet you.");
+    expect(result.current.voiceChatReply).toBe("");
+  });
+
+  it("splits cumulative Google Live Translate transcripts after each short pause", async () => {
+    vi.useFakeTimers();
+    const formatErrorMessage = createFormatErrorMessageStub();
+    ensureEverMemConversationGroupIdMock.mockResolvedValue("voice-group-live-translate-cumulative");
+
+    const { result, unmount } = renderHook(() =>
+      useVoiceChat({
+        formatErrorMessage,
+        providerOptions: ["Google"],
+        preferredProvider: "Google",
+        preferredModel: "gemini-3.5-live-translate-preview",
+        providerModelCatalog: {
+          Google: {
+            defaultModel: "gemini-3.5-live-translate-preview",
+            availableModels: ["gemini-3.5-live-translate-preview"],
+          },
+        },
+      })
+    );
+
+    await act(async () => {
+      await result.current.onToggleRecording();
+    });
+
+    const socket = FakeWebSocket.instances[0];
+    act(() => {
+      socket.emitOpen();
+      socket.emitMessage({
+        type: "session_open",
+        provider: "Google",
+        model: "gemini-3.5-live-translate-preview",
+        voice: "Puck",
+        mode: "live_translate",
+      });
+      socket.emitMessage({ type: "user_transcript", text: "Hello, can you hear me?" });
+      socket.emitMessage({ type: "assistant_text", text: "もしもし、聞こえますか？" });
+      vi.advanceTimersByTime(900);
+    });
+
+    expect(result.current.voiceChatMessages).toHaveLength(2);
+
+    act(() => {
+      socket.emitMessage({
+        type: "user_transcript",
+        text: "Hello, can you hear me?Uh, can you tell me your name?",
+      });
+      socket.emitMessage({
+        type: "assistant_text",
+        text: "もしもし、聞こえますか？あの、お名前を教えていただけますか？",
+      });
+      vi.advanceTimersByTime(900);
+    });
+
+    act(() => {
+      socket.emitMessage({
+        type: "user_transcript",
+        text: "Hello, can you hear me?Uh, can you tell me your name?I want to go to bed.",
+      });
+      socket.emitMessage({
+        type: "assistant_text",
+        text: "もしもし、聞こえますか？あの、お名前を教えていただけますか？寝たいんです。",
+      });
+      vi.advanceTimersByTime(900);
+    });
+
+    expect(result.current.voiceChatMessages.map((message) => message.content)).toEqual([
+      "Hello, can you hear me?",
+      "もしもし、聞こえますか？",
+      "Uh, can you tell me your name?",
+      "あの、お名前を教えていただけますか？",
+      "I want to go to bed.",
+      "寝たいんです。",
+    ]);
+    expect(result.current.voiceChatTranscript).toBe("");
+    expect(result.current.voiceChatReply).toBe("");
+
+    unmount();
+    vi.useRealTimers();
+  });
+
+  it("waits for a lagging Live Translate target before committing the pair", async () => {
+    vi.useFakeTimers();
+    const formatErrorMessage = createFormatErrorMessageStub();
+    ensureEverMemConversationGroupIdMock.mockResolvedValue("voice-group-live-translate-lagging");
+
+    const { result, unmount } = renderHook(() =>
+      useVoiceChat({
+        formatErrorMessage,
+        providerOptions: ["Google"],
+        preferredProvider: "Google",
+        preferredModel: "gemini-3.5-live-translate-preview",
+        providerModelCatalog: {
+          Google: {
+            defaultModel: "gemini-3.5-live-translate-preview",
+            availableModels: ["gemini-3.5-live-translate-preview"],
+          },
+        },
+      })
+    );
+
+    await act(async () => {
+      await result.current.onToggleRecording();
+    });
+
+    const socket = FakeWebSocket.instances[0];
+    act(() => {
+      socket.emitOpen();
+      socket.emitMessage({
+        type: "session_open",
+        provider: "Google",
+        model: "gemini-3.5-live-translate-preview",
+        voice: "Puck",
+        mode: "live_translate",
+      });
+      socket.emitMessage({ type: "user_transcript", text: "Hey, I wanted to chat." });
+      socket.emitMessage({ type: "assistant_text", text: "ねえ、話" });
+      vi.advanceTimersByTime(1200);
+    });
+
+    expect(result.current.voiceChatMessages).toEqual([]);
+    expect(result.current.voiceChatReply).toBe("ねえ、話");
+
+    act(() => {
+      socket.emitMessage({ type: "assistant_text", text: "したいんだけど。" });
+      vi.advanceTimersByTime(900);
+    });
+
+    expect(result.current.voiceChatMessages.map((message) => message.content)).toEqual([
+      "Hey, I wanted to chat.",
+      "ねえ、話したいんだけど。",
+    ]);
+    expect(result.current.voiceChatTranscript).toBe("");
+    expect(result.current.voiceChatReply).toBe("");
+
+    unmount();
+    vi.useRealTimers();
+  });
+
+  it("does not split Live Translate while local speech is still active", async () => {
+    vi.useFakeTimers();
+    const formatErrorMessage = createFormatErrorMessageStub();
+    ensureEverMemConversationGroupIdMock.mockResolvedValue("voice-group-live-translate-vad");
+
+    const { result, unmount } = renderHook(() =>
+      useVoiceChat({
+        formatErrorMessage,
+        providerOptions: ["Google"],
+        preferredProvider: "Google",
+        preferredModel: "gemini-3.5-live-translate-preview",
+        providerModelCatalog: {
+          Google: {
+            defaultModel: "gemini-3.5-live-translate-preview",
+            availableModels: ["gemini-3.5-live-translate-preview"],
+          },
+        },
+      })
+    );
+
+    await act(async () => {
+      await result.current.onToggleRecording();
+    });
+    const socket = FakeWebSocket.instances[0];
+    act(() => {
+      socket.emitOpen();
+      socket.emitMessage({
+        type: "session_open",
+        provider: "Google",
+        model: "gemini-3.5-live-translate-preview",
+        voice: "Puck",
+        mode: "live_translate",
+      });
+    });
+    const processor = FakeAudioContext.processors[0];
+    const emitAudioFrame = (samples: Float32Array) => {
+      processor.onaudioprocess?.({ inputBuffer: { getChannelData: () => samples } });
+    };
+
+    act(() => {
+      emitAudioFrame(new Float32Array([0.1, 0.1, 0.1, 0.1]));
+      emitAudioFrame(new Float32Array([0.1, 0.1, 0.1, 0.1]));
+      socket.emitMessage({ type: "user_transcript", text: "This is still one sentence." });
+      socket.emitMessage({ type: "assistant_text", text: "これはまだ一つの文です。" });
+      vi.advanceTimersByTime(2000);
+    });
+
+    expect(result.current.voiceChatMessages).toEqual([]);
+
+    act(() => {
+      for (let index = 0; index < 5; index += 1) {
+        emitAudioFrame(new Float32Array([0, 0, 0, 0]));
+      }
+      vi.advanceTimersByTime(900);
+    });
+
+    expect(result.current.voiceChatMessages.map((message) => message.content)).toEqual([
+      "This is still one sentence.",
+      "これはまだ一つの文です。",
+    ]);
+
+    unmount();
+    vi.useRealTimers();
   });
 
   it("coalesces short Latin Live Translate fragments into one active turn", async () => {

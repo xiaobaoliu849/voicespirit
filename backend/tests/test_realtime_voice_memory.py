@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -33,6 +34,11 @@ class _FakeGoogleTypes:
     AudioTranscriptionConfig = _FakeAudioTranscriptionConfig
     TranslationConfig = _FakeTranslationConfig
     LiveConnectConfig = _FakeLiveConnectConfig
+
+
+class _FakeGoogleResponse:
+    def __init__(self, server_content) -> None:
+        self.server_content = server_content
 
 
 class _FakeTextInputWebSocket:
@@ -505,6 +511,84 @@ class RealtimeMemorySessionTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertEqual(extracted, "あ、今日は外に旅行に行きたいです。")
+
+    async def test_google_live_translate_inactivity_timeout(self) -> None:
+        class _LocalFakeTurn:
+            def __init__(self, responses) -> None:
+                self.responses = responses
+                self.yielded = False
+
+            def __aiter__(self):
+                return self
+
+            async def __anext__(self):
+                if self.responses:
+                    return self.responses.pop(0)
+                if not self.yielded:
+                    self.yielded = True
+                    # Sleep long enough for the 2.0 second inactivity timeout to trigger
+                    await asyncio.sleep(2.5)
+                raise StopAsyncIteration
+
+        class _LocalFakeSession:
+            def __init__(self, responses) -> None:
+                self.responses = responses
+                self.turn_yielded = False
+
+            def receive(self):
+                if not self.turn_yielded:
+                    self.turn_yielded = True
+                    return _LocalFakeTurn(self.responses)
+                # Subsequent calls return empty turns that sleep to prevent busy looping
+                return _LocalFakeTurn([])
+
+        # Create a websocket that we can collect events from
+        websocket = _FakeTextInputWebSocket()
+        # Mock recorder and tool session
+        recorder = AsyncMock()
+        recorder.session_id = "test-session"
+        recorder.current_assistant_text = ""
+        recorder.complete_turn = AsyncMock(return_value="turn-123")
+
+        memory_session = RealtimeMemorySession()
+        tool_session = VoiceAgentToolSession()
+
+        # Prepare some responses from Gemini
+        gemini_responses = [
+            _FakeGoogleResponse(
+                server_content=_FakeServerContent(
+                    input_transcription=_FakeTranscriptObject(text="Hello", finished=True)
+                )
+            )
+        ]
+
+        fake_session = _LocalFakeSession(gemini_responses)
+        service = RealtimeVoiceService()
+
+        # Run the loop, but since it sleeps, we run it as a task and cancel it after 3 seconds
+        loop_task = asyncio.create_task(
+            service._google_to_client_loop(
+                websocket,  # type: ignore[arg-type]
+                fake_session,
+                memory_session,
+                tool_session,
+                recorder=recorder,
+                is_live_translate=True,
+            )
+        )
+
+        # Wait for the timeout to trigger and send the turn_complete event
+        await asyncio.sleep(3.0)
+        loop_task.cancel()
+        try:
+            await loop_task
+        except asyncio.CancelledError:
+            pass
+
+        # Check if the turn_complete event was sent
+        turn_complete_events = [e for e in websocket.events if e.get("type") == "turn_complete"]
+        self.assertEqual(len(turn_complete_events), 1)
+        self.assertEqual(turn_complete_events[0]["turn_id"], "turn-123")
 
 
 if __name__ == "__main__":

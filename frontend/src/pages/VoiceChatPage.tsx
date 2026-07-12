@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import ErrorNotice from "../components/ErrorNotice";
 import type { VoiceAgentTimelineEventHistory } from "../api";
 import type { UseVoiceChatResult } from "../hooks/useVoiceChat";
@@ -30,6 +31,13 @@ function formatMetric(value: number | null): string {
 
 export default function VoiceChatPage({ voiceChat, errorRuntimeContext }: Props) {
   const { t } = useI18n();
+  const listRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = listRef.current;
+    if (el) {
+      el.scrollTop = el.scrollHeight;
+    }
+  }, [voiceChat.voiceChatMessages.length, voiceChat.voiceChatTranscript, voiceChat.voiceChatReply]);
   const selectedHistory = voiceChat.voiceAgentHistoryDetail;
   const selectedHistoryTimeline = selectedHistory?.timeline ?? [];
   const selectedHistoryMetrics = buildVoiceTimelineMetrics(selectedHistoryTimeline);
@@ -246,18 +254,111 @@ export default function VoiceChatPage({ voiceChat, errorRuntimeContext }: Props)
           </div>
 
           <div className="vsCardSection border-top">
-            <h3 className="vsCardSubTitle">{t("本轮语音内容", "Current session content")}</h3>
-            <div className="vsField">
-              <label className="vsFieldLabel">{t("识别结果", "Transcript")}</label>
-              <div className="vsRealtimeContent" style={{ border: "1px solid var(--line)", borderRadius: 10, padding: 12, background: "white" }}>
-                {voiceChat.voiceChatTranscript || t("转录将显示在这里...", "The transcript will appear here...")}
-              </div>
-            </div>
-            <div className="vsField" style={{ marginTop: 12 }}>
-              <label className="vsFieldLabel">{t("助手回复", "Assistant reply")}</label>
-              <div className="vsRealtimeContent" style={{ border: "1px solid var(--line)", borderRadius: 10, padding: 12, background: "white" }}>
-                {voiceChat.voiceChatReply || t("回复将显示在这里...", "The reply will appear here...")}
-              </div>
+            <h3 className="vsCardSubTitle">
+              {voiceChat.voiceChatLiveTranslate
+                ? t("本轮翻译对话", "Current translation conversation")
+                : t("本轮语音内容", "Current session content")}
+            </h3>
+            <div
+              className="vsRealtimeMessageList"
+              ref={listRef}
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                gap: 12,
+                maxHeight: 320,
+                overflowY: "auto",
+                padding: "8px 4px",
+                border: "1px solid var(--border-color, var(--line, #e2e8f0))",
+                borderRadius: 12,
+                background: "var(--bg-light, #f8fafc)",
+                marginBottom: 12
+              }}
+            >
+              {voiceChat.voiceChatMessages.map((msg, idx) => (
+                <div
+                  key={`${idx}-${msg.role}`}
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: msg.role === "user" ? "flex-end" : "flex-start",
+                    gap: 4
+                  }}
+                >
+                  <span className="vsFieldHint" style={{ fontSize: 10, opacity: 0.8, padding: "0 4px" }}>
+                    {voiceChat.voiceChatLiveTranslate
+                      ? msg.role === "user" ? t("原文", "Source") : t("译文", "Translation")
+                      : msg.role === "user" ? t("你", "You") : t("助手", "Assistant")}
+                  </span>
+                  <div
+                    className="vsRealtimeContent"
+                    style={{
+                      border: "1px solid var(--line)",
+                      borderRadius: 10,
+                      padding: 10,
+                      background: msg.role === "user" ? "var(--surface-color, #f1f5f9)" : "white",
+                      maxWidth: "90%",
+                      wordBreak: "break-word"
+                    }}
+                  >
+                    {msg.content}
+                  </div>
+                </div>
+              ))}
+
+              {/* Active streaming transcript */}
+              {voiceChat.voiceChatTranscript && (
+                <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
+                  <span className="vsFieldHint" style={{ fontSize: 10, color: "var(--primary-color)", padding: "0 4px" }}>
+                    {voiceChat.voiceChatLiveTranslate
+                      ? t("原文（识别中…）", "Source (transcribing…)")
+                      : t("你（正在说话…）", "You (speaking…)")}
+                  </span>
+                  <div
+                    className="vsRealtimeContent"
+                    style={{
+                      border: "1px solid var(--primary-color)",
+                      borderRadius: 10,
+                      padding: 10,
+                      background: "var(--surface-color, #f1f5f9)",
+                      maxWidth: "90%",
+                      wordBreak: "break-word"
+                    }}
+                  >
+                    {voiceChat.voiceChatTranscript}
+                  </div>
+                </div>
+              )}
+
+              {/* Active streaming reply */}
+              {voiceChat.voiceChatReply && (
+                <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 4 }}>
+                  <span className="vsFieldHint" style={{ fontSize: 10, color: "var(--primary-color)", padding: "0 4px" }}>
+                    {voiceChat.voiceChatLiveTranslate
+                      ? t("译文（生成中…）", "Translation (streaming…)")
+                      : t("助手（正在回复…）", "Assistant (replying…)")}
+                  </span>
+                  <div
+                    className="vsRealtimeContent"
+                    style={{
+                      border: "1px solid var(--primary-color)",
+                      borderRadius: 10,
+                      padding: 10,
+                      background: "white",
+                      maxWidth: "90%",
+                      wordBreak: "break-word"
+                    }}
+                  >
+                    {voiceChat.voiceChatReply}
+                  </div>
+                </div>
+              )}
+
+              {voiceChat.voiceChatMessages.length === 0 && !voiceChat.voiceChatTranscript && !voiceChat.voiceChatReply && (
+                <div className="vsEmptyDesc" style={{ textAlign: "center", padding: "40px 0", color: "var(--text-muted, #94a3b8)" }}>
+                  {t("转录和回复将显示在这里...", "Transcript and reply will appear here...")}
+                </div>
+              )}
             </div>
             {voiceChat.voiceChatMemoriesRetrieved > 0 ? (
               <div className="vsVoiceMemoryNotice">

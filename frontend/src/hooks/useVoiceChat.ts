@@ -478,15 +478,15 @@ function shouldCoalesceLiveTranslateSegment(previousSource: string, nextSource: 
   if (isTranscriptContinuation(before, next)) {
     return true;
   }
-  const latinBefore = containsLatinText(before);
-  const latinNext = containsLatinText(next);
-  if (!latinBefore && !latinNext) {
-    return false;
-  }
   if (!endsWithSentencePunctuation(before)) {
     return true;
   }
-  return countLatinWords(next) <= 3 && next.length <= 20;
+  const latinBefore = containsLatinText(before);
+  const latinNext = containsLatinText(next);
+  if (latinBefore || latinNext) {
+    return countLatinWords(next) <= 3 && next.length <= 20;
+  }
+  return next.length <= 6;
 }
 
 function isTranscriptContinuation(previous: string, incoming: string): boolean {
@@ -637,6 +637,15 @@ export default function useVoiceChat({
   const audioInputReadyRef = useRef(false);
   const currentUserTurnRef = useRef("");
   const currentAssistantTurnRef = useRef("");
+  const liveTranslateSourceStreamRef = useRef("");
+  const liveTranslateTargetStreamRef = useRef("");
+  const liveTranslateConsumedSourceLengthRef = useRef(0);
+  const liveTranslateConsumedTargetLengthRef = useRef(0);
+  const liveTranslateBoundaryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const liveTranslateLastSourceActivityAtRef = useRef(0);
+  const liveTranslateLastTargetActivityAtRef = useRef(0);
+  const liveTranslatePairStartedAtRef = useRef(0);
+  const liveTranslateSpeechActiveRef = useRef(false);
   const currentMemoriesRetrievedRef = useRef(0);
   const currentMemorySavedRef = useRef(false);
   const currentMemoryRetrieveAttemptedRef = useRef(false);
@@ -778,6 +787,25 @@ export default function useVoiceChat({
     }
   }
 
+  function clearLiveTranslateBoundaryTimer() {
+    if (liveTranslateBoundaryTimerRef.current !== null) {
+      clearTimeout(liveTranslateBoundaryTimerRef.current);
+      liveTranslateBoundaryTimerRef.current = null;
+    }
+  }
+
+  function resetLiveTranslateStreamTracking() {
+    clearLiveTranslateBoundaryTimer();
+    liveTranslateSourceStreamRef.current = "";
+    liveTranslateTargetStreamRef.current = "";
+    liveTranslateConsumedSourceLengthRef.current = 0;
+    liveTranslateConsumedTargetLengthRef.current = 0;
+    liveTranslateLastSourceActivityAtRef.current = 0;
+    liveTranslateLastTargetActivityAtRef.current = 0;
+    liveTranslatePairStartedAtRef.current = 0;
+    liveTranslateSpeechActiveRef.current = false;
+  }
+
   function stopSessionResources() {
     const ws = websocketRef.current;
     websocketRef.current = null;
@@ -813,6 +841,7 @@ export default function useVoiceChat({
     setVoiceChatRecording(false);
     setVoiceChatBusy(false);
     clearInterruptionTimeout();
+    clearLiveTranslateBoundaryTimer();
     pendingInterruptionRef.current = null;
     setVoiceChatInterruptionState({ phase: "idle" });
     setVoiceChatAssistantInterrupted(false);
@@ -837,6 +866,115 @@ export default function useVoiceChat({
 
   function resetCurrentToolRecords() {
     currentToolRecordsRef.current = [];
+  }
+
+  function getPendingLiveTranslatePair(): { source: string; target: string } {
+    return {
+      source: liveTranslateSourceStreamRef.current
+        .slice(liveTranslateConsumedSourceLengthRef.current)
+        .trim(),
+      target: liveTranslateTargetStreamRef.current
+        .slice(liveTranslateConsumedTargetLengthRef.current)
+        .trim(),
+    };
+  }
+
+  function syncPendingLiveTranslatePair() {
+    const { source, target } = getPendingLiveTranslatePair();
+    currentUserTurnRef.current = source;
+    currentAssistantTurnRef.current = target;
+    setVoiceChatTranscript(source);
+    setVoiceChatReply(target);
+  }
+
+  function commitPendingLiveTranslatePair(): boolean {
+    clearLiveTranslateBoundaryTimer();
+    const { source, target } = getPendingLiveTranslatePair();
+    if (!source || !target) {
+      return false;
+    }
+    const turnId = currentTurnIdRef.current || undefined;
+    setVoiceChatMessages((previous) => [
+      ...previous,
+      { role: "user", content: source, memorySaved: false, ...(turnId ? { turnId } : {}) },
+      {
+        role: "assistant",
+        content: target,
+        memoriesUsed: undefined,
+        memorySourceSummary: undefined,
+        memoryRetrievalAttempted: false,
+        ...(turnId ? { turnId } : {}),
+      },
+    ]);
+    liveTranslateConsumedSourceLengthRef.current = liveTranslateSourceStreamRef.current.length;
+    liveTranslateConsumedTargetLengthRef.current = liveTranslateTargetStreamRef.current.length;
+    liveTranslatePairStartedAtRef.current = 0;
+    currentUserTurnRef.current = "";
+    currentAssistantTurnRef.current = "";
+    currentTurnIdRef.current = "";
+    setVoiceChatTranscript("");
+    setVoiceChatReply("");
+    return true;
+  }
+
+  function scheduleLiveTranslateBoundary(delayMs = 120) {
+    clearLiveTranslateBoundaryTimer();
+    const { source, target } = getPendingLiveTranslatePair();
+    if (!source || !target || liveTranslateSpeechActiveRef.current) {
+      return;
+    }
+    const now = Date.now();
+    if (!liveTranslatePairStartedAtRef.current) {
+      liveTranslatePairStartedAtRef.current = now;
+    }
+    liveTranslateBoundaryTimerRef.current = setTimeout(() => {
+      liveTranslateBoundaryTimerRef.current = null;
+      if (liveTranslateSpeechActiveRef.current) {
+        return;
+      }
+      const pending = getPendingLiveTranslatePair();
+      if (!pending.source || !pending.target) {
+        return;
+      }
+      const checkedAt = Date.now();
+      const sourceStableMs = checkedAt - liveTranslateLastSourceActivityAtRef.current;
+      const targetStableMs = checkedAt - liveTranslateLastTargetActivityAtRef.current;
+      const pairAgeMs = checkedAt - liveTranslatePairStartedAtRef.current;
+      const hasCompletePunctuation =
+        endsWithSentencePunctuation(pending.source) &&
+        endsWithSentencePunctuation(pending.target);
+      const naturallySettled = hasCompletePunctuation && sourceStableMs >= 200 && targetStableMs >= 400;
+      const fallbackSettled = pairAgeMs >= 2500 && sourceStableMs >= 400 && targetStableMs >= 600;
+      if ((naturallySettled || fallbackSettled) && commitPendingLiveTranslatePair()) {
+        setVoiceChatStatus(t("本句翻译已完成，继续说话即可", "Sentence translated; keep speaking"));
+        return;
+      }
+      scheduleLiveTranslateBoundary(120);
+    }, delayMs);
+  }
+
+  function markLiveTranslateSpeechStarted() {
+    const pending = getPendingLiveTranslatePair();
+    const targetStableMs = Date.now() - liveTranslateLastTargetActivityAtRef.current;
+    if (
+      pending.source &&
+      pending.target &&
+      endsWithSentencePunctuation(pending.source) &&
+      endsWithSentencePunctuation(pending.target) &&
+      targetStableMs >= 150
+    ) {
+      commitPendingLiveTranslatePair();
+    }
+    clearLiveTranslateBoundaryTimer();
+    liveTranslateSpeechActiveRef.current = true;
+  }
+
+  function markLiveTranslateSpeechEnded() {
+    liveTranslateSpeechActiveRef.current = false;
+    if (!liveTranslatePairStartedAtRef.current) {
+      liveTranslatePairStartedAtRef.current = Date.now();
+    }
+    scheduleLiveTranslateBoundary();
   }
 
   function commitCompletedTurn() {
@@ -1050,12 +1188,64 @@ export default function useVoiceChat({
         }
         return;
       case "user_transcript":
+        if (voiceChatLiveTranslate) {
+          currentTurnIdRef.current = event.turn_id || currentTurnIdRef.current;
+          liveTranslateLastSourceActivityAtRef.current = Date.now();
+          // Compute the previous pending (unconsumed) source text BEFORE merging
+          const previousPendingSource = liveTranslateSourceStreamRef.current
+            .slice(liveTranslateConsumedSourceLengthRef.current)
+            .trim();
+          // Determine what new text this event would add beyond the consumed pointer.
+          // For cumulative transcripts (Google Live Translate): event.text contains the
+          // full accumulated source. We merge it to get the updated stream, then derive
+          // the delta by comparing the new pending portion against the old one.
+          const mergedSource = mergeAssistantText(
+            liveTranslateSourceStreamRef.current,
+            event.text
+          );
+          const newPendingSource = mergedSource
+            .slice(liveTranslateConsumedSourceLengthRef.current)
+            .trim();
+          const sourceDelta = newPendingSource.startsWith(previousPendingSource)
+            ? newPendingSource.slice(previousPendingSource.length).trim()
+            : newPendingSource;
+          const pendingTarget = getPendingLiveTranslatePair().target;
+          // Commit the PREVIOUS pending pair if it forms a complete sentence and the
+          // incoming delta is genuinely new content (not a continuation/short fragment).
+          if (
+            previousPendingSource &&
+            sourceDelta &&
+            pendingTarget &&
+            endsWithSentencePunctuation(pendingTarget) &&
+            endsWithSentencePunctuation(previousPendingSource) &&
+            !shouldCoalesceLiveTranslateSegment(previousPendingSource, sourceDelta)
+          ) {
+            commitPendingLiveTranslatePair();
+          }
+          // NOW apply the merge
+          liveTranslateSourceStreamRef.current = mergedSource;
+          syncPendingLiveTranslatePair();
+          scheduleLiveTranslateBoundary();
+          setVoiceChatStatus(t("正在识别本句原文…", "Transcribing this sentence…"));
+          return;
+        }
         if (
-          voiceChatLiveTranslate &&
-          currentAssistantTurnRef.current.trim() &&
+          event.turn_id &&
+          currentUserTurnRef.current.trim() &&
+          (currentUserTurnRef.current.trim().endsWith(event.text.trim()) ||
+            event.text.trim().endsWith(currentUserTurnRef.current.trim()))
+        ) {
+          currentTurnIdRef.current = event.turn_id;
+          return;
+        }
+        if (
+          currentUserTurnRef.current.trim() &&
           !isTranscriptContinuation(currentUserTurnRef.current, event.text)
         ) {
-          if (shouldCoalesceLiveTranslateSegment(currentUserTurnRef.current, event.text)) {
+          if (
+            voiceChatLiveTranslate &&
+            shouldCoalesceLiveTranslateSegment(currentUserTurnRef.current, event.text)
+          ) {
             currentUserTurnRef.current = appendStreamingText(currentUserTurnRef.current, event.text);
             setVoiceChatTranscript(currentUserTurnRef.current);
             setVoiceChatStatus(t("正在整理实时译文…", "Refining the live translation…"));
@@ -1100,6 +1290,18 @@ export default function useVoiceChat({
         setVoiceChatMemoryWriteStatus(describeMemoryWriteResult(event));
         return;
       case "assistant_text":
+        if (voiceChatLiveTranslate) {
+          currentTurnIdRef.current = event.turn_id || currentTurnIdRef.current;
+          liveTranslateLastTargetActivityAtRef.current = Date.now();
+          liveTranslateTargetStreamRef.current = mergeAssistantText(
+            liveTranslateTargetStreamRef.current,
+            event.text
+          );
+          syncPendingLiveTranslatePair();
+          scheduleLiveTranslateBoundary();
+          setVoiceChatStatus(t("正在生成本句译文…", "Translating this sentence…"));
+          return;
+        }
         if (event.turn_id && finalizedInterruptedTurnsRef.current.has(event.turn_id)) {
           return;
         }
@@ -1115,6 +1317,10 @@ export default function useVoiceChat({
         setVoiceChatStatus(t("助手正在说话…", "Assistant speaking…"));
         return;
       case "assistant_audio":
+        if (voiceChatLiveTranslate) {
+          liveTranslateLastTargetActivityAtRef.current = Date.now();
+          scheduleLiveTranslateBoundary();
+        }
         if (event.turn_id && finalizedInterruptedTurnsRef.current.has(event.turn_id)) {
           return;
         }
@@ -1410,7 +1616,14 @@ export default function useVoiceChat({
           }
           const retrievedCount = currentMemoriesRetrievedRef.current;
           const retrieveAttempted = currentMemoryRetrieveAttemptedRef.current;
-          commitCompletedTurn();
+          if (voiceChatLiveTranslate) {
+            if (!commitPendingLiveTranslatePair()) {
+              commitCompletedTurn();
+            }
+            resetLiveTranslateStreamTracking();
+          } else {
+            commitCompletedTurn();
+          }
           setVoiceChatStatus(
             retrievedCount > 0
               ? t(
@@ -1441,6 +1654,10 @@ export default function useVoiceChat({
   }
 
   async function startSession() {
+    if (voiceChatBusy || voiceChatConnected || voiceChatRecording) {
+      return;
+    }
+    setVoiceChatBusy(true);
     setVoiceChatError("");
     const AudioContextCtor = getAudioContextCtor();
     if (
@@ -1449,6 +1666,7 @@ export default function useVoiceChat({
       !AudioContextCtor
     ) {
       setVoiceChatSupported(false);
+      setVoiceChatBusy(false);
       setVoiceChatError(
         t("当前环境不支持实时语音聊天。", "Realtime voice chat is not supported in this environment.")
       );
@@ -1457,7 +1675,6 @@ export default function useVoiceChat({
 
     try {
       const sessionEpoch = markNewSessionEpoch();
-      setVoiceChatBusy(true);
       setVoiceChatStatus(t("正在连接实时语音会话…", "Connecting to the realtime voice session…"));
       let memoryGroupId = "";
       try {
@@ -1468,6 +1685,7 @@ export default function useVoiceChat({
       memoryGroupId = persistEverMemConversationGroupId("voice_chat", memoryGroupId);
       currentUserTurnRef.current = "";
       currentAssistantTurnRef.current = "";
+      resetLiveTranslateStreamTracking();
       currentTurnIdRef.current = "";
       currentAssistantInterruptedRef.current = false;
       pendingInterruptionRef.current = null;
@@ -1594,7 +1812,7 @@ export default function useVoiceChat({
             return;
           }
           const input = audioEvent.inputBuffer.getChannelData(0);
-          if (voiceChatProvider === GOOGLE_PROVIDER && !voiceChatLiveTranslate && input.length > 0) {
+          if (voiceChatProvider === GOOGLE_PROVIDER && input.length > 0) {
             let energy = 0;
             for (let index = 0; index < input.length; index += 1) {
               energy += input[index] * input[index];
@@ -1605,7 +1823,11 @@ export default function useVoiceChat({
               localSilenceFrames = 0;
               if (!localSpeechActive && localSpeechFrames >= 2) {
                 localSpeechActive = true;
-                ws.send(JSON.stringify({ type: "speech_activity_started" }));
+                if (voiceChatLiveTranslate) {
+                  markLiveTranslateSpeechStarted();
+                } else {
+                  ws.send(JSON.stringify({ type: "speech_activity_started" }));
+                }
               }
             } else {
               localSpeechFrames = 0;
@@ -1614,6 +1836,9 @@ export default function useVoiceChat({
                 if (localSilenceFrames >= 5) {
                   localSpeechActive = false;
                   localSilenceFrames = 0;
+                  if (voiceChatLiveTranslate) {
+                    markLiveTranslateSpeechEnded();
+                  }
                 }
               }
             }
@@ -1651,7 +1876,14 @@ export default function useVoiceChat({
     if (ws && ws.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify({ type: "stop" }));
     }
-    commitCompletedTurn();
+    if (voiceChatLiveTranslate) {
+      if (!commitPendingLiveTranslatePair()) {
+        commitCompletedTurn();
+      }
+      resetLiveTranslateStreamTracking();
+    } else {
+      commitCompletedTurn();
+    }
     stopSessionResources();
     setVoiceChatStatus(t("实时语音会话已结束", "Realtime voice session ended"));
   }
@@ -1777,6 +2009,7 @@ export default function useVoiceChat({
     stopSessionResources();
     currentUserTurnRef.current = "";
     currentAssistantTurnRef.current = "";
+    resetLiveTranslateStreamTracking();
     currentTurnIdRef.current = "";
     currentAssistantInterruptedRef.current = false;
     pendingInterruptionRef.current = null;
@@ -1857,6 +2090,7 @@ export default function useVoiceChat({
       stopSessionResources();
       currentUserTurnRef.current = "";
       currentAssistantTurnRef.current = "";
+      resetLiveTranslateStreamTracking();
       currentTurnIdRef.current = "";
       currentAssistantInterruptedRef.current = false;
       pendingInterruptionRef.current = null;

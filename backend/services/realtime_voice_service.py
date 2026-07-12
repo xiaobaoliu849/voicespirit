@@ -1905,9 +1905,14 @@ class RealtimeVoiceService:
         gated_tool_turn_id = ""
         interruption = interruption or InterruptionDecisionCoordinator()
         pending_google_user_transcript = ""
+        finalized_google_user_transcript = ""
         google_provider_interrupted_early = False
         suppress_interrupted_google_response = False
         consume_next_google_terminal = False
+        last_activity_time = time.time()
+        live_translate_has_content = False
+        live_translate_input_finished = False
+        live_translate_output_finished = False
 
         async def resume_interrupted_google_response() -> None:
             nonlocal google_provider_interrupted_early
@@ -1923,238 +1928,359 @@ class RealtimeVoiceService:
             )
             google_provider_interrupted_early = False
 
+        async def finalize_user_transcript_if_needed(clear_transcript: bool = False) -> None:
+            nonlocal pending_google_user_transcript, finalized_google_user_transcript, google_provider_interrupted_early
+            nonlocal suppress_interrupted_google_response, consume_next_google_terminal
+            nonlocal gated_tool_turn_id, pending_prefill_context
+            nonlocal last_activity_time
+
+            user_text = pending_google_user_transcript.strip()
+            if pending_google_user_transcript == finalized_google_user_transcript:
+                if clear_transcript:
+                    pending_google_user_transcript = ""
+                    finalized_google_user_transcript = ""
+                return
+
+            if clear_transcript:
+                pending_google_user_transcript = ""
+                finalized_google_user_transcript = ""
+            else:
+                finalized_google_user_transcript = pending_google_user_transcript
+
+            if not user_text:
+                return
+
+            if is_live_translate:
+                # In live translate mode, VAD and interruption logic are bypassed
+                voice_turn_id = ""
+                if recorder is not None:
+                    voice_turn_id = await recorder.note_user_transcript(user_text)
+                await self._send_event(websocket, "user_transcript", text=user_text, turn_id=voice_turn_id)
+                last_activity_time = time.time()
+                return
+
+            if interruption.pending is None and (
+                google_provider_interrupted_early
+                or tool_session.has_active_task
+                or (recorder is not None and bool(recorder.current_assistant_text))
+            ):
+                await self._begin_interruption(
+                    websocket,
+                    interruption,
+                    provider="Google",
+                    provider_event_type="input_transcription.without_pending_vad",
+                    recorder=recorder,
+                    tool_session=tool_session,
+                    supersede_timed_out=True,
+                )
+            had_deferred_terminal = interruption.has_deferred_terminal()
+
+            should_process_user, interruption_decision = await self._decide_interruption(
+                websocket,
+                interruption,
+                user_text,
+                memory_session=memory_session,
+                tool_session=tool_session,
+                recorder=recorder,
+                resume_provider=resume_interrupted_google_response,
+                record_memory=not is_live_translate,
+            )
+            if not should_process_user:
+                google_provider_interrupted_early = False
+                if interruption.take_deferred_terminal() is not None and not is_live_translate:
+                    await self._finalize_realtime_turn(
+                        websocket,
+                        memory_session,
+                        recorder,
+                        gated=bool(gated_tool_turn_id),
+                    )
+                return
+            if interruption_decision is not None:
+                is_true_barge_in = (
+                    interruption_decision.get("classification")
+                    == InterruptionIntent.TRUE_BARGE_IN.value
+                )
+                suppress_interrupted_google_response = bool(
+                    is_true_barge_in
+                    and not google_provider_interrupted_early
+                    and not had_deferred_terminal
+                )
+                consume_next_google_terminal = bool(
+                    not had_deferred_terminal
+                    and is_true_barge_in
+                    and not google_provider_interrupted_early
+                )
+                google_provider_interrupted_early = False
+            if InterruptionClassifier.classify_interruption(user_text) == InterruptionIntent.NOISE_OR_SILENCE:
+                return
+            voice_turn_id = ""
+            if not is_live_translate:
+                memory_session.note_user_transcript(user_text)
+                if recorder is not None:
+                    voice_turn_id = await recorder.note_user_transcript(user_text)
+                retrieval = await memory_session.retrieve_memory_context()
+                memory_context = str(retrieval.get("context", ""))
+                memory_count = int(retrieval.get("memories_retrieved", 0))
+                local_pending_count = int(retrieval.get("local_pending_count", 0))
+                cloud_count = int(retrieval.get("cloud_count", 0))
+                if retrieval.get("attempted"):
+                    await self._send_event(
+                        websocket,
+                        "memory_context",
+                        memories_retrieved=memory_count,
+                        local_pending_count=local_pending_count,
+                        cloud_count=cloud_count,
+                        attempted=True,
+                    )
+                if memory_context:
+                    logger.info(
+                        "voice_memory_inject provider=Google scope=%s count=%s local_pending=%s cloud=%s",
+                        memory_session._config.memory_scope,
+                        memory_count,
+                        local_pending_count,
+                        cloud_count,
+                    )
+                    pending_prefill_context = memory_context
+            await self._send_event(websocket, "user_transcript", text=user_text, turn_id=voice_turn_id)
+            if not is_live_translate:
+                async def on_google_tool_result(result: dict[str, Any]) -> None:
+                    nonlocal gated_tool_turn_id
+                    gated_tool_turn_id = ""
+                    await self._apply_google_tool_result(websocket, session, result, recorder)
+
+                tool_request = VoiceAgentToolService.extract_tool_request(user_text)
+                tool_turn_id = await tool_session.handle_user_transcript(
+                    user_text,
+                    send_event=send_tool_event,
+                    on_result=on_google_tool_result,
+                )
+                if tool_turn_id:
+                    gated_tool_turn_id = tool_turn_id
+                    await self._send_response_gated(
+                        websocket,
+                        provider="Google",
+                        tool_name=tool_request.tool_name if tool_request else "voice_tool",
+                        query=tool_request.query if tool_request else "",
+                        turn_id=tool_turn_id,
+                        recorder=recorder,
+                    )
+
         async def send_tool_event(event_type: str, payload: dict[str, Any]) -> None:
             if recorder is not None:
                 await recorder.record_tool_event(event_type, payload)
             await self._send_event(websocket, event_type, **payload)
 
-        while True:
-            turn = session.receive()
-            async for response in turn:
-                audio_data = getattr(response, "data", None)
-                if audio_data:
-                    if not gated_tool_turn_id and not suppress_interrupted_google_response:
-                        await self._emit_assistant_output(
-                            websocket,
-                            interruption,
-                            {
-                                "type": "assistant_audio",
-                                "audio": base64.b64encode(audio_data).decode("ascii"),
-                                "encoding": "pcm_s16le",
-                                "sample_rate": 24000,
-                            },
-                            memory_session=memory_session,
-                            recorder=recorder,
-                            record_memory=not is_live_translate,
-                        )
+        async def complete_live_translate_turn_if_needed(*, force: bool = False) -> bool:
+            nonlocal pending_google_user_transcript, finalized_google_user_transcript
+            nonlocal live_translate_has_content, live_translate_input_finished
+            nonlocal live_translate_output_finished, last_activity_time
 
-                response_text = getattr(response, "text", None)
-                if response_text:
-                    if not gated_tool_turn_id and not suppress_interrupted_google_response:
-                        await self._emit_assistant_output(
-                            websocket,
-                            interruption,
-                            {"type": "assistant_text", "text": str(response_text)},
-                            memory_session=memory_session,
-                            recorder=recorder,
-                            record_memory=not is_live_translate,
-                        )
+            if not is_live_translate or not live_translate_has_content:
+                return False
+            if not force and not (live_translate_input_finished and live_translate_output_finished):
+                return False
 
-                server_content = getattr(response, "server_content", None)
-                if not server_content:
-                    continue
+            completed_turn_id = ""
+            if recorder is not None:
+                completed_turn_id = await recorder.complete_turn({})
+            await self._send_event(
+                websocket,
+                "turn_complete",
+                turn_id=completed_turn_id,
+                interrupted=False,
+            )
+            pending_google_user_transcript = ""
+            finalized_google_user_transcript = ""
+            live_translate_has_content = False
+            live_translate_input_finished = False
+            live_translate_output_finished = False
+            last_activity_time = time.time()
+            return True
 
-                if getattr(server_content, "interrupted", False):
-                    google_provider_interrupted_early = True
-                    interruption.set_resume_provider(resume_interrupted_google_response)
-                    await self._begin_interruption(
-                        websocket,
-                        interruption,
-                        provider="Google",
-                        provider_event_type="server_content.interrupted",
-                        recorder=recorder,
-                        tool_session=tool_session,
-                    )
+        monitor_task = None
+        if is_live_translate:
+            async def monitor_live_translate_inactivity():
+                try:
+                    while True:
+                        await asyncio.sleep(0.5)
+                        if live_translate_has_content:
+                            now = time.time()
+                            if now - last_activity_time >= 2.0:
+                                await complete_live_translate_turn_if_needed(force=True)
+                except asyncio.CancelledError:
+                    pass
+                except Exception as e:
+                    logger.exception("Error in live translate inactivity monitor: %s", e)
 
-                user_transcript_fields = ("input_transcription", "input_audio_transcription", "transcription")
-                input_transcription_value: Any = None
-                for transcript_field in user_transcript_fields:
-                    if hasattr(server_content, transcript_field):
-                        candidate = getattr(server_content, transcript_field)
-                        if candidate is not None:
-                            input_transcription_value = candidate
-                            break
-                user_text_chunk = self._extract_transcript_text(server_content, user_transcript_fields)
-                if user_text_chunk:
-                    pending_google_user_transcript = _merge_memory_text(
-                        pending_google_user_transcript,
-                        user_text_chunk,
-                    )
-                supports_finished_marker = (
-                    input_transcription_value is not None
-                    and hasattr(input_transcription_value, "finished")
-                )
-                transcription_finished = bool(
-                    getattr(input_transcription_value, "finished", False)
-                ) if supports_finished_marker else input_transcription_value is not None
-                if input_transcription_value is not None and transcription_finished:
-                    user_text = pending_google_user_transcript or user_text_chunk
-                    pending_google_user_transcript = ""
-                    if interruption.pending is None and (
-                        google_provider_interrupted_early
-                        or tool_session.has_active_task
-                        or (recorder is not None and bool(recorder.current_assistant_text))
-                    ):
+            monitor_task = asyncio.create_task(monitor_live_translate_inactivity())
+
+        try:
+            while True:
+                turn = session.receive()
+                async for response in turn:
+                    audio_data = getattr(response, "data", None)
+                    if audio_data:
+                        if is_live_translate:
+                            last_activity_time = time.time()
+                        if not is_live_translate:
+                            await finalize_user_transcript_if_needed(clear_transcript=True)
+                        if not gated_tool_turn_id and not suppress_interrupted_google_response:
+                            await self._emit_assistant_output(
+                                websocket,
+                                interruption,
+                                {
+                                    "type": "assistant_audio",
+                                    "audio": base64.b64encode(audio_data).decode("ascii"),
+                                    "encoding": "pcm_s16le",
+                                    "sample_rate": 24000,
+                                },
+                                memory_session=memory_session,
+                                recorder=recorder,
+                                record_memory=not is_live_translate,
+                            )
+
+                    response_text = getattr(response, "text", None)
+                    if response_text:
+                        if is_live_translate:
+                            last_activity_time = time.time()
+                            live_translate_has_content = True
+                        if not is_live_translate:
+                            await finalize_user_transcript_if_needed(clear_transcript=True)
+                        if not gated_tool_turn_id and not suppress_interrupted_google_response:
+                            await self._emit_assistant_output(
+                                websocket,
+                                interruption,
+                                {"type": "assistant_text", "text": str(response_text)},
+                                memory_session=memory_session,
+                                recorder=recorder,
+                                record_memory=not is_live_translate,
+                            )
+
+                    server_content = getattr(response, "server_content", None)
+                    if not server_content:
+                        continue
+
+                    if getattr(server_content, "interrupted", False) and not is_live_translate:
+                        await finalize_user_transcript_if_needed(clear_transcript=True)
+                        google_provider_interrupted_early = True
+                        interruption.set_resume_provider(resume_interrupted_google_response)
                         await self._begin_interruption(
                             websocket,
                             interruption,
                             provider="Google",
-                            provider_event_type="input_transcription.without_pending_vad",
+                            provider_event_type="server_content.interrupted",
                             recorder=recorder,
                             tool_session=tool_session,
-                            supersede_timed_out=True,
                         )
-                    had_deferred_terminal = interruption.has_deferred_terminal()
 
-                    should_process_user, interruption_decision = await self._decide_interruption(
-                        websocket,
-                        interruption,
-                        user_text,
-                        memory_session=memory_session,
-                        tool_session=tool_session,
-                        recorder=recorder,
-                        resume_provider=resume_interrupted_google_response,
-                        record_memory=not is_live_translate,
+                    user_transcript_fields = ("input_transcription", "input_audio_transcription", "transcription")
+                    input_transcription_value: Any = None
+                    for transcript_field in user_transcript_fields:
+                        if hasattr(server_content, transcript_field):
+                            candidate = getattr(server_content, transcript_field)
+                            if candidate is not None:
+                                input_transcription_value = candidate
+                                break
+                    user_text_chunk = self._extract_transcript_text(server_content, user_transcript_fields)
+                    if user_text_chunk:
+                        if is_live_translate:
+                            last_activity_time = time.time()
+                            live_translate_has_content = True
+                        pending_google_user_transcript = _merge_memory_text(
+                            pending_google_user_transcript,
+                            user_text_chunk,
+                        )
+                        if InterruptionClassifier.classify_interruption(pending_google_user_transcript) != InterruptionIntent.NOISE_OR_SILENCE:
+                            await self._send_event(websocket, "user_transcript", text=pending_google_user_transcript, turn_id="")
+                    supports_finished_marker = (
+                        input_transcription_value is not None
+                        and hasattr(input_transcription_value, "finished")
                     )
-                    if not should_process_user:
-                        google_provider_interrupted_early = False
-                        if interruption.take_deferred_terminal() is not None and not is_live_translate:
-                            await self._finalize_realtime_turn(
+                    transcription_finished = bool(
+                        getattr(input_transcription_value, "finished", False)
+                    ) if supports_finished_marker else input_transcription_value is not None
+                    if input_transcription_value is not None and transcription_finished:
+                        await finalize_user_transcript_if_needed(clear_transcript=False)
+
+                    if is_live_translate and input_transcription_value is not None and transcription_finished:
+                        live_translate_input_finished = True
+
+                    output_transcription_value: Any = None
+                    for transcript_field in ("output_transcription", "output_audio_transcription"):
+                        if hasattr(server_content, transcript_field):
+                            candidate = getattr(server_content, transcript_field)
+                            if candidate is not None:
+                                output_transcription_value = candidate
+                                break
+                    assistant_transcript = self._extract_transcript_text(
+                        server_content,
+                        ("output_transcription", "output_audio_transcription"),
+                    )
+                    if assistant_transcript:
+                        if is_live_translate:
+                            last_activity_time = time.time()
+                            live_translate_has_content = True
+                        if not gated_tool_turn_id and not suppress_interrupted_google_response:
+                            await self._emit_assistant_output(
                                 websocket,
-                                memory_session,
-                                recorder,
-                                gated=bool(gated_tool_turn_id),
+                                interruption,
+                                {"type": "assistant_text", "text": assistant_transcript},
+                                memory_session=memory_session,
+                                recorder=recorder,
+                                record_memory=not is_live_translate,
                             )
-                        continue
-                    if interruption_decision is not None:
-                        is_true_barge_in = (
-                            interruption_decision.get("classification")
-                            == InterruptionIntent.TRUE_BARGE_IN.value
-                        )
-                        suppress_interrupted_google_response = bool(
-                            is_true_barge_in
-                            and not google_provider_interrupted_early
-                            and not had_deferred_terminal
-                        )
-                        consume_next_google_terminal = bool(
-                            not had_deferred_terminal
-                            and is_true_barge_in
-                            and not google_provider_interrupted_early
-                        )
-                        google_provider_interrupted_early = False
-                    if InterruptionClassifier.classify_interruption(user_text) == InterruptionIntent.NOISE_OR_SILENCE:
-                        continue
-                    voice_turn_id = ""
-                    if not is_live_translate:
-                        memory_session.note_user_transcript(user_text)
-                        if recorder is not None:
-                            voice_turn_id = await recorder.note_user_transcript(user_text)
-                        retrieval = await memory_session.retrieve_memory_context()
-                        memory_context = str(retrieval.get("context", ""))
-                        memory_count = int(retrieval.get("memories_retrieved", 0))
-                        local_pending_count = int(retrieval.get("local_pending_count", 0))
-                        cloud_count = int(retrieval.get("cloud_count", 0))
-                        if retrieval.get("attempted"):
+
+                    if (
+                        is_live_translate
+                        and output_transcription_value is not None
+                        and bool(getattr(output_transcription_value, "finished", False))
+                    ):
+                        live_translate_output_finished = True
+
+                    if is_live_translate:
+                        await complete_live_translate_turn_if_needed()
+
+                    if getattr(server_content, "turn_complete", False):
+                        await finalize_user_transcript_if_needed(clear_transcript=True)
+                        if is_live_translate:
+                            await complete_live_translate_turn_if_needed(force=True)
+                            continue
+                        if interruption.defer_terminal(
+                            {"type": "turn_complete", "provider": "Google"}
+                        ):
+                            continue
+                        if consume_next_google_terminal:
+                            consume_next_google_terminal = False
+                            suppress_interrupted_google_response = False
+                            continue
+                        memory_result: dict[str, Any] = {}
+                        if not is_live_translate:
+                            memory_result = await memory_session.flush_turn()
                             await self._send_event(
                                 websocket,
-                                "memory_context",
-                                memories_retrieved=memory_count,
-                                local_pending_count=local_pending_count,
-                                cloud_count=cloud_count,
-                                attempted=True,
+                                "memory_write",
+                                attempted_count=int(memory_result.get("attempted_count", 0)),
+                                saved_count=int(memory_result.get("saved_count", 0)),
+                                failed_count=int(memory_result.get("failed_count", 0)),
+                                local_pending_count=int(memory_result.get("local_pending_count", 0)),
+                                reason=str(memory_result.get("reason", "")),
                             )
-                        if memory_context:
-                            logger.info(
-                                "voice_memory_inject provider=Google scope=%s count=%s local_pending=%s cloud=%s",
-                                memory_session._config.memory_scope,
-                                memory_count,
-                                local_pending_count,
-                                cloud_count,
-                            )
-                            pending_prefill_context = memory_context
-                    await self._send_event(websocket, "user_transcript", text=user_text, turn_id=voice_turn_id)
-                    if not is_live_translate:
-                        async def on_google_tool_result(result: dict[str, Any]) -> None:
-                            nonlocal gated_tool_turn_id
-                            gated_tool_turn_id = ""
-                            await self._apply_google_tool_result(websocket, session, result, recorder)
-
-                        tool_request = VoiceAgentToolService.extract_tool_request(user_text)
-                        tool_turn_id = await tool_session.handle_user_transcript(
-                            user_text,
-                            send_event=send_tool_event,
-                            on_result=on_google_tool_result,
-                        )
-                        if tool_turn_id:
-                            gated_tool_turn_id = tool_turn_id
-                            await self._send_response_gated(
+                        if pending_prefill_context and not is_live_translate:
+                            await self._apply_google_memory_prefill(session, pending_prefill_context)
+                            pending_prefill_context = ""
+                        if not gated_tool_turn_id:
+                            completed_turn_id = ""
+                            if recorder is not None:
+                                completed_turn_id = await recorder.complete_turn(memory_result)
+                            await self._send_event(
                                 websocket,
-                                provider="Google",
-                                tool_name=tool_request.tool_name if tool_request else "voice_tool",
-                                query=tool_request.query if tool_request else "",
-                                turn_id=tool_turn_id,
-                                recorder=recorder,
+                                "turn_complete",
+                                turn_id=completed_turn_id,
+                                interrupted=False,
                             )
-
-                assistant_transcript = self._extract_transcript_text(
-                    server_content,
-                    ("output_transcription", "output_audio_transcription"),
-                )
-                if assistant_transcript:
-                    if not gated_tool_turn_id and not suppress_interrupted_google_response:
-                        await self._emit_assistant_output(
-                            websocket,
-                            interruption,
-                            {"type": "assistant_text", "text": assistant_transcript},
-                            memory_session=memory_session,
-                            recorder=recorder,
-                            record_memory=not is_live_translate,
-                        )
-
-                if getattr(server_content, "turn_complete", False):
-                    if interruption.defer_terminal(
-                        {"type": "turn_complete", "provider": "Google"}
-                    ):
-                        continue
-                    if consume_next_google_terminal:
-                        consume_next_google_terminal = False
-                        suppress_interrupted_google_response = False
-                        continue
-                    memory_result: dict[str, Any] = {}
-                    if not is_live_translate:
-                        memory_result = await memory_session.flush_turn()
-                        await self._send_event(
-                            websocket,
-                            "memory_write",
-                            attempted_count=int(memory_result.get("attempted_count", 0)),
-                            saved_count=int(memory_result.get("saved_count", 0)),
-                            failed_count=int(memory_result.get("failed_count", 0)),
-                            local_pending_count=int(memory_result.get("local_pending_count", 0)),
-                            reason=str(memory_result.get("reason", "")),
-                        )
-                    if pending_prefill_context and not is_live_translate:
-                        await self._apply_google_memory_prefill(session, pending_prefill_context)
-                        pending_prefill_context = ""
-                    if not gated_tool_turn_id:
-                        completed_turn_id = ""
-                        if recorder is not None:
-                            completed_turn_id = await recorder.complete_turn(memory_result)
-                        await self._send_event(
-                            websocket,
-                            "turn_complete",
-                            turn_id=completed_turn_id,
-                            interrupted=False,
-                        )
+        finally:
+            if monitor_task is not None:
+                monitor_task.cancel()
 
     async def _client_to_dashscope_loop(
         self,

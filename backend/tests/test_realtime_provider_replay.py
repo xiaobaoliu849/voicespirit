@@ -449,6 +449,42 @@ class RealtimeProviderReplayTests(unittest.IsolatedAsyncioTestCase):
             "handled_texts": tools.handled_texts,
         }
 
+    async def test_google_live_translate_finishes_pair_from_transcription_markers(self) -> None:
+        websocket = CollectingWebSocket()
+        memory = FakeMemorySession()
+        tools = RecordingToolSession(active=False)
+        recorder = await self._recorder("Google", active_turn=False)
+        session = FakeGoogleSession(
+            [[
+                google_response(
+                    input_transcription=SimpleNamespace(text="Hello there.", finished=True),
+                    output_transcription=SimpleNamespace(text="你好。", finished=True),
+                )
+            ]]
+        )
+
+        with self.assertRaises(ReplayComplete):
+            await self.service._google_to_client_loop(
+                websocket,
+                session,
+                memory,
+                tools,
+                recorder,
+                True,
+            )
+
+        event_types = [event["type"] for event in websocket.events]
+        self.assertEqual(event_types[-2:], ["assistant_text", "turn_complete"])
+        self.assertEqual(
+            [event.get("text") for event in websocket.events if event["type"] == "user_transcript"],
+            ["Hello there.", "Hello there."],
+        )
+        self.assertEqual(
+            [event.get("text") for event in websocket.events if event["type"] == "assistant_text"],
+            ["你好。"],
+        )
+        self.assertEqual(len(self.repository.list_turns(recorder.session_id)), 1)
+
     @staticmethod
     def _canonical_timeline(timeline: list[dict]) -> list[dict]:
         canonical = []
