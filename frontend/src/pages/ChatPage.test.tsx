@@ -4,6 +4,33 @@ import ChatPage from './ChatPage';
 import { createChatController, createVoiceChatController } from '../test/factories';
 
 describe('ChatPage', () => {
+    it('allows selecting messages and copying an individual bubble', async () => {
+        const writeText = vi.fn().mockResolvedValue(undefined);
+        Object.defineProperty(globalThis.navigator, 'clipboard', {
+            value: { writeText },
+            configurable: true
+        });
+        render(
+            <ChatPage
+                chat={createChatController({
+                    chatMessages: [
+                        { role: 'user', content: 'Please copy this source.' },
+                        { role: 'assistant', content: '请复制这条回复。' }
+                    ]
+                })}
+                voiceChat={createVoiceChatController()}
+                errorRuntimeContext={{}}
+            />
+        );
+
+        const copyButtons = screen.getAllByRole('button', { name: '复制消息' });
+        expect(document.querySelectorAll('.bubble.hasCopyAction')).toHaveLength(2);
+        fireEvent.click(copyButtons[1]);
+
+        await waitFor(() => expect(writeText).toHaveBeenCalledWith('请复制这条回复。'));
+        expect(screen.getByRole('button', { name: '已复制' })).toBeInTheDocument();
+    });
+
     it('opens the reachable voice history workspace from the active chat page', async () => {
         const onLoadVoiceAgentHistory = vi.fn();
         render(
@@ -126,6 +153,8 @@ describe('ChatPage', () => {
         expect(screen.getByText('同语回放')).toBeInTheDocument();
         expect(screen.getByText('原文实时转写')).toBeInTheDocument();
         expect(screen.getByText('译文：中文（简体）/ Chinese (Simplified) (zh-Hans)')).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: '复制实时原文' })).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: '复制实时译文' })).toBeInTheDocument();
         expect(screen.queryByPlaceholderText(/输入聊天内容/)).not.toBeInTheDocument();
         expect(document.querySelector('.vsComposer.liveActive')).toBeInTheDocument();
     });

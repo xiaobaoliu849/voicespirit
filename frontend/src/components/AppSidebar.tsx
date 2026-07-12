@@ -1,4 +1,5 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
+import { createPortal } from "react-dom";
 import {
   getSidebarItems,
   type ActiveTab,
@@ -17,9 +18,9 @@ import {
   ChevronLeft,
   ChevronRight,
   MessageSquarePlus,
-  MessageSquare,
-  Trash2,
-  X
+  MoreHorizontal,
+  Pencil,
+  Trash2
 } from "lucide-react";
 
 const IconMap: Record<string, React.ElementType> = {
@@ -42,8 +43,8 @@ type Props = {
   onAuthClick: () => void;
   onNewChatSession: () => void;
   onHistorySelect: (id: string) => void;
-  onClearHistory: () => void;
   onDeleteHistoryItem: (id: string) => void;
+  onRenameHistoryItem?: (id: string, newName: string) => void;
   onOpenSettings: () => void;
   isSettingsOpen?: boolean;
 };
@@ -57,8 +58,8 @@ export default function AppSidebar({
   onAuthClick,
   onNewChatSession,
   onHistorySelect,
-  onClearHistory,
   onDeleteHistoryItem,
+  onRenameHistoryItem,
   onOpenSettings,
   isSettingsOpen = false,
 }: Props) {
@@ -76,9 +77,138 @@ export default function AppSidebar({
     activeTab === "voice_clone" ||
     activeTab === "transcription";
 
+  // --- Context menu state (ChatGPT-style: hover dots → fixed portal menu) ---
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  const [menuPos, setMenuPos] = useState<{ top: number; left: number } | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editingValue, setEditingValue] = useState("");
+  const menuRef = useRef<HTMLDivElement>(null);
+  const moreBtnRef = useRef<HTMLButtonElement | null>(null);
+  const editInputRef = useRef<HTMLInputElement>(null);
+  const historyListRef = useRef<HTMLDivElement>(null);
+
+  const closeMenu = useCallback(() => {
+    setOpenMenuId(null);
+    setMenuPos(null);
+    moreBtnRef.current = null;
+  }, []);
+
   useEffect(() => {
     localStorage.setItem("vs_sidebar_collapsed", String(isCollapsed));
-  }, [isCollapsed]);
+    if (isCollapsed) closeMenu();
+  }, [isCollapsed, closeMenu]);
+
+  // Close floating menu on outside click / Escape / scroll / resize
+  useEffect(() => {
+    if (!openMenuId) return;
+
+    function handlePointerDown(e: MouseEvent) {
+      const target = e.target as Node;
+      if (menuRef.current?.contains(target)) return;
+      if (moreBtnRef.current?.contains(target)) return;
+      closeMenu();
+    }
+
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") closeMenu();
+    }
+
+    function handleViewportChange() {
+      closeMenu();
+    }
+
+    document.addEventListener("mousedown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("resize", handleViewportChange);
+    // Capture scroll from history list (and any ancestor) so menu doesn't float away
+    const listEl = historyListRef.current;
+    listEl?.addEventListener("scroll", handleViewportChange, true);
+    document.addEventListener("scroll", handleViewportChange, true);
+
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("resize", handleViewportChange);
+      listEl?.removeEventListener("scroll", handleViewportChange, true);
+      document.removeEventListener("scroll", handleViewportChange, true);
+    };
+  }, [openMenuId, closeMenu]);
+
+  // Auto-focus rename input when entering edit mode
+  useEffect(() => {
+    if (editingId && editInputRef.current) {
+      editInputRef.current.focus();
+      editInputRef.current.select();
+    }
+  }, [editingId]);
+
+  const handleMenuToggle = useCallback((e: React.MouseEvent<HTMLButtonElement>, id: string) => {
+    e.stopPropagation();
+    e.preventDefault();
+
+    if (openMenuId === id) {
+      closeMenu();
+      return;
+    }
+
+    const btn = e.currentTarget;
+    const rect = btn.getBoundingClientRect();
+    const menuWidth = 168;
+    const menuHeight = 96;
+    const gap = 6;
+    const pad = 8;
+
+    // Prefer below the button; flip above if near bottom edge
+    let top = rect.bottom + gap;
+    if (top + menuHeight > window.innerHeight - pad) {
+      top = Math.max(pad, rect.top - menuHeight - gap);
+    }
+
+    // Align menu's right edge with button's right edge (ChatGPT style)
+    let left = rect.right - menuWidth;
+    if (left < pad) left = pad;
+    if (left + menuWidth > window.innerWidth - pad) {
+      left = Math.max(pad, window.innerWidth - menuWidth - pad);
+    }
+
+    moreBtnRef.current = btn;
+    setMenuPos({ top, left });
+    setOpenMenuId(id);
+  }, [openMenuId, closeMenu]);
+
+  const handleRenameStart = useCallback((item: HistoryItem) => {
+    setEditingId(item.id);
+    setEditingValue(item.content);
+    closeMenu();
+  }, [closeMenu]);
+
+  const handleRenameCommit = useCallback(() => {
+    if (editingId && editingValue.trim() && onRenameHistoryItem) {
+      onRenameHistoryItem(editingId, editingValue.trim());
+    }
+    setEditingId(null);
+    setEditingValue("");
+  }, [editingId, editingValue, onRenameHistoryItem]);
+
+  const handleRenameKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      handleRenameCommit();
+    } else if (e.key === "Escape") {
+      setEditingId(null);
+      setEditingValue("");
+    }
+  }, [handleRenameCommit]);
+
+  const handleDeleteClick = useCallback((e: React.MouseEvent, id: string) => {
+    e.stopPropagation();
+    closeMenu();
+    onDeleteHistoryItem(id);
+  }, [onDeleteHistoryItem, closeMenu]);
+
+  const openMenuItem = openMenuId
+    ? chatHistoryItems.find((item) => item.id === openMenuId) ?? null
+    : null;
 
   return (
     <div className={`vsSidebarShell ${isCollapsed ? "collapsed" : ""}`}>
@@ -137,44 +267,95 @@ export default function AppSidebar({
 
           {hasHistoryItems ? (
             <section className="vsSidebarSection vsHistorySection">
-              <div className="vsHistoryList custom-scrollbar">
-                <button
-                  type="button"
-                  className="vsHistoryClearBtn"
-                  onClick={onClearHistory}
-                  aria-label={t("清除全部对话", "Clear all chats")}
-                  title={t("清除全部对话", "Clear all chats")}
-                >
-                  <Trash2 size={13} />
-                </button>
+              <div className="vsHistoryList custom-scrollbar" ref={historyListRef}>
                 {chatHistoryItems.map((item) => (
-                  <div key={item.id} className="vsHistoryRow">
-                    <button
-                      type="button"
-                      className="vsHistoryItem"
-                      onClick={() => onHistorySelect(item.id)}
-                      title={isCollapsed ? item.content : undefined}
-                    >
-                      <span className="vsHistoryIcon">
-                        <MessageSquare size={16} />
-                      </span>
-                      <span className="vsHistoryText">{item.content}</span>
-                    </button>
-                    <button
-                      type="button"
-                      className="vsHistoryDeleteBtn"
-                      aria-label={t(`删除历史 ${item.content}`, `Delete history ${item.content}`)}
-                      title={t("删除这条历史", "Delete this history item")}
-                      onClick={() => onDeleteHistoryItem(item.id)}
-                    >
-                      <X size={14} />
-                    </button>
+                  <div
+                    key={item.id}
+                    className={`vsHistoryRow ${openMenuId === item.id ? "menu-open" : ""}`}
+                  >
+                    {editingId === item.id ? (
+                      /* --- Inline rename mode --- */
+                      <div className="vsHistoryItemEditing">
+                        <input
+                          ref={editInputRef}
+                          type="text"
+                          className="vsHistoryEditInput"
+                          value={editingValue}
+                          onChange={(e) => setEditingValue(e.target.value)}
+                          onKeyDown={handleRenameKeyDown}
+                          onBlur={handleRenameCommit}
+                        />
+                      </div>
+                    ) : (
+                      /* --- Normal display: title full-width, ⋯ floats on hover --- */
+                      <>
+                        <button
+                          type="button"
+                          className="vsHistoryItem"
+                          onClick={() => {
+                            closeMenu();
+                            onHistorySelect(item.id);
+                          }}
+                          title={item.content}
+                        >
+                          <span className="vsHistoryText">{item.content}</span>
+                        </button>
+                        <div className="vsHistoryMoreWrapper">
+                          <button
+                            type="button"
+                            className="vsHistoryMoreBtn"
+                            data-testid={`history-more-${item.id}`}
+                            aria-label={t("更多操作", "More actions")}
+                            aria-haspopup="menu"
+                            aria-expanded={openMenuId === item.id}
+                            onClick={(e) => handleMenuToggle(e, item.id)}
+                          >
+                            <MoreHorizontal size={16} />
+                          </button>
+                        </div>
+                      </>
+                    )}
                   </div>
                 ))}
               </div>
             </section>
           ) : null}
         </div>
+
+        {/* Floating action menu — rendered outside overflow containers (ChatGPT style) */}
+        {openMenuItem && menuPos
+          ? createPortal(
+              <div
+                ref={menuRef}
+                className="vsHistoryDropdown"
+                role="menu"
+                style={{ top: menuPos.top, left: menuPos.left }}
+              >
+                {onRenameHistoryItem ? (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="vsHistoryDropdownItem"
+                    onClick={() => handleRenameStart(openMenuItem)}
+                  >
+                    <Pencil size={14} />
+                    <span>{t("重命名", "Rename")}</span>
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="vsHistoryDropdownItem danger"
+                  aria-label={`${t("删除历史", "Delete history")} ${openMenuItem.content}`}
+                  onClick={(e) => handleDeleteClick(e, openMenuItem.id)}
+                >
+                  <Trash2 size={14} />
+                  <span>{t("删除", "Delete")}</span>
+                </button>
+              </div>,
+              document.body
+            )
+          : null}
 
         <div className="vsSidebarFooter">
           <div className="vsSidebarFooterActions">

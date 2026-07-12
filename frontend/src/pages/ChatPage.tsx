@@ -37,6 +37,13 @@ const SendIcon = () => (
 const SpinnerIcon = () => (
   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="vsSpin"><path d="M21 12a9 9 0 1 1-6.219-8.56"></path></svg>
 );
+const CopyIcon = () => (
+  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="14" height="14" x="8" y="8" rx="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg>
+);
+
+const HistoryIcon = () => (
+  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path><path d="M3 3v5h5"></path><path d="M12 7v5l4 2"></path></svg>
+);
 
 function isVoiceRealtimeModel(provider: string, model: string): boolean {
   const normalizedProvider = (provider || "").trim().toLowerCase();
@@ -55,6 +62,29 @@ function isVoiceRealtimeModel(provider: string, model: string): boolean {
     );
   }
   return normalizedModel.includes("realtime");
+}
+
+async function copyTextToClipboard(value: string): Promise<void> {
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(value);
+      return;
+    } catch {
+      // Fall through to the desktop WebView-compatible selection path.
+    }
+  }
+  const textarea = document.createElement("textarea");
+  textarea.value = value;
+  textarea.setAttribute("readonly", "");
+  textarea.style.position = "fixed";
+  textarea.style.inset = "-9999px auto auto -9999px";
+  document.body.appendChild(textarea);
+  textarea.select();
+  const copied = document.execCommand("copy");
+  textarea.remove();
+  if (!copied) {
+    throw new Error("clipboard copy failed");
+  }
 }
 
 type SpeechRecognitionResultLike = {
@@ -378,6 +408,8 @@ export default function ChatPage({ chat, voiceChat, errorRuntimeContext, onResum
   const bodyRef = useRef<HTMLDivElement>(null);
   const shouldStickToBottomRef = useRef(true);
   const [showVoiceHistory, setShowVoiceHistory] = useState(false);
+  const [copiedMessageKey, setCopiedMessageKey] = useState("");
+  const copyResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const showWelcome = isEmpty && !voiceChat.voiceChatRecording && !voiceChat.voiceChatConnected;
   const isVoiceActive = voiceChat.voiceChatRecording || voiceChat.voiceChatConnected;
@@ -388,6 +420,32 @@ export default function ChatPage({ chat, voiceChat, errorRuntimeContext, onResum
       el.scrollTop = el.scrollHeight;
     }
   }, [combinedMessages.length, voiceChat.voiceChatTranscript, voiceChat.voiceChatReply]);
+
+  useEffect(() => () => {
+    if (copyResetTimerRef.current !== null) {
+      clearTimeout(copyResetTimerRef.current);
+    }
+  }, []);
+
+  async function copyMessage(content: string, key: string) {
+    const cleanContent = content.trim();
+    if (!cleanContent) {
+      return;
+    }
+    try {
+      await copyTextToClipboard(cleanContent);
+      setCopiedMessageKey(key);
+      if (copyResetTimerRef.current !== null) {
+        clearTimeout(copyResetTimerRef.current);
+      }
+      copyResetTimerRef.current = setTimeout(() => {
+        copyResetTimerRef.current = null;
+        setCopiedMessageKey("");
+      }, 1600);
+    } catch {
+      setCopiedMessageKey("");
+    }
+  }
 
   function handleBodyScroll() {
     const el = bodyRef.current;
@@ -401,14 +459,29 @@ export default function ChatPage({ chat, voiceChat, errorRuntimeContext, onResum
   return (
     <section className="vsChatWorkspace" style={{ position: "relative" }}>
       <div style={{ position: "absolute", top: 12, right: 16, zIndex: 31 }}>
-        <button
-          type="button"
-          className="vsBtnSecondary"
-          aria-expanded={showVoiceHistory}
-          onClick={() => setShowVoiceHistory((value) => !value)}
-        >
-          {showVoiceHistory ? t("返回对话", "Back to chat") : t("语音历史", "Voice history")}
-        </button>
+          <button
+            type="button"
+            className="vsBtnSecondary"
+            style={{
+              background: "rgba(255, 255, 255, 0.75)",
+              backdropFilter: "blur(8px)",
+              WebkitBackdropFilter: "blur(8px)",
+              borderRadius: "20px",
+              boxShadow: "0 2px 8px rgba(0, 0, 0, 0.08)",
+              border: "1px solid var(--line)",
+              padding: "0 14px",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "6px"
+            }}
+            aria-expanded={showVoiceHistory}
+            onClick={() => setShowVoiceHistory((value) => !value)}
+          >
+            <HistoryIcon />
+            <span>
+              {showVoiceHistory ? t("返回对话", "Back to chat") : t("语音历史", "Voice history")}
+            </span>
+          </button>
       </div>
       {showVoiceHistory ? (
         <div style={{ position: "absolute", inset: 0, zIndex: 30, overflow: "auto", background: "var(--surface-color)", padding: "64px 18px 24px" }}>
@@ -488,7 +561,7 @@ export default function ChatPage({ chat, voiceChat, errorRuntimeContext, onResum
             {combinedMessages.map((msg, idx) => (
               <div
                 key={`${idx}-${msg.role}`}
-                className={msg.role === "user" ? "bubble user" : "bubble assistant"}
+                className={msg.role === "user" ? "bubble user hasCopyAction" : "bubble assistant hasCopyAction"}
               >
                 {msg.memorySaved || msg.memoriesUsed || msg.memorySourceSummary || msg.interrupted ? (
                   <div className="vsBubbleMeta">
@@ -526,24 +599,56 @@ export default function ChatPage({ chat, voiceChat, errorRuntimeContext, onResum
                       ? "..."
                       : "")}
                 </p>
+                {msg.content ? (
+                  <button
+                    type="button"
+                    className={`vsBubbleCopyBtn${copiedMessageKey === `${idx}-${msg.role}` ? " copied" : ""}`}
+                    aria-label={copiedMessageKey === `${idx}-${msg.role}` ? t("已复制", "Copied") : t("复制消息", "Copy message")}
+                    title={copiedMessageKey === `${idx}-${msg.role}` ? t("已复制", "Copied") : t("复制消息", "Copy message")}
+                    onClick={() => void copyMessage(msg.content, `${idx}-${msg.role}`)}
+                  >
+                    <CopyIcon />
+                    <span>{copiedMessageKey === `${idx}-${msg.role}` ? t("已复制", "Copied") : t("复制", "Copy")}</span>
+                  </button>
+                ) : null}
               </div>
             ))}
 
             {/* ── Live Streaming Bubbles ── */}
             {isVoiceActive && voiceChat.voiceChatTranscript && (
-              <div className="bubble user live">
+              <div className="bubble user live hasCopyAction">
                 <div className="vsBubbleMeta">
                   <span className="vsStreamingIndicator">{voiceChat.voiceChatLiveTranslate ? t("原文实时转写", "Live source transcript") : t("(实时输入)", "(live input)")}</span>
                 </div>
                 <p>{voiceChat.voiceChatTranscript}</p>
+                <button
+                  type="button"
+                  className={`vsBubbleCopyBtn${copiedMessageKey === "live-source" ? " copied" : ""}`}
+                  aria-label={copiedMessageKey === "live-source" ? t("已复制", "Copied") : t("复制实时原文", "Copy live source")}
+                  title={t("复制实时原文", "Copy live source")}
+                  onClick={() => void copyMessage(voiceChat.voiceChatTranscript, "live-source")}
+                >
+                  <CopyIcon />
+                  <span>{copiedMessageKey === "live-source" ? t("已复制", "Copied") : t("复制", "Copy")}</span>
+                </button>
               </div>
             )}
             {isVoiceActive && voiceChat.voiceChatReply && (
-              <div className="bubble assistant live">
+              <div className="bubble assistant live hasCopyAction">
                 <div className="vsBubbleMeta">
                   <span className="vsStreamingIndicator">{voiceChat.voiceChatLiveTranslate ? t(`译文：${voiceChat.voiceChatTargetLanguageLabel}`, `Translation: ${voiceChat.voiceChatTargetLanguageLabel}`) : t("(正在回复)", "(replying)")}</span>
                 </div>
                 <p>{voiceChat.voiceChatReply}</p>
+                <button
+                  type="button"
+                  className={`vsBubbleCopyBtn${copiedMessageKey === "live-target" ? " copied" : ""}`}
+                  aria-label={copiedMessageKey === "live-target" ? t("已复制", "Copied") : t("复制实时译文", "Copy live translation")}
+                  title={t("复制实时译文", "Copy live translation")}
+                  onClick={() => void copyMessage(voiceChat.voiceChatReply, "live-target")}
+                >
+                  <CopyIcon />
+                  <span>{copiedMessageKey === "live-target" ? t("已复制", "Copied") : t("复制", "Copy")}</span>
+                </button>
               </div>
             )}
           </div>

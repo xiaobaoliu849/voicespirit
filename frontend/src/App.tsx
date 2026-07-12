@@ -340,15 +340,17 @@ export default function App() {
     chat.replaceSession(target.chatMessages, target.chatGroupId);
     voiceChat.replaceSession(target.voiceMessages, target.voiceGroupId);
   }
-
-  function handleClearConversationHistory() {
-    setConversationHistory([]);
-    saveConversationHistory([]);
-  }
-
   function handleDeleteConversationHistoryItem(id: string) {
     setConversationHistory((prev) => {
       const next = prev.filter((item) => item.id !== id);
+      saveConversationHistory(next);
+      return next;
+    });
+  }
+
+  function handleRenameConversationHistoryItem(id: string, newName: string) {
+    setConversationHistory((prev) => {
+      const next = prev.map((item) => item.id === id ? { ...item, content: newName } : item);
       saveConversationHistory(next);
       return next;
     });
@@ -393,8 +395,8 @@ export default function App() {
           onTabChange={setActiveTab}
           onNewChatSession={handleNewChatSession}
           onHistorySelect={handleHistorySelect}
-          onClearHistory={handleClearConversationHistory}
           onDeleteHistoryItem={handleDeleteConversationHistoryItem}
+          onRenameHistoryItem={handleRenameConversationHistoryItem}
           onOpenSettings={() => setIsSettingsOpen(true)}
           isSettingsOpen={isSettingsOpen}
         />

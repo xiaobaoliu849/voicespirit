@@ -350,7 +350,7 @@ describe("App interactions", () => {
     fireEvent.click(screen.getByRole("button", { name: "新建对话" }));
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "清除全部对话" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "更多操作" })).toBeInTheDocument();
       expect(screen.getByText(/请帮我起草一封语气专业但不生硬的项目进度更新/)).toBeInTheDocument();
     });
 
@@ -372,7 +372,7 @@ describe("App interactions", () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "清除全部对话" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "更多操作" })).toBeInTheDocument();
       expect(
         Array.from(document.querySelectorAll(".vsHistoryText")).some((item) =>
           item.textContent?.includes("请帮我起草一封语气专业但不生硬的项目进度更新")
@@ -415,7 +415,11 @@ describe("App interactions", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "新建对话" }));
 
-    const deleteButton = await screen.findByRole("button", {
+    // ChatGPT-style: open ⋯ menu first, then choose Delete
+    const moreButton = await screen.findByRole("button", { name: "更多操作" });
+    fireEvent.click(moreButton);
+
+    const deleteButton = await screen.findByRole("menuitem", {
       name: /删除历史 请帮我起草一封语气专业但不生硬的项目进度更新/,
     });
     fireEvent.click(deleteButton);
