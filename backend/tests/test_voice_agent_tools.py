@@ -4,7 +4,7 @@ import asyncio
 import unittest
 
 from services.audio_research_service import ResearchDocument
-from services.voice_agent_tools import VoiceAgentToolService, VoiceAgentToolSession
+from services.voice_agent_tools import VoiceAgentToolService, VoiceAgentToolSession, VoiceToolRequest
 
 
 class FakeResearchService:
@@ -300,6 +300,187 @@ class VoiceAgentToolServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(cancel_events[0]["turn_id"], "voice-tool-1")
         self.assertEqual(cancel_events[0]["reason"], "interrupted")
         self.assertIsInstance(cancel_events[0]["elapsed_ms"], int)
+
+    async def test_native_tool_calls_run_independently_and_deduplicate_terminal_ids(self) -> None:
+        release = asyncio.Event()
+        executions: list[str] = []
+
+        class ControlledService:
+            async def run_tool(self, request, *, send_event, turn_id):
+                executions.append(request.query)
+                await send_event(
+                    "tool_call_started",
+                    {"tool_name": request.tool_name, "query": request.query, "turn_id": turn_id},
+                )
+                await release.wait()
+                return {"tool_name": request.tool_name, "query": request.query, "turn_id": turn_id}
+
+        session = VoiceAgentToolSession(service=ControlledService())  # type: ignore[arg-type]
+        results: list[str] = []
+
+        async def start(call_id: str, query: str) -> str:
+            async def on_result(result: dict[str, object]) -> None:
+                results.append(f"{call_id}:{result['query']}")
+
+            return await session.handle_request(
+                VoiceToolRequest("search_web", query, "搜索网页资料"),
+                send_event=self._send_event,
+                on_result=on_result,
+                provider_call_id=call_id,
+                conversation_turn_id="voice-turn-1",
+            )
+
+        first_turn, second_turn = await asyncio.gather(
+            start("provider-call-1", "first"),
+            start("provider-call-2", "second"),
+        )
+        await asyncio.sleep(0)
+        self.assertTrue(session.has_active_task)
+        self.assertNotEqual(first_turn, second_turn)
+        release.set()
+        await session.drain()
+
+        self.assertCountEqual(executions, ["first", "second"])
+        self.assertCountEqual(results, ["provider-call-1:first", "provider-call-2:second"])
+        duplicate = await start("provider-call-1", "must-not-run")
+        self.assertEqual(duplicate, "")
+        self.assertNotIn("must-not-run", executions)
+        native_events = [event for event in self.events if event.get("route") == "native"]
+        self.assertTrue(all(event["turn_id"] == "voice-turn-1" for event in native_events))
+        self.assertEqual(
+            {event["provider_call_id"] for event in native_events},
+            {"provider-call-1", "provider-call-2"},
+        )
+
+    async def test_native_cancel_during_result_delivery_does_not_submit_twice(self) -> None:
+        delivery_started = asyncio.Event()
+        release_delivery = asyncio.Event()
+        deliveries: list[str] = []
+        prepare_calls: list[str] = []
+
+        class CompletedService:
+            async def run_tool(self, request, *, send_event, turn_id):
+                await send_event(
+                    "tool_call_completed",
+                    {"tool_name": request.tool_name, "query": request.query, "turn_id": turn_id},
+                )
+                return {"tool_name": request.tool_name, "query": request.query, "turn_id": turn_id}
+
+        session = VoiceAgentToolSession(service=CompletedService())  # type: ignore[arg-type]
+
+        async def on_result(_result: dict[str, object]) -> None:
+            deliveries.append("success")
+            delivery_started.set()
+            await release_delivery.wait()
+
+        async def on_cancel(_reason: str) -> None:
+            deliveries.append("cancel")
+
+        async def on_cancel_prepare(reason: str) -> bool:
+            prepare_calls.append(reason)
+            return False
+
+        await session.handle_request(
+            VoiceToolRequest("search_web", "race", "搜索网页资料"),
+            send_event=self._send_event,
+            on_result=on_result,
+            on_cancel=on_cancel,
+            on_cancel_prepare=on_cancel_prepare,
+            provider_call_id="provider-race",
+        )
+        await delivery_started.wait()
+        cancel_task = asyncio.create_task(
+            session.cancel_provider_call(
+                "provider-race",
+                send_event=self._send_event,
+                reason="true_barge_in",
+                notify_provider=True,
+            )
+        )
+        await asyncio.sleep(0)
+        self.assertFalse(cancel_task.done())
+        release_delivery.set()
+        cancelled = await cancel_task
+        self.assertFalse(cancelled)
+        await session.drain()
+
+        self.assertEqual(deliveries, ["success"])
+        self.assertEqual(prepare_calls, ["true_barge_in"])
+        terminal_events = [
+            event["type"]
+            for event in self.events
+            if event["type"] in {"tool_call_completed", "tool_call_failed", "tool_call_cancelled"}
+        ]
+        self.assertEqual(terminal_events, ["tool_call_completed"])
+
+    async def test_native_collecting_cancel_cannot_finish_while_prepare_waits(self) -> None:
+        tool_started = asyncio.Event()
+        finish_tool = asyncio.Event()
+        prepare_started = asyncio.Event()
+        release_prepare = asyncio.Event()
+
+        class ControlledService:
+            async def run_tool(self, request, *, send_event, turn_id):
+                tool_started.set()
+                await finish_tool.wait()
+                await send_event(
+                    "tool_call_completed",
+                    {"tool_name": request.tool_name, "query": request.query, "turn_id": turn_id},
+                )
+                return {"tool_name": request.tool_name, "query": request.query, "turn_id": turn_id}
+
+        session = VoiceAgentToolSession(service=ControlledService())  # type: ignore[arg-type]
+
+        async def on_result(_result: dict[str, object]) -> None:
+            return None
+
+        async def on_cancel_prepare(_reason: str) -> bool:
+            prepare_started.set()
+            await release_prepare.wait()
+            return True
+
+        await session.handle_request(
+            VoiceToolRequest("search_web", "collecting race", "搜索网页资料"),
+            send_event=self._send_event,
+            on_result=on_result,
+            on_cancel_prepare=on_cancel_prepare,
+            provider_call_id="provider-collecting-race",
+        )
+        await tool_started.wait()
+        cancel_task = asyncio.create_task(
+            session.cancel_provider_call(
+                "provider-collecting-race",
+                send_event=self._send_event,
+                reason="provider_cancelled",
+                notify_provider=True,
+            )
+        )
+        await prepare_started.wait()
+        competing_cancel_task = asyncio.create_task(
+            session.cancel_provider_call(
+                "provider-collecting-race",
+                send_event=self._send_event,
+                reason="true_barge_in",
+                notify_provider=True,
+            )
+        )
+        finish_tool.set()
+        await asyncio.sleep(0)
+        self.assertFalse(competing_cancel_task.done())
+        self.assertFalse(
+            any(event["type"] == "tool_call_completed" for event in self.events)
+        )
+        release_prepare.set()
+        self.assertTrue(await cancel_task)
+        self.assertFalse(await competing_cancel_task)
+
+        terminal_events = [
+            event
+            for event in self.events
+            if event["type"] in {"tool_call_completed", "tool_call_failed", "tool_call_cancelled"}
+        ]
+        self.assertEqual([event["type"] for event in terminal_events], ["tool_call_cancelled"])
+        self.assertEqual(terminal_events[0]["reason"], "provider_cancelled")
 
 
 if __name__ == "__main__":

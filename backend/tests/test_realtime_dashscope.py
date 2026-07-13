@@ -1,110 +1,495 @@
-import unittest
-from unittest.mock import AsyncMock, MagicMock, patch
 import asyncio
-from services.realtime_voice_service import RealtimeVoiceService
+import json
+import unittest
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock
 
-class TestDashScopeRealtime(unittest.IsolatedAsyncioTestCase):
-    def setUp(self):
+from services.realtime_voice_service import DashScopeRealtimeCallback, RealtimeVoiceService
+from services.realtime_tool_protocol import tool_error_payload, tool_result_payload
+from services.voice_agent_tools import VoiceAgentToolSession
+
+
+class _ReplayComplete(Exception):
+    pass
+
+
+class _OneBatchGoogleSession:
+    def __init__(self, response: SimpleNamespace) -> None:
+        self.response = response
+        self.served = False
+        self.function_responses = []
+
+    def receive(self):
+        if self.served:
+            raise _ReplayComplete()
+        self.served = True
+
+        async def iterator():
+            yield self.response
+
+        return iterator()
+
+    async def send_tool_response(self, *, function_responses) -> None:
+        self.function_responses.append(function_responses)
+
+
+class _FailingBatchGoogleSession(_OneBatchGoogleSession):
+    def receive(self):
+        if not self.served:
+            return super().receive()
+
+        async def iterator():
+            await asyncio.sleep(0.02)
+            raise _ReplayComplete()
+            yield  # pragma: no cover
+
+        return iterator()
+
+    async def send_tool_response(self, *, function_responses) -> None:
+        self.function_responses.append(function_responses)
+        raise RuntimeError("batch delivery failed")
+
+    async def close(self) -> None:
+        return None
+
+
+class _GoogleSequenceSession:
+    def __init__(self, responses: list[SimpleNamespace]) -> None:
+        self.responses = responses
+        self.served = False
+
+    def receive(self):
+        if self.served:
+            raise _ReplayComplete()
+        self.served = True
+
+        async def iterator():
+            for response in self.responses:
+                yield response
+                await asyncio.sleep(0)
+
+        return iterator()
+
+
+class _ImmediateNativeToolSession:
+    has_active_task = False
+    current_turn_id = ""
+
+    def __init__(self) -> None:
+        self.seen: set[str] = set()
+        self.requests = []
+        self.tool_index = 0
+        self.result_tasks: list[asyncio.Task[None]] = []
+
+    def reserve_tool_call_id(self) -> str:
+        self.tool_index += 1
+        return f"voice-tool-{self.tool_index}"
+
+    def has_seen_provider_call(self, call_id: str) -> bool:
+        return call_id in self.seen
+
+    def mark_provider_call_seen(self, call_id: str) -> None:
+        self.seen.add(call_id)
+
+    async def handle_request(self, request, **kwargs) -> str:
+        call_id = kwargs["provider_call_id"]
+        self.seen.add(call_id)
+        self.requests.append(request)
+        result_task = asyncio.create_task(
+            kwargs["on_result"](
+                {"tool_name": request.tool_name, "query": request.query, "answer": "grounded", "sources": []}
+            )
+        )
+        self.result_tasks.append(result_task)
+        await asyncio.sleep(0)
+        if result_task.done() or len(self.result_tasks) > 1:
+            await asyncio.gather(*self.result_tasks)
+        return kwargs["tool_call_id"]
+
+    async def cancel_provider_call(self, *_args, **_kwargs) -> bool:
+        return False
+
+
+class _MemorySession:
+    _config = SimpleNamespace(memory_scope="", group_id="")
+
+    def note_user_transcript(self, _text: str) -> None:
+        return None
+
+    async def flush_turn(self) -> dict:
+        return {}
+
+
+class TestRealtimeNativeToolDelivery(unittest.IsolatedAsyncioTestCase):
+    def setUp(self) -> None:
         self.service = RealtimeVoiceService()
 
-    @patch("dashscope.audio.qwen_omni.OmniRealtimeConversation")
-    async def test_dashscope_settings_resolution(self, mock_conv):
-        # Mock config
-        mock_config = MagicMock()
-        mock_config.get_provider_settings.return_value = {
+    async def test_duplex_runner_cancels_peer_after_normal_disconnect(self) -> None:
+        peer_cancelled = asyncio.Event()
+
+        async def disconnected_client() -> None:
+            await asyncio.sleep(0)
+            return None
+
+        async def provider_receiver() -> None:
+            try:
+                await asyncio.Future()
+            finally:
+                peer_cancelled.set()
+
+        client_task = asyncio.create_task(disconnected_client())
+        provider_task = asyncio.create_task(provider_receiver())
+        await self.service._run_duplex_tasks(client_task, provider_task)
+
+        self.assertTrue(provider_task.cancelled())
+        self.assertTrue(peer_cancelled.is_set())
+
+    def test_dashscope_settings_require_current_model_and_workspace_endpoint(self) -> None:
+        config = MagicMock()
+        config.get_provider_settings.return_value = {
             "api_key": "test_key",
-            "model": "qwen-realtime",
-            "base_url": "https://dashscope.aliyuncs.com"
+            "model": "qwen3.5-omni-plus-realtime",
+            "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+            "realtime_base_url": "wss://workspace.cn-beijing.maas.aliyuncs.com/api-ws/v1/realtime",
         }
-        self.service.config = mock_config
+        self.service.config = config
 
-        settings = self.service._resolve_dashscope_settings("qwen-realtime")
-        self.assertEqual(settings["api_key"], "test_key")
-        self.assertEqual(settings["model"], "qwen-realtime")
-        self.assertEqual(settings["region"], "cn")
+        settings = self.service._resolve_dashscope_settings(None)
 
-    @patch("dashscope.audio.qwen_omni.OmniRealtimeConversation")
-    async def test_dashscope_session_init(self, mock_conv):
-        # This is a shallow smoke test to ensure DashScope methods exist and are called
-        mock_ws = MagicMock()
-        mock_ws.send_json = asyncio.Future()
-        mock_ws.send_json.set_result(None)
-        
-        # We mock the entire stream_dashscope_session dependencies since we don't have a real WS loop here
-        with patch.object(self.service, "_resolve_dashscope_settings", return_value={
-            "api_key": "sk-test",
-            "model": "qwen-realtime",
-            "region": "cn"
-        }):
-            # We don't actually run the full session loop as it requires a real websocket
-            # but we can verify the settings resolution works.
-            pass
-
-    async def test_google_tool_result_injection_sends_context_turn(self):
-        mock_ws = MagicMock()
-        mock_ws.send_json = AsyncMock()
-        mock_session = MagicMock()
-        mock_session.send = AsyncMock()
-
-        await self.service._apply_google_tool_result(
-            mock_ws,
-            mock_session,
-            {
-                "query": "voice agent",
-                "answer": "summary",
-                "sources": [{"title": "Source", "uri": "https://example.com", "snippet": "content"}],
-            },
+        self.assertEqual(settings["model"], "qwen3.5-omni-plus-realtime")
+        self.assertEqual(
+            settings["realtime_base_url"],
+            "wss://workspace.cn-beijing.maas.aliyuncs.com/api-ws/v1/realtime",
         )
 
-        mock_ws.send_json.assert_awaited_once()
-        mock_session.send.assert_awaited_once()
-        self.assertIn("External search tool context", mock_session.send.await_args.kwargs["input"])
-        self.assertTrue(mock_session.send.await_args.kwargs["end_of_turn"])
+    def test_dashscope_settings_reject_old_model_without_fallback(self) -> None:
+        config = MagicMock()
+        config.get_provider_settings.return_value = {
+            "api_key": "test_key",
+            "model": "qwen3-omni-flash-realtime-2025-12-01",
+            "base_url": "",
+            "realtime_base_url": "wss://workspace.cn-beijing.maas.aliyuncs.com/api-ws/v1/realtime",
+        }
+        self.service.config = config
 
-    async def test_dashscope_tool_result_injection_creates_response(self):
-        mock_ws = MagicMock()
-        mock_ws.send_json = AsyncMock()
-        mock_conversation = MagicMock()
+        with self.assertRaisesRegex(RuntimeError, "qwen3.5-omni-plus-realtime"):
+            self.service._resolve_dashscope_settings(None)
 
-        await self.service._apply_dashscope_tool_result(
-            mock_ws,
-            mock_conversation,
-            {
-                "query": "voice agent",
-                "answer": "summary",
-                "sources": [{"title": "Source", "uri": "https://example.com", "snippet": "content"}],
-            },
-        )
+    async def test_google_tool_result_uses_typed_function_response(self) -> None:
+        websocket = MagicMock()
+        websocket.send_json = AsyncMock()
+        session = MagicMock()
+        session.send_tool_response = AsyncMock()
+        result = {
+            "tool_name": "search_web",
+            "query": "voice agent",
+            "answer": "summary",
+            "sources": [{"title": "Source", "uri": "https://example.com", "snippet": "content"}],
+        }
 
-        mock_ws.send_json.assert_awaited_once()
-        mock_conversation.create_response.assert_called_once()
-        self.assertIn(
-            "External search tool context",
-            mock_conversation.create_response.call_args.kwargs["instructions"],
-        )
-
-    async def test_response_gated_event_includes_tool_turn_metadata(self):
-        mock_ws = MagicMock()
-        mock_ws.send_json = AsyncMock()
-
-        await self.service._send_response_gated(
-            mock_ws,
-            provider="DashScope",
+        await self.service._send_google_tool_response(
+            websocket,
+            session,
+            provider_call_id="call-google-1",
             tool_name="search_web",
-            query="voice agent",
-            turn_id="voice-tool-1",
+            response_payload=tool_result_payload(result),
+            result=result,
         )
 
-        mock_ws.send_json.assert_awaited_once_with(
+        session.send_tool_response.assert_awaited_once()
+        function_response = session.send_tool_response.await_args.kwargs["function_responses"][0]
+        self.assertEqual(function_response.id, "call-google-1")
+        self.assertEqual(function_response.name, "search_web")
+        self.assertTrue(function_response.response["output"]["ok"])
+        self.assertFalse(hasattr(session, "send") and session.send.called)
+        websocket.send_json.assert_awaited_once()
+        self.assertEqual(websocket.send_json.await_args.args[0]["type"], "tool_result_delivered")
+
+    async def test_google_tool_error_is_typed_and_correlated(self) -> None:
+        websocket = MagicMock()
+        websocket.send_json = AsyncMock()
+        session = MagicMock()
+        session.send_tool_response = AsyncMock()
+
+        await self.service._send_google_tool_response(
+            websocket,
+            session,
+            provider_call_id="call-google-error",
+            tool_name="search_web",
+            response_payload=tool_error_payload("search failed"),
+        )
+
+        function_response = session.send_tool_response.await_args.kwargs["function_responses"][0]
+        self.assertEqual(function_response.id, "call-google-error")
+        self.assertFalse(function_response.response["error"]["ok"])
+
+    async def test_google_tool_delivery_failure_closes_session(self) -> None:
+        websocket = MagicMock()
+        websocket.send_json = AsyncMock()
+        session = MagicMock()
+        session.send_tool_response = AsyncMock(side_effect=RuntimeError("transport closed"))
+        session.close = AsyncMock()
+
+        with self.assertRaisesRegex(RuntimeError, "transport closed"):
+            await self.service._send_google_tool_response(
+                websocket,
+                session,
+                provider_call_id="call-google-fail",
+                tool_name="search_web",
+                response_payload=tool_error_payload("failed"),
+            )
+
+        session.close.assert_awaited_once()
+        self.assertTrue(
+            any(call.args[0].get("type") == "error" for call in websocket.send_json.await_args_list)
+        )
+
+    async def test_google_loop_handles_top_level_tool_call_without_server_content(self) -> None:
+        websocket = MagicMock()
+        websocket.send_json = AsyncMock()
+        tools = _ImmediateNativeToolSession()
+        session = _OneBatchGoogleSession(
+            SimpleNamespace(
+                data=None,
+                text=None,
+                server_content=None,
+                tool_call=SimpleNamespace(
+                    function_calls=[
+                        SimpleNamespace(id="call-top-level", name="search_web", args={"query": "latest news"})
+                    ]
+                ),
+                tool_call_cancellation=None,
+            )
+        )
+
+        with self.assertRaises(_ReplayComplete):
+            await self.service._google_to_client_loop(
+                websocket,
+                session,
+                _MemorySession(),
+                tools,
+            )
+
+        self.assertEqual([request.query for request in tools.requests], ["latest news"])
+        self.assertEqual(len(session.function_responses), 1)
+        self.assertEqual(session.function_responses[0][0].id, "call-top-level")
+
+    async def test_google_loop_batches_multiple_function_responses_with_stable_ids(self) -> None:
+        websocket = MagicMock()
+        websocket.send_json = AsyncMock()
+        tools = _ImmediateNativeToolSession()
+        recorder = MagicMock()
+        recorder.current_turn_id = "voice-turn-canonical"
+        recorder.record_tool_event = AsyncMock()
+        session = _OneBatchGoogleSession(
+            SimpleNamespace(
+                data=None,
+                text=None,
+                server_content=None,
+                tool_call=SimpleNamespace(
+                    function_calls=[
+                        SimpleNamespace(id="call-search", name="search_web", args={"query": "news"}),
+                        SimpleNamespace(
+                            id="call-translate",
+                            name="translate_text",
+                            args={"text": "hello", "target_language": "中文"},
+                        ),
+                    ]
+                ),
+                tool_call_cancellation=None,
+            )
+        )
+
+        with self.assertRaises(_ReplayComplete):
+            await self.service._google_to_client_loop(
+                websocket,
+                session,
+                _MemorySession(),
+                tools,
+                recorder,
+            )
+
+        self.assertEqual(len(session.function_responses), 1)
+        self.assertEqual(
+            [response.id for response in session.function_responses[0]],
+            ["call-search", "call-translate"],
+        )
+        delivered = [
+            call.args[0]
+            for call in websocket.send_json.await_args_list
+            if call.args[0].get("type") == "tool_result_delivered"
+        ]
+        self.assertEqual(
+            [
+                (event["turn_id"], event["provider_call_id"], event["tool_call_id"])
+                for event in delivered
+            ],
+            [
+                ("voice-turn-canonical", "call-search", "voice-tool-1"),
+                ("voice-turn-canonical", "call-translate", "voice-tool-2"),
+            ],
+        )
+
+    async def test_google_batch_delivery_failure_fails_every_child_call(self) -> None:
+        class ImmediateToolService:
+            async def run_tool(self, request, *, send_event, turn_id):
+                await send_event(
+                    "tool_call_completed",
+                    {"tool_name": request.tool_name, "query": request.query, "turn_id": turn_id},
+                )
+                return {"tool_name": request.tool_name, "query": request.query, "sources": []}
+
+        websocket = MagicMock()
+        websocket.send_json = AsyncMock()
+        tools = VoiceAgentToolSession(service=ImmediateToolService())  # type: ignore[arg-type]
+        session = _FailingBatchGoogleSession(
+            SimpleNamespace(
+                data=None,
+                text=None,
+                server_content=None,
+                tool_call=SimpleNamespace(
+                    function_calls=[
+                        SimpleNamespace(id="call-one", name="search_web", args={"query": "one"}),
+                        SimpleNamespace(id="call-two", name="search_web", args={"query": "two"}),
+                    ]
+                ),
+                tool_call_cancellation=None,
+            )
+        )
+
+        with self.assertRaises(_ReplayComplete):
+            await self.service._google_to_client_loop(websocket, session, _MemorySession(), tools)
+        await tools.drain()
+
+        events = [call.args[0] for call in websocket.send_json.await_args_list]
+        failed_ids = {
+            event.get("provider_call_id")
+            for event in events
+            if event.get("type") == "tool_result_delivery_failed"
+        }
+        completed_ids = {
+            event.get("provider_call_id")
+            for event in events
+            if event.get("type") == "tool_call_completed"
+        }
+        self.assertEqual(failed_ids, {"call-one", "call-two"})
+        self.assertEqual(completed_ids, set())
+
+    async def test_google_provider_cancellation_stops_matching_native_call(self) -> None:
+        class HangingToolService:
+            async def run_tool(self, request, *, send_event, turn_id):
+                await send_event(
+                    "tool_call_started",
+                    {"tool_name": request.tool_name, "query": request.query, "turn_id": turn_id},
+                )
+                await asyncio.Future()
+
+        websocket = MagicMock()
+        websocket.send_json = AsyncMock()
+        tools = VoiceAgentToolSession(service=HangingToolService())  # type: ignore[arg-type]
+        session = _GoogleSequenceSession(
+            [
+                SimpleNamespace(
+                    data=None,
+                    text=None,
+                    server_content=None,
+                    tool_call=SimpleNamespace(
+                        function_calls=[
+                            SimpleNamespace(id="call-cancel", name="search_web", args={"query": "cancel me"})
+                        ]
+                    ),
+                    tool_call_cancellation=None,
+                ),
+                SimpleNamespace(
+                    data=None,
+                    text=None,
+                    server_content=None,
+                    tool_call=None,
+                    tool_call_cancellation=SimpleNamespace(ids=["call-cancel"]),
+                ),
+            ]
+        )
+
+        with self.assertRaises(_ReplayComplete):
+            await self.service._google_to_client_loop(websocket, session, _MemorySession(), tools)
+
+        cancelled = [
+            call.args[0]
+            for call in websocket.send_json.await_args_list
+            if call.args[0].get("type") == "tool_call_cancelled"
+        ]
+        self.assertEqual(len(cancelled), 1)
+        self.assertEqual(cancelled[0]["provider_call_id"], "call-cancel")
+        self.assertEqual(cancelled[0]["reason"], "provider_cancelled")
+
+    async def test_dashscope_tool_result_uses_function_call_output_then_response_create(self) -> None:
+        websocket = MagicMock()
+        websocket.send_json = AsyncMock()
+        conversation = MagicMock()
+        result = {"tool_name": "search_web", "query": "voice agent", "answer": "summary", "sources": []}
+
+        await self.service._send_dashscope_tool_response(
+            websocket,
+            conversation,
+            provider_call_id="call-qwen-1",
+            tool_name="search_web",
+            response_payload=tool_result_payload(result),
+            result=result,
+        )
+
+        raw_event = json.loads(conversation.send_raw.call_args.args[0])
+        self.assertEqual(raw_event["type"], "conversation.item.create")
+        self.assertEqual(raw_event["item"]["type"], "function_call_output")
+        self.assertEqual(raw_event["item"]["call_id"], "call-qwen-1")
+        self.assertTrue(json.loads(raw_event["item"]["output"])["ok"])
+        conversation.create_response.assert_called_once_with()
+        websocket.send_json.assert_awaited_once()
+
+    async def test_dashscope_tool_delivery_failure_closes_conversation(self) -> None:
+        websocket = MagicMock()
+        websocket.send_json = AsyncMock()
+        conversation = MagicMock()
+        conversation.send_raw.side_effect = RuntimeError("transport closed")
+
+        with self.assertRaisesRegex(RuntimeError, "transport closed"):
+            await self.service._send_dashscope_tool_response(
+                websocket,
+                conversation,
+                provider_call_id="call-qwen-fail",
+                tool_name="search_web",
+                response_payload=tool_error_payload("failed"),
+            )
+
+        conversation.close.assert_called_once_with()
+        self.assertTrue(
+            any(call.args[0].get("type") == "error" for call in websocket.send_json.await_args_list)
+        )
+
+    async def test_dashscope_callback_distinguishes_function_phase_terminal(self) -> None:
+        queue: asyncio.Queue[dict[str, object]] = asyncio.Queue()
+        callback = DashScopeRealtimeCallback(loop=asyncio.get_running_loop(), queue=queue)
+        callback.on_event(
             {
-                "type": "response_gated",
-                "provider": "DashScope",
-                "tool_name": "search_web",
-                "query": "voice agent",
-                "turn_id": "voice-tool-1",
-                "message": "检测到工具请求，已暂停直接回答，等待工具结果。",
+                "type": "response.function_call_arguments.done",
+                "response_id": "response-tool",
+                "call_id": "call-qwen-1",
+                "name": "search_web",
+                "arguments": '{"query":"latest news"}',
             }
         )
+        callback.on_event(
+            {
+                "type": "response.done",
+                "response": {"id": "response-tool", "status": "completed", "output": [{"type": "function_call"}]},
+            }
+        )
+
+        function_event = await queue.get()
+        terminal_event = await queue.get()
+        self.assertEqual(function_event["type"], "function_call")
+        self.assertEqual(function_event["provider_call_id"], "call-qwen-1")
+        self.assertEqual(terminal_event["type"], "tool_phase_complete")
+
 
 if __name__ == "__main__":
     unittest.main()

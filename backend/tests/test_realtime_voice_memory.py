@@ -467,6 +467,11 @@ class RealtimeMemorySessionTests(unittest.IsolatedAsyncioTestCase):
         assert detection is not None
         self.assertEqual(detection.silence_duration_ms, 1500)
         self.assertEqual(str(realtime_input.activity_handling), "ActivityHandling.NO_INTERRUPTION")
+        declarations = config.tools[0].function_declarations
+        self.assertEqual(
+            [declaration.name for declaration in declarations],
+            ["search_web", "translate_text", "summarize_transcript"],
+        )
 
     def test_google_live_translate_config_uses_translation_settings_only(self) -> None:
         with patch("services.realtime_voice_service.types", new=_FakeGoogleTypes):
@@ -477,6 +482,7 @@ class RealtimeMemorySessionTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("output_audio_transcription", config.kwargs)
         self.assertNotIn("system_instruction", config.kwargs)
         self.assertNotIn("speech_config", config.kwargs)
+        self.assertNotIn("tools", config.kwargs)
         translation_config = config.kwargs["translation_config"]
         self.assertEqual(translation_config.target_language_code, "zh-Hans")
         self.assertTrue(translation_config.echo_target_language)
