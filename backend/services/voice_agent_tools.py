@@ -72,15 +72,15 @@ class VoiceAgentToolService:
         r"summarize",
         r"summary",
     )
-    _TTS_PATTERNS = (
-        r"生成语音",
-        r"合成语音",
-        r"转成语音",
-        r"朗读",
-        r"配音",
-        r"念一下",
-        r"text to speech",
-        r"tts",
+    _TTS_TRANSFORM_COMMAND = re.compile(
+        r"^(?:(?:请|麻烦你)\s*)?(?:(?:你)?帮我\s*)?(?:把|将)\s*(?P<content>.+?)\s*"
+        r"(?:生成语音|合成语音|转成语音)\s*[。！？!?]?$",
+        flags=re.IGNORECASE,
+    )
+    _TTS_SPEAK_COMMAND = re.compile(
+        r"^(?:(?:请|麻烦你)\s*)?(?:(?:你)?帮我\s*)?(?:朗读|配音|念一下)\s*"
+        r"(?P<content>.+?)\s*[。！？!?]?$",
+        flags=re.IGNORECASE,
     )
     _TARGET_LANGUAGE_PATTERN = re.compile(
         r"(?:翻译|译|翻)?(?:成|为|到|into|to)\s*(中文|英文|英语|日文|日语|韩文|韩语|法文|法语|德文|德语|西班牙语|Spanish|English|Chinese|Japanese|Korean|French|German)",
@@ -158,15 +158,12 @@ class VoiceAgentToolService:
         candidate = re.sub(r"\s+", " ", str(text or "")).strip()
         if not candidate:
             return None
-        if not any(re.search(pattern, candidate, flags=re.IGNORECASE) for pattern in cls._TTS_PATTERNS):
+        command_match = cls._TTS_TRANSFORM_COMMAND.fullmatch(candidate)
+        if command_match is None:
+            command_match = cls._TTS_SPEAK_COMMAND.fullmatch(candidate)
+        if command_match is None:
             return None
-        content = re.sub(r"^(请|麻烦你|帮我|你帮我)?\s*(把|将)?\s*", "", candidate, flags=re.IGNORECASE).strip()
-        content = re.sub(
-            r"(生成语音|合成语音|转成语音|朗读|配音|念一下|text to speech|tts)",
-            "",
-            content,
-            flags=re.IGNORECASE,
-        ).strip()
+        content = str(command_match.group("content") or "").strip()
         content = re.sub(r"^(这句|这段|下面这句|下面这段|文本|内容)\s*", "", content).strip()
         content = re.sub(r"^[,，。；;：:\s]+", "", content).strip()
         content = re.sub(r"[,，。；;：:\s]+$", "", content).strip()

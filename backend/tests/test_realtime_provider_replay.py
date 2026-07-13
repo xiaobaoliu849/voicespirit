@@ -695,7 +695,7 @@ class RealtimeProviderReplayTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(decisions[0]["classification"], "BACKCHANNEL")
         self.assertIsNone(interruption.pending)
 
-    async def test_google_provider_interrupted_timeout_resumes_response(self) -> None:
+    async def test_google_provider_interrupted_timeout_does_not_start_synthetic_turn(self) -> None:
         websocket = CollectingWebSocket(
             [
                 {
@@ -725,7 +725,7 @@ class RealtimeProviderReplayTests(unittest.IsolatedAsyncioTestCase):
         )
         await session.response_processed.wait()
         self.assertIsNotNone(interruption.pending)
-        self.assertIsNotNone(interruption.resume_provider)
+        self.assertIsNone(interruption.resume_provider)
 
         await self.service._client_to_google_loop(
             websocket,
@@ -737,12 +737,84 @@ class RealtimeProviderReplayTests(unittest.IsolatedAsyncioTestCase):
             interruption,
         )
 
-        self.assertEqual(len(session.sent), 1)
-        self.assertIn("Continue the previous answer", str(session.sent[0].get("input", "")))
+        self.assertEqual(session.sent, [])
         self.assertIsNone(interruption.pending)
         session.release_receive.set()
         with self.assertRaises(ReplayComplete):
             await provider_task
+
+    async def test_google_output_transcription_wins_over_response_text(self) -> None:
+        websocket = CollectingWebSocket()
+        memory = FakeMemorySession()
+        tools = RecordingToolSession(active=False)
+        recorder = await self._recorder("Google")
+        response_with_both_channels = SimpleNamespace(
+            data=None,
+            text="So, you could send those pieces?",
+            server_content=SimpleNamespace(
+                output_transcription=SimpleNamespace(text="你可以把这些内容发过来。", finished=True)
+            ),
+        )
+        session = FakeGoogleSession(
+            [[response_with_both_channels], [google_response(turn_complete=True)]]
+        )
+
+        with self.assertRaises(ReplayComplete):
+            await self.service._google_to_client_loop(
+                websocket, session, memory, tools, recorder
+            )
+
+        assistant_texts = [
+            event.get("text") for event in websocket.events if event["type"] == "assistant_text"
+        ]
+        self.assertEqual(assistant_texts, ["你可以把这些内容发过来。"])
+
+    async def test_google_response_text_is_used_only_as_turn_fallback(self) -> None:
+        websocket = CollectingWebSocket()
+        memory = FakeMemorySession()
+        tools = RecordingToolSession(active=False)
+        recorder = await self._recorder("Google")
+        session = FakeGoogleSession(
+            [
+                [SimpleNamespace(data=None, text="Fallback answer.", server_content=None)],
+                [google_response(turn_complete=True)],
+            ]
+        )
+
+        with self.assertRaises(ReplayComplete):
+            await self.service._google_to_client_loop(
+                websocket, session, memory, tools, recorder
+            )
+
+        assistant_texts = [
+            event.get("text") for event in websocket.events if event["type"] == "assistant_text"
+        ]
+        self.assertEqual(assistant_texts, ["Fallback answer."])
+
+    async def test_google_output_transcription_emits_only_novel_overlapping_text(self) -> None:
+        websocket = CollectingWebSocket()
+        memory = FakeMemorySession()
+        tools = RecordingToolSession(active=False)
+        recorder = await self._recorder("Google")
+        session = FakeGoogleSession(
+            [
+                [google_response(output_transcription=SimpleNamespace(text="So, you could send"))],
+                [google_response(output_transcription=SimpleNamespace(text="send those pieces?", finished=True))],
+                [google_response(turn_complete=True)],
+            ]
+        )
+
+        with self.assertRaises(ReplayComplete):
+            await self.service._google_to_client_loop(
+                websocket, session, memory, tools, recorder
+            )
+
+        assistant_text = "".join(
+            str(event.get("text", ""))
+            for event in websocket.events
+            if event["type"] == "assistant_text"
+        )
+        self.assertEqual(assistant_text, "So, you could send those pieces?")
 
     async def test_google_native_interrupted_true_barge_in_does_not_swallow_new_turn_terminal(self) -> None:
         websocket = CollectingWebSocket()

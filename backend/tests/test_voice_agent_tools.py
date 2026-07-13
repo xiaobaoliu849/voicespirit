@@ -131,6 +131,25 @@ class VoiceAgentToolServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(request.tool_name, "synthesize_tts")
         self.assertEqual(request.query, "你好，欢迎使用 VoiceSpirit")
 
+    def test_tts_discussion_is_not_treated_as_a_tool_command(self) -> None:
+        statements = (
+            "我们聊聊如何生成语音",
+            "Voice Agent 的 TTS 有重复问题",
+            "为什么合成语音会突然出现",
+            "我刚才说的是 text to speech，不是让你执行",
+        )
+
+        for statement in statements:
+            with self.subTest(statement=statement):
+                self.assertIsNone(VoiceAgentToolService.extract_tts_request(statement))
+
+    def test_explicit_speak_command_extracts_only_spoken_content(self) -> None:
+        request = VoiceAgentToolService.extract_tts_request("请帮我朗读 系统已经准备好了。")
+
+        self.assertIsNotNone(request)
+        assert request is not None
+        self.assertEqual(request.query, "系统已经准备好了")
+
     async def test_run_search_emits_progress_result_and_sources(self) -> None:
         service = VoiceAgentToolService(research_service=FakeResearchService())  # type: ignore[arg-type]
 

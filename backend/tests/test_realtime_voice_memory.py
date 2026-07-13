@@ -456,6 +456,18 @@ class RealtimeMemorySessionTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(_is_google_live_translate_model("gemini-3.5-live-translate-preview"))
         self.assertFalse(_is_google_live_translate_model("gemini-2.5-flash-native-audio-preview-12-2025"))
 
+    def test_google_voice_config_uses_conversation_safe_endpointing(self) -> None:
+        config = RealtimeVoiceService._build_live_config("Aoede")
+
+        realtime_input = config.realtime_input_config
+        self.assertIsNotNone(realtime_input)
+        assert realtime_input is not None
+        detection = realtime_input.automatic_activity_detection
+        self.assertIsNotNone(detection)
+        assert detection is not None
+        self.assertEqual(detection.silence_duration_ms, 1500)
+        self.assertEqual(str(realtime_input.activity_handling), "ActivityHandling.NO_INTERRUPTION")
+
     def test_google_live_translate_config_uses_translation_settings_only(self) -> None:
         with patch("services.realtime_voice_service.types", new=_FakeGoogleTypes):
             config = RealtimeVoiceService._build_live_translate_config("zh-Hans", True)

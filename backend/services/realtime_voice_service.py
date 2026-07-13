@@ -119,6 +119,40 @@ def _merge_memory_text(previous: str, incoming: str) -> str:
     return f"{previous}{next_text}"
 
 
+def _merge_streaming_text(previous: str, incoming: str) -> tuple[str, str]:
+    """Return canonical stream text and only the novel suffix to publish."""
+    before = str(previous or "").strip()
+    next_text = str(incoming or "").strip()
+    if not next_text:
+        return before, ""
+    if not before:
+        return next_text, next_text
+    if next_text.startswith(before):
+        delta = next_text[len(before):]
+        return next_text, delta
+    if before.endswith(next_text):
+        return before, ""
+
+    overlap = 0
+    for size in range(min(len(before), len(next_text)), 0, -1):
+        if before[-size:] == next_text[:size]:
+            overlap = size
+            break
+    novel = next_text[overlap:]
+    if not novel:
+        return before, ""
+
+    separator = ""
+    if (
+        before[-1:].isalnum()
+        and novel[:1].isalnum()
+        and re.search(r"[A-Za-z]", before[-1:] + novel[:1])
+    ):
+        separator = " "
+    delta = f"{separator}{novel}"
+    return f"{before}{delta}", delta
+
+
 class RealtimeMemorySession:
     _PREFERENCE_PATTERNS = (
         r"喜欢",
@@ -1759,7 +1793,7 @@ class RealtimeVoiceService:
                     start_of_speech_sensitivity=types.StartSensitivity.START_SENSITIVITY_HIGH,
                     end_of_speech_sensitivity=types.EndSensitivity.END_SENSITIVITY_HIGH,
                     prefix_padding_ms=500,
-                    silence_duration_ms=800,
+                    silence_duration_ms=1500,
                 ),
                 activity_handling=types.ActivityHandling.NO_INTERRUPTION,
             ),
@@ -1911,22 +1945,11 @@ class RealtimeVoiceService:
         consume_next_google_terminal = False
         last_activity_time = time.time()
         live_translate_has_content = False
+        pending_google_response_text = ""
+        google_output_transcription_seen = False
+        google_output_transcription_text = ""
         live_translate_input_finished = False
         live_translate_output_finished = False
-
-        async def resume_interrupted_google_response() -> None:
-            nonlocal google_provider_interrupted_early
-            if is_live_translate or not google_provider_interrupted_early:
-                return
-            await session.send(
-                input=(
-                    "The latest user audio was only a backchannel or noise. "
-                    "Continue the previous answer naturally from the point where it stopped; "
-                    "do not acknowledge this instruction."
-                ),
-                end_of_turn=True,
-            )
-            google_provider_interrupted_early = False
 
         async def finalize_user_transcript_if_needed(clear_transcript: bool = False) -> None:
             nonlocal pending_google_user_transcript, finalized_google_user_transcript, google_provider_interrupted_early
@@ -1982,7 +2005,6 @@ class RealtimeVoiceService:
                 memory_session=memory_session,
                 tool_session=tool_session,
                 recorder=recorder,
-                resume_provider=resume_interrupted_google_response,
                 record_memory=not is_live_translate,
             )
             if not should_process_user:
@@ -2146,15 +2168,10 @@ class RealtimeVoiceService:
                             live_translate_has_content = True
                         if not is_live_translate:
                             await finalize_user_transcript_if_needed(clear_transcript=True)
-                        if not gated_tool_turn_id and not suppress_interrupted_google_response:
-                            await self._emit_assistant_output(
-                                websocket,
-                                interruption,
-                                {"type": "assistant_text", "text": str(response_text)},
-                                memory_session=memory_session,
-                                recorder=recorder,
-                                record_memory=not is_live_translate,
-                            )
+                        pending_google_response_text, _ = _merge_streaming_text(
+                            pending_google_response_text,
+                            str(response_text),
+                        )
 
                     server_content = getattr(response, "server_content", None)
                     if not server_content:
@@ -2163,7 +2180,9 @@ class RealtimeVoiceService:
                     if getattr(server_content, "interrupted", False) and not is_live_translate:
                         await finalize_user_transcript_if_needed(clear_transcript=True)
                         google_provider_interrupted_early = True
-                        interruption.set_resume_provider(resume_interrupted_google_response)
+                        pending_google_response_text = ""
+                        google_output_transcription_seen = False
+                        google_output_transcription_text = ""
                         await self._begin_interruption(
                             websocket,
                             interruption,
@@ -2217,14 +2236,25 @@ class RealtimeVoiceService:
                         ("output_transcription", "output_audio_transcription"),
                     )
                     if assistant_transcript:
+                        google_output_transcription_seen = True
+                        (
+                            google_output_transcription_text,
+                            assistant_transcript_delta,
+                        ) = _merge_streaming_text(
+                            google_output_transcription_text, assistant_transcript
+                        )
                         if is_live_translate:
                             last_activity_time = time.time()
                             live_translate_has_content = True
-                        if not gated_tool_turn_id and not suppress_interrupted_google_response:
+                        if (
+                            assistant_transcript_delta
+                            and not gated_tool_turn_id
+                            and not suppress_interrupted_google_response
+                        ):
                             await self._emit_assistant_output(
                                 websocket,
                                 interruption,
-                                {"type": "assistant_text", "text": assistant_transcript},
+                                {"type": "assistant_text", "text": assistant_transcript_delta},
                                 memory_session=memory_session,
                                 recorder=recorder,
                                 record_memory=not is_live_translate,
@@ -2241,6 +2271,23 @@ class RealtimeVoiceService:
                         await complete_live_translate_turn_if_needed()
 
                     if getattr(server_content, "turn_complete", False):
+                        if (
+                            pending_google_response_text
+                            and not google_output_transcription_seen
+                            and not gated_tool_turn_id
+                            and not suppress_interrupted_google_response
+                        ):
+                            await self._emit_assistant_output(
+                                websocket,
+                                interruption,
+                                {"type": "assistant_text", "text": pending_google_response_text},
+                                memory_session=memory_session,
+                                recorder=recorder,
+                                record_memory=not is_live_translate,
+                            )
+                        pending_google_response_text = ""
+                        google_output_transcription_seen = False
+                        google_output_transcription_text = ""
                         await finalize_user_transcript_if_needed(clear_transcript=True)
                         if is_live_translate:
                             await complete_live_translate_turn_if_needed(force=True)
