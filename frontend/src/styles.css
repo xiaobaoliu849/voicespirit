@@ -7171,3 +7171,45 @@ button.danger:focus-visible {
   border-radius: 50%;
   animation: vsSpin 0.8s linear infinite;
 }
+.vsVoiceToolStatus {
+  align-items: center;
+  align-self: flex-start;
+  background: color-mix(in srgb, var(--accent, #6d5dfc) 9%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent, #6d5dfc) 24%, transparent);
+  border-radius: 12px;
+  display: flex;
+  gap: 10px;
+  max-width: min(680px, 92%);
+  padding: 10px 14px;
+}
+
+.vsVoiceToolStatus > div {
+  display: grid;
+  gap: 2px;
+}
+
+.vsVoiceToolStatus small {
+  opacity: 0.68;
+}
+
+.vsVoiceToolSources {
+  align-self: flex-start;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  max-width: min(680px, 92%);
+}
+
+.vsVoiceToolSources a {
+  background: var(--surface-raised, rgba(255, 255, 255, 0.72));
+  border: 1px solid var(--border-subtle, rgba(127, 127, 127, 0.22));
+  border-radius: 999px;
+  color: inherit;
+  font-size: 12px;
+  max-width: 240px;
+  overflow: hidden;
+  padding: 5px 10px;
+  text-decoration: none;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

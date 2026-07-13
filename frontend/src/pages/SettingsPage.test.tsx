@@ -9,6 +9,7 @@ describe("SettingsPage", () => {
 
     expect(screen.getByPlaceholderText("搜索供应商...")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /手动编辑可用模型/i })).toBeInTheDocument();
+    expect(screen.getByPlaceholderText(/WorkspaceId/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "保存" })).toBeInTheDocument();
   });
 

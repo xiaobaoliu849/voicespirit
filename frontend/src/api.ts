@@ -60,10 +60,15 @@ export type VoiceAgentToolRecord = {
     | "failed"
     | "cancelled"
     | "context_injected"
+    | "result_delivered"
+    | "delivery_failed"
     | "response_gated"
     | "result";
   tool_name?: string;
   turn_id?: string;
+  tool_call_id?: string;
+  provider_call_id?: string;
+  route?: "native" | "compatibility";
   query?: string;
   message?: string;
   answer?: string;
@@ -297,6 +302,7 @@ export type SettingsModelValue =
 export type AppSettings = {
   api_keys: Record<string, string>;
   api_urls: Record<string, string>;
+  realtime_api_urls?: Record<string, string>;
   default_models: Record<string, SettingsModelValue>;
   general_settings: Record<string, unknown>;
   memory_settings: Record<string, unknown>;
@@ -634,6 +640,9 @@ export type VoiceChatServerEvent =
       type: "tool_call_started";
       tool_name: string;
       turn_id?: string;
+      tool_call_id?: string;
+      provider_call_id?: string;
+      route?: "native" | "compatibility";
       query?: string;
       message?: string;
     }
@@ -641,6 +650,9 @@ export type VoiceChatServerEvent =
       type: "agent_progress";
       stage: string;
       turn_id?: string;
+      tool_call_id?: string;
+      provider_call_id?: string;
+      route?: "native" | "compatibility";
       message: string;
       elapsed_ms?: number;
     }
@@ -651,6 +663,9 @@ export type VoiceChatServerEvent =
       query?: string;
       source_count?: number;
       elapsed_ms?: number;
+      tool_call_id?: string;
+      provider_call_id?: string;
+      route?: "native" | "compatibility";
     }
   | {
       type: "tool_call_failed";
@@ -659,6 +674,9 @@ export type VoiceChatServerEvent =
       query?: string;
       message: string;
       elapsed_ms?: number;
+      tool_call_id?: string;
+      provider_call_id?: string;
+      route?: "native" | "compatibility";
     }
   | {
       type: "tool_call_cancelled";
@@ -667,6 +685,9 @@ export type VoiceChatServerEvent =
       query?: string;
       reason?: string;
       elapsed_ms?: number;
+      tool_call_id?: string;
+      provider_call_id?: string;
+      route?: "native" | "compatibility";
     }
   | {
       type: "tool_context_injected";
@@ -678,10 +699,35 @@ export type VoiceChatServerEvent =
       elapsed_ms?: number;
     }
   | {
+      type: "tool_result_delivered";
+      provider: string;
+      tool_name: string;
+      turn_id?: string;
+      tool_call_id?: string;
+      provider_call_id: string;
+      route: "native";
+      query?: string;
+      source_count?: number;
+      elapsed_ms?: number;
+      status: "completed" | "failed";
+    }
+  | {
+      type: "tool_result_delivery_failed";
+      tool_name: string;
+      turn_id?: string;
+      tool_call_id?: string;
+      provider_call_id?: string;
+      query?: string;
+      message: string;
+      route?: "native" | "compatibility";
+    }
+  | {
       type: "response_gated";
       provider: string;
       tool_name: string;
       turn_id?: string;
+      tool_call_id?: string;
+      provider_call_id?: string;
       query?: string;
       message?: string;
     }
@@ -690,6 +736,9 @@ export type VoiceChatServerEvent =
       tool_name?: string;
       query: string;
       turn_id?: string;
+      tool_call_id?: string;
+      provider_call_id?: string;
+      route?: "native" | "compatibility";
       answer: string;
       source_count?: number;
       elapsed_ms?: number;

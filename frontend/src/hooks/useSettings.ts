@@ -77,6 +77,7 @@ export default function useSettings({ formatErrorMessage }: Options) {
   const [settingsProvider, setSettingsProvider] = useState("DashScope");
   const [settingsApiKey, setSettingsApiKey] = useState("");
   const [settingsApiUrl, setSettingsApiUrl] = useState("");
+  const [settingsRealtimeApiUrl, setSettingsRealtimeApiUrl] = useState("");
   const [settingsDefaultModel, setSettingsDefaultModel] = useState("");
   const [settingsAvailableModels, setSettingsAvailableModels] = useState<string[]>([]);
   const [settingsEnabledModels, setSettingsEnabledModels] = useState<string[]>([]);
@@ -484,6 +485,7 @@ export default function useSettings({ formatErrorMessage }: Options) {
 
       setSettingsApiKey(apiKey);
       setSettingsApiUrl(apiUrl);
+      setSettingsRealtimeApiUrl(settingsData.realtime_api_urls?.[settingsProvider] || "");
       setSettingsDefaultModel(defaultModel);
       setSettingsAvailableModels(availableModels);
       setSettingsEnabledModels(enabledModels);
@@ -720,6 +722,11 @@ export default function useSettings({ formatErrorMessage }: Options) {
         patch.api_urls = {
           [settingsProvider]: settingsApiUrl.trim()
         };
+        if (settingsProvider === "DashScope") {
+          patch.realtime_api_urls = {
+            DashScope: settingsRealtimeApiUrl.trim()
+          };
+        }
         patch.default_models = {
           [settingsProvider]: {
             default: settingsDefaultModel.trim(),
@@ -822,6 +829,7 @@ export default function useSettings({ formatErrorMessage }: Options) {
     settingsProvider,
     settingsApiKey,
     settingsApiUrl,
+    settingsRealtimeApiUrl,
     settingsDefaultModel,
     settingsAvailableModelsText,
     settingsAvailableModels,
@@ -876,6 +884,7 @@ export default function useSettings({ formatErrorMessage }: Options) {
     onProviderChange: setSettingsProvider,
     onApiKeyChange: setSettingsApiKey,
     onApiUrlChange: setSettingsApiUrl,
+    onRealtimeApiUrlChange: setSettingsRealtimeApiUrl,
     onXiaomiApiKeyChange: setXiaomiApiKey,
     onXiaomiApiUrlChange: setXiaomiApiUrl,
     onDefaultModelChange: setSettingsDefaultModel,

@@ -1,7 +1,8 @@
-import { renderHook, waitFor } from '@testing-library/react';
+import { act, renderHook, waitFor } from '@testing-library/react';
 import { describe, it, expect, vi } from 'vitest';
 import useSettings from './useSettings';
 import { createFormatErrorMessageStub } from '../test/factories';
+import { updateSettings } from '../api';
 
 vi.mock('../api', () => ({
     configureEverMemRuntime: vi.fn(),
@@ -46,6 +47,9 @@ vi.mock('../api', () => ({
         settings: {
             api_keys: { dashscope_api_key: 'sk-test' },
             api_urls: { DashScope: 'https://dashscope.example.com' },
+            realtime_api_urls: {
+                DashScope: 'wss://workspace.cn-beijing.maas.aliyuncs.com/api-ws/v1/realtime'
+            },
             default_models: {
                 DashScope: {
                     default: 'qwen-plus',
@@ -113,6 +117,9 @@ describe('useSettings', () => {
         });
 
         expect(result.current.providerSection.apiKeyConfigured).toBe(true);
+        expect(result.current.settingsRealtimeApiUrl).toBe(
+            'wss://workspace.cn-beijing.maas.aliyuncs.com/api-ws/v1/realtime'
+        );
         expect(result.current.providerSection.availableModelCount).toBe(2);
         expect(result.current.memorySection.configured).toBe(true);
         expect(result.current.memorySection.scenes.find((item) => item.id === 'transcription')?.enabled).toBe(false);
@@ -133,5 +140,31 @@ describe('useSettings', () => {
             '必要时清理桌面缓存：python run_web_desktop.py --clear-webview'
         );
         expect(result.current.desktopSection.diagnosticsDir).toBe('/tmp/voicespirit-runtime/diagnostics');
+    });
+
+    it('persists the DashScope workspace realtime URL', async () => {
+        const updateSettingsMock = vi.mocked(updateSettings);
+        updateSettingsMock.mockClear();
+        const { result } = renderHook(() =>
+            useSettings({ formatErrorMessage: createFormatErrorMessageStub() })
+        );
+
+        await waitFor(() => expect(result.current.settingsBusy).toBe(false));
+        act(() => {
+            result.current.onRealtimeApiUrlChange(
+                'wss://new-workspace.cn-beijing.maas.aliyuncs.com/api-ws/v1/realtime'
+            );
+        });
+        await act(async () => {
+            await result.current.onSubmit({ preventDefault: vi.fn() } as never);
+        });
+
+        expect(updateSettingsMock).toHaveBeenCalledWith(
+            expect.objectContaining({
+                realtime_api_urls: {
+                    DashScope: 'wss://new-workspace.cn-beijing.maas.aliyuncs.com/api-ws/v1/realtime'
+                }
+            })
+        );
     });
 });

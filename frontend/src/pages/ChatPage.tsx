@@ -243,7 +243,9 @@ function Composer({
         <div className="vsLiveSessionBanner">
           <div className="vsPulseDot vsPulseDotRed" />
           <span className="vsLiveSessionLabel">
-            {voiceChat.voiceChatRecording ? t("正在聆听您的声音...", "Listening to your voice...") : t("实时通话连接中...", "Connecting live session...")}
+            {voiceChat.voiceChatRecording
+              ? t("正在聆听您的声音...", "Listening to your voice...")
+              : t("实时通话连接中...", "Connecting live session...")}
           </span>
         </div>
       )}
@@ -578,6 +580,30 @@ export default function ChatPage({ chat, voiceChat, errorRuntimeContext }: Props
             ))}
 
             {/* ── Live Streaming Bubbles ── */}
+            {isVoiceActive && voiceChat.voiceChatAgentToolStatus && (
+              <div className="vsVoiceToolStatus" role="status" aria-live="polite">
+                <span className="vsPulseDot" aria-hidden="true" />
+                <div>
+                  <strong>{voiceChat.voiceChatAgentToolStatus}</strong>
+                  {voiceChat.voiceChatAgentRunMeta ? <small>{voiceChat.voiceChatAgentRunMeta}</small> : null}
+                </div>
+              </div>
+            )}
+            {isVoiceActive && voiceChat.voiceChatAgentSources.length > 0 && (
+              <div className="vsVoiceToolSources" aria-label={t("工具来源", "Tool sources")}>
+                {voiceChat.voiceChatAgentSources.map((source, index) => (
+                  <a
+                    key={`${source.uri}-${index}`}
+                    href={source.uri}
+                    target="_blank"
+                    rel="noreferrer"
+                    title={source.snippet}
+                  >
+                    {source.title || t(`来源 ${index + 1}`, `Source ${index + 1}`)}
+                  </a>
+                ))}
+              </div>
+            )}
             {isVoiceActive && voiceChat.voiceChatTranscript && (
               <div className="bubble user live hasCopyAction">
                 <div className="vsBubbleMeta">
