@@ -172,6 +172,7 @@ class BackendConfig:
 
         api_keys = self._config.get("api_keys", {})
         api_urls = self._config.get("api_urls", {})
+        realtime_api_urls = self._config.get("realtime_api_urls", {})
 
         key_field = PROVIDER_KEY_MAP.get(provider)
         api_key = str(api_keys.get(key_field, "")).strip() if key_field else ""
@@ -187,5 +188,6 @@ class BackendConfig:
             "provider": provider,
             "api_key": api_key,
             "base_url": base_url,
+            "realtime_base_url": str(realtime_api_urls.get(provider, "")).strip().rstrip("/"),
             "model": selected_model,
         }

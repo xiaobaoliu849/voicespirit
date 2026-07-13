@@ -74,7 +74,7 @@ const OPENAI_PROVIDER = "OpenAI";
 const DEFAULT_GOOGLE_MODEL = "gemini-2.5-flash-native-audio-preview-12-2025";
 const GOOGLE_FLASH_LIVE_MODEL = "gemini-3.1-flash-live-preview";
 const GOOGLE_LIVE_TRANSLATE_MODEL = "gemini-3.5-live-translate-preview";
-const DEFAULT_DASHSCOPE_MODEL = "qwen3-omni-flash-realtime-2025-12-01";
+const DEFAULT_DASHSCOPE_MODEL = "qwen3.5-omni-plus-realtime";
 const DEFAULT_OPENAI_MODEL = "gpt-realtime-2";
 const SUPPORTED_GOOGLE_REALTIME_MODEL_PATTERNS = [
   "native-audio",
@@ -312,7 +312,7 @@ function isRealtimeVoiceModel(provider: string, model: string): boolean {
     return false;
   }
   if (normalizedProvider === DASHSCOPE_PROVIDER.toLowerCase()) {
-    return normalizedModel.includes("realtime") || normalizedModel.includes("livetranslate");
+    return /^qwen3\.5-omni-(plus|flash)-realtime(?:-\d{4}-\d{2}-\d{2})?$/.test(normalizedModel);
   }
   if (normalizedProvider === GOOGLE_PROVIDER.toLowerCase()) {
     return SUPPORTED_GOOGLE_REALTIME_MODEL_PATTERNS.some((item) => normalizedModel.includes(item));
@@ -1253,6 +1253,9 @@ export default function useVoiceChat({
           }
           commitCompletedTurn();
         }
+        setVoiceChatAgentToolStatus("");
+        setVoiceChatAgentSources([]);
+        setVoiceChatAgentRunMeta("");
         setVoiceChatInterruptionState({ phase: "idle" });
         setVoiceChatAssistantInterrupted(false);
         currentAssistantInterruptedRef.current = false;
@@ -1437,6 +1440,9 @@ export default function useVoiceChat({
           finalizedInterruptedTurnsRef.current.add(event.turn_id);
         }
         commitCompletedTurn();
+        setVoiceChatAgentToolStatus("");
+        setVoiceChatAgentSources([]);
+        setVoiceChatAgentRunMeta("");
         setVoiceChatStatus(t("已打断助手，继续说话中…", "Assistant interrupted, continue speaking…"));
         return;
       case "tool_call_started":
@@ -1444,6 +1450,9 @@ export default function useVoiceChat({
           status: "started",
           tool_name: event.tool_name,
           turn_id: event.turn_id,
+          tool_call_id: event.tool_call_id,
+          provider_call_id: event.provider_call_id,
+          route: event.route,
           query: event.query,
           message: event.message,
         });
@@ -1460,6 +1469,9 @@ export default function useVoiceChat({
           status: "progress",
           stage: event.stage,
           turn_id: event.turn_id,
+          tool_call_id: event.tool_call_id,
+          provider_call_id: event.provider_call_id,
+          route: event.route,
           message: event.message,
           elapsed_ms: event.elapsed_ms,
         });
@@ -1475,6 +1487,9 @@ export default function useVoiceChat({
           status: "completed",
           tool_name: event.tool_name,
           turn_id: event.turn_id,
+          tool_call_id: event.tool_call_id,
+          provider_call_id: event.provider_call_id,
+          route: event.route,
           query: event.query,
           source_count: event.source_count,
           elapsed_ms: event.elapsed_ms,
@@ -1497,6 +1512,9 @@ export default function useVoiceChat({
           status: "failed",
           tool_name: event.tool_name,
           turn_id: event.turn_id,
+          tool_call_id: event.tool_call_id,
+          provider_call_id: event.provider_call_id,
+          route: event.route,
           query: event.query,
           message: event.message,
           elapsed_ms: event.elapsed_ms,
@@ -1515,6 +1533,9 @@ export default function useVoiceChat({
           status: "cancelled",
           tool_name: event.tool_name,
           turn_id: event.turn_id,
+          tool_call_id: event.tool_call_id,
+          provider_call_id: event.provider_call_id,
+          route: event.route,
           query: event.query,
           reason: event.reason,
           elapsed_ms: event.elapsed_ms,
@@ -1551,12 +1572,48 @@ export default function useVoiceChat({
         }));
         setVoiceChatStatus(t("正在基于搜索结果语音回答…", "Answering from search results…"));
         return;
+      case "tool_result_delivered":
+        appendCurrentToolRecord({
+          status: "result_delivered",
+          provider: event.provider,
+          tool_name: event.tool_name,
+          turn_id: event.turn_id,
+          tool_call_id: event.tool_call_id,
+          provider_call_id: event.provider_call_id,
+          route: event.route,
+          query: event.query,
+          source_count: event.source_count,
+          elapsed_ms: event.elapsed_ms,
+        });
+        setVoiceChatAgentToolStatus(
+          event.status === "failed"
+            ? t("工具失败信息已交给模型", "Tool failure was delivered to the model")
+            : t("工具结果已交给模型，正在生成回答…", "Tool result delivered; generating the answer…")
+        );
+        setVoiceChatStatus(t("正在基于工具结果回答…", "Answering from the tool result…"));
+        return;
+      case "tool_result_delivery_failed":
+        appendCurrentToolRecord({
+          status: "delivery_failed",
+          tool_name: event.tool_name,
+          turn_id: event.turn_id,
+          tool_call_id: event.tool_call_id,
+          provider_call_id: event.provider_call_id,
+          route: event.route,
+          query: event.query,
+          message: event.message,
+        });
+        setVoiceChatAgentToolStatus(event.message || t("工具结果提交失败", "Failed to deliver tool result"));
+        setVoiceChatStatus(t("工具结果提交失败", "Tool result delivery failed"));
+        return;
       case "response_gated":
         appendCurrentToolRecord({
           status: "response_gated",
           provider: event.provider,
           tool_name: event.tool_name,
           turn_id: event.turn_id,
+          tool_call_id: event.tool_call_id,
+          provider_call_id: event.provider_call_id,
           query: event.query,
           message: event.message,
         });
@@ -1574,6 +1631,9 @@ export default function useVoiceChat({
           status: "result",
           tool_name: event.tool_name,
           turn_id: event.turn_id,
+          tool_call_id: event.tool_call_id,
+          provider_call_id: event.provider_call_id,
+          route: event.route,
           query: event.query,
           answer: event.answer,
           source_count: event.source_count,
@@ -1581,11 +1641,6 @@ export default function useVoiceChat({
           artifact: event.artifact,
           sources: event.sources || [],
         });
-        currentAssistantTurnRef.current = mergeAssistantText(
-          currentAssistantTurnRef.current,
-          event.answer
-        );
-        setVoiceChatReply(currentAssistantTurnRef.current);
         setVoiceChatAgentSources(event.sources || []);
         setVoiceChatAgentRunMeta(buildToolMeta({
           toolName: event.tool_name,
@@ -1599,7 +1654,7 @@ export default function useVoiceChat({
             `Generated a search summary from ${event.sources.length} sources`
           )
         );
-        setVoiceChatStatus(t("搜索摘要已生成", "Search summary generated"));
+        setVoiceChatStatus(t("工具已完成，等待模型回答…", "Tool finished; waiting for the model…"));
         return;
       case "turn_complete":
         {
@@ -1624,6 +1679,9 @@ export default function useVoiceChat({
           } else {
             commitCompletedTurn();
           }
+          setVoiceChatAgentToolStatus("");
+          setVoiceChatAgentSources([]);
+          setVoiceChatAgentRunMeta("");
           setVoiceChatStatus(
             retrievedCount > 0
               ? t(

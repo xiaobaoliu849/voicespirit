@@ -60,6 +60,9 @@ DEFAULT_SETTINGS_TEMPLATE: dict[str, Any] = {
         "Deepgram": "",
         "GPT-SoVITS": "",
     },
+    "realtime_api_urls": {
+        "DashScope": "",
+    },
     "default_models": {
         "DeepSeek": {"default": "", "available": [], "enabled": []},
         "OpenRouter": {"default": "", "available": [], "enabled": []},
@@ -149,6 +152,7 @@ DEFAULT_SETTINGS_TEMPLATE: dict[str, Any] = {
 ALLOWED_UPDATE_SECTIONS = {
     "api_keys",
     "api_urls",
+    "realtime_api_urls",
     "default_models",
     "general_settings",
     "memory_settings",
@@ -252,7 +256,7 @@ class SettingsService:
                 normalized[key] = str(value).strip()
                 continue
 
-            if key in {"api_keys", "api_urls"}:
+            if key in {"api_keys", "api_urls", "realtime_api_urls"}:
                 if not isinstance(value, dict):
                     raise ValueError(f"{key} must be an object.")
                 normalized[key] = self._normalize_str_dict(value)

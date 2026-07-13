@@ -567,7 +567,10 @@ class RealtimeProviderReplayTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(decision["decision_latency_ms"], 37)
                 self.assertEqual(result["tool_cancel_count"], 1)
                 self.assertEqual(result["provider_stop_count"], 0 if provider == "Google" else 1)
-                self.assertEqual(result["handled_texts"], ["等一下"])
+                self.assertEqual(
+                    result["handled_texts"],
+                    ["等一下"] if provider == "OpenAI" else [],
+                )
                 self.assertEqual(len(result["turns"]), 2)
                 self.assertTrue(result["turns"][0]["interrupted"])
                 self.assertEqual(result["turns"][0]["assistant_text"], "这是还没有说完的回答")

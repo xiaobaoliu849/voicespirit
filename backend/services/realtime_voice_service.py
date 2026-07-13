@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import inspect
 import json
 import logging
 import os
 import re
 import sys
 import time
+import uuid
 from pathlib import Path
 from typing import Any, Awaitable, Callable
 
@@ -29,6 +31,15 @@ from .interruption_classifier import (
 )
 from .voice_agent_session_repository import VoiceAgentSessionRepository
 from .voice_agent_tools import VoiceAgentToolService, VoiceAgentToolSession
+from .realtime_tool_protocol import (
+    RealtimeToolCall,
+    dashscope_supports_native_tools,
+    dashscope_tool_declarations,
+    native_tool_declarations,
+    tool_call_to_request,
+    tool_error_payload,
+    tool_result_payload,
+)
 
 try:
     from google import genai
@@ -59,7 +70,7 @@ except Exception as e:
 DEFAULT_GOOGLE_REALTIME_MODEL = "gemini-2.5-flash-native-audio-preview-12-2025"
 GOOGLE_LIVE_TRANSLATE_MODEL = "gemini-3.5-live-translate-preview"
 DEFAULT_GOOGLE_REALTIME_VOICE = "Puck"
-DEFAULT_DASHSCOPE_REALTIME_MODEL = "qwen3-omni-flash-realtime-2025-12-01"
+DEFAULT_DASHSCOPE_REALTIME_MODEL = "qwen3.5-omni-plus-realtime"
 DEFAULT_DASHSCOPE_REALTIME_VOICE = "Cherry"
 DEFAULT_OPENAI_REALTIME_MODEL = "gpt-realtime-2"
 DEFAULT_OPENAI_REALTIME_VOICE = "alloy"
@@ -67,8 +78,8 @@ OPENAI_REALTIME_VOICES = ("alloy", "ash", "ballad", "coral", "echo", "sage", "sh
 BASE_REALTIME_INSTRUCTIONS = (
     "You are a helpful, friendly, and intelligent AI assistant. "
     "Respond naturally and conversationally in the same language the user speaks. "
-    "When the user asks you to search, look up, retrieve, or verify current information, briefly acknowledge "
-    "that you are checking sources and wait for external tool context before giving a factual answer."
+    "Use an available tool when current information or an explicit transformation requires it. "
+    "Do not state a factual result before the tool response arrives, and give exactly one concise final answer."
 )
 
 
@@ -970,6 +981,18 @@ class DashScopeRealtimeCallback:
                 }
             )
             return
+        if event_type == "response.function_call_arguments.done":
+            self._push(
+                {
+                    "type": "function_call",
+                    "provider_call_id": str(response.get("call_id", "")),
+                    "tool_name": str(response.get("name", "")),
+                    "arguments": response.get("arguments", "{}"),
+                    "response_id": str(response.get("response_id", "")),
+                    "item_id": str(response.get("item_id", "")),
+                }
+            )
+            return
         if event_type == "response.audio.delta":
             delta = str(response.get("delta", "")).strip()
             if delta:
@@ -996,9 +1019,14 @@ class DashScopeRealtimeCallback:
             return
         if event_type == "response.done":
             response_data = response.get("response") or {}
+            output_items = response_data.get("output") or []
+            has_function_call = any(
+                isinstance(item, dict) and item.get("type") == "function_call"
+                for item in output_items
+            )
             self._push(
                 {
-                    "type": "turn_complete",
+                    "type": "tool_phase_complete" if has_function_call else "turn_complete",
                     "response_id": str(response_data.get("id", "")),
                     "status": str(response_data.get("status", "completed")),
                 }
@@ -1271,6 +1299,16 @@ class RealtimeVoiceService:
         self.config = config or BackendConfig()
         self.voice_session_repository = voice_session_repository
 
+    @staticmethod
+    async def _run_duplex_tasks(*tasks: asyncio.Task[Any]) -> None:
+        """Stop the peer loop on normal disconnect as well as on exceptions."""
+        done, pending = await asyncio.wait(set(tasks), return_when=asyncio.FIRST_COMPLETED)
+        for task in pending:
+            task.cancel()
+        await asyncio.gather(*pending, return_exceptions=True)
+        for task in done:
+            task.result()
+
     async def _create_voice_session_recorder(
         self,
         *,
@@ -1355,32 +1393,100 @@ class RealtimeVoiceService:
         except Exception:
             return
 
-    async def _apply_google_tool_result(
+    async def _send_google_tool_response(
         self,
         websocket: WebSocket,
         session: Any,
-        result: dict[str, Any],
+        *,
+        provider_call_id: str,
+        tool_name: str,
+        response_payload: dict[str, Any],
+        result: dict[str, Any] | None = None,
+        conversation_turn_id: str = "",
+        tool_call_id: str = "",
         recorder: VoiceAgentSessionRecorder | None = None,
     ) -> None:
-        prompt = VoiceAgentToolService.build_model_context_prompt(result)
-        if not prompt.strip():
-            return
-        payload = {
-            "provider": "Google",
-            "tool_name": str(result.get("tool_name", "search_web") or "search_web"),
-            "query": str(result.get("query", "")),
-            "turn_id": str(result.get("turn_id", "")),
-            "source_count": int(result.get("source_count", 0) or 0),
-            "elapsed_ms": int(result.get("elapsed_ms", 0) or 0),
-        }
-        if recorder is not None:
-            await recorder.record_tool_event("tool_context_injected", payload)
-        await self._send_event(
+        await self._send_google_tool_response_batch(
             websocket,
-            "tool_context_injected",
-            **payload,
+            session,
+            responses=[
+                {
+                    "provider_call_id": provider_call_id,
+                    "tool_name": tool_name,
+                    "response_payload": response_payload,
+                    "result": result or {},
+                    "conversation_turn_id": conversation_turn_id,
+                    "tool_call_id": tool_call_id,
+                }
+            ],
+            recorder=recorder,
         )
-        await session.send(input=prompt, end_of_turn=True)
+
+    async def _send_google_tool_response_batch(
+        self,
+        websocket: WebSocket,
+        session: Any,
+        *,
+        responses: list[dict[str, Any]],
+        recorder: VoiceAgentSessionRecorder | None = None,
+    ) -> None:
+        if not responses:
+            return
+        function_responses = []
+        for item in responses:
+            provider_call_id = str(item.get("provider_call_id", "")).strip()
+            tool_name = str(item.get("tool_name", "")).strip()
+            response_payload = item.get("response_payload") or {}
+            if not provider_call_id:
+                raise ValueError("Google native tool response requires a provider call ID.")
+            function_responses.append(
+                types.FunctionResponse(
+                    id=provider_call_id,
+                    name=tool_name,
+                    response={"output": response_payload} if response_payload.get("ok") else {"error": response_payload},
+                )
+            )
+        try:
+            await session.send_tool_response(function_responses=function_responses)
+        except Exception as exc:
+            try:
+                await self._send_event(
+                    websocket,
+                    "error",
+                    provider="Google",
+                    message=f"Google 工具结果回传失败，会话已关闭: {exc}",
+                )
+            except Exception:
+                pass
+            close_session = getattr(session, "close", None)
+            if callable(close_session):
+                try:
+                    close_result = close_session()
+                    if inspect.isawaitable(close_result):
+                        await close_result
+                except Exception:
+                    logger.exception("google_session_close_after_tool_delivery_failed")
+            raise
+        for item in responses:
+            provider_call_id = str(item.get("provider_call_id", "")).strip()
+            tool_name = str(item.get("tool_name", "")).strip()
+            response_payload = item.get("response_payload") or {}
+            result = item.get("result") or {}
+            payload = {
+                "provider": "Google",
+                "provider_call_id": provider_call_id,
+                "tool_name": tool_name,
+                "query": str(result.get("query", "")),
+                "turn_id": str(item.get("conversation_turn_id", "")),
+                "tool_call_id": str(item.get("tool_call_id", "")),
+                "route": "native",
+                "source_count": int(result.get("source_count", 0) or 0),
+                "elapsed_ms": int(result.get("elapsed_ms", 0) or 0),
+                "status": "completed" if response_payload.get("ok") else "failed",
+            }
+            if recorder is not None:
+                await recorder.record_tool_event("tool_result_delivered", payload)
+            await self._send_event(websocket, "tool_result_delivered", **payload)
 
     async def _send_response_gated(
         self,
@@ -1407,34 +1513,74 @@ class RealtimeVoiceService:
             **payload,
         )
 
-    async def _apply_dashscope_tool_result(
+    async def _send_dashscope_tool_response(
         self,
         websocket: WebSocket,
         conversation: Any,
-        result: dict[str, Any],
+        *,
+        provider_call_id: str,
+        tool_name: str,
+        response_payload: dict[str, Any],
+        result: dict[str, Any] | None = None,
+        create_response: bool = True,
+        conversation_turn_id: str = "",
+        tool_call_id: str = "",
         recorder: VoiceAgentSessionRecorder | None = None,
     ) -> None:
-        prompt = VoiceAgentToolService.build_model_context_prompt(result)
-        if not prompt.strip():
-            return
+        if not provider_call_id:
+            raise ValueError("DashScope native tool response requires a provider call ID.")
+        try:
+            conversation.send_raw(
+                json.dumps(
+                    {
+                        "event_id": f"event_{uuid.uuid4().hex}",
+                        "type": "conversation.item.create",
+                        "item": {
+                            "id": f"item_{uuid.uuid4().hex}",
+                            "type": "function_call_output",
+                            "call_id": provider_call_id,
+                            "output": json.dumps(response_payload, ensure_ascii=False),
+                        },
+                    },
+                    ensure_ascii=False,
+                )
+            )
+            if create_response:
+                conversation.create_response()
+        except Exception as exc:
+            try:
+                await self._send_event(
+                    websocket,
+                    "error",
+                    provider="DashScope",
+                    message=f"Qwen 工具结果回传失败，会话已关闭: {exc}",
+                )
+            except Exception:
+                pass
+            try:
+                conversation.close()
+            except Exception:
+                logger.exception("dashscope_session_close_after_tool_delivery_failed")
+            raise
+        result = result or {}
         payload = {
             "provider": "DashScope",
-            "tool_name": str(result.get("tool_name", "search_web") or "search_web"),
+            "provider_call_id": provider_call_id,
+            "tool_name": tool_name,
             "query": str(result.get("query", "")),
-            "turn_id": str(result.get("turn_id", "")),
+            "turn_id": conversation_turn_id,
+            "tool_call_id": tool_call_id,
+            "route": "native",
             "source_count": int(result.get("source_count", 0) or 0),
             "elapsed_ms": int(result.get("elapsed_ms", 0) or 0),
+            "status": "completed" if response_payload.get("ok") else "failed",
         }
         if recorder is not None:
-            await recorder.record_tool_event("tool_context_injected", payload)
+            await recorder.record_tool_event("tool_result_delivered", payload)
         await self._send_event(
             websocket,
-            "tool_context_injected",
+            "tool_result_delivered",
             **payload,
-        )
-        conversation.create_response(
-            instructions=prompt,
-            output_modalities=[MultiModality.AUDIO, MultiModality.TEXT],  # type: ignore[union-attr]
         )
 
     def _resolve_google_settings(self, model: str | None) -> dict[str, str]:
@@ -1458,16 +1604,28 @@ class RealtimeVoiceService:
         provider_settings = self.config.get_provider_settings("DashScope", model)
         resolved_model = provider_settings["model"].strip() or DEFAULT_DASHSCOPE_REALTIME_MODEL
         api_key = provider_settings["api_key"].strip()
-        base_url = provider_settings["base_url"].strip().lower()
         if not api_key:
             raise RuntimeError("DashScope API Key 未配置，无法启动实时语音会话。")
         if OmniRealtimeConversation is None or MultiModality is None or AudioFormat is None:
             raise RuntimeError("DashScope Omni Realtime 依赖未安装，无法启动实时语音会话。")
-        region = "intl" if "dashscope-intl" in base_url else "cn"
+        if not dashscope_supports_native_tools(resolved_model):
+            raise RuntimeError(
+                "VoiceSpirit 实时语音仅支持具备原生 Function Calling 的 "
+                "qwen3.5-omni-plus-realtime 或 qwen3.5-omni-flash-realtime；请在设置中升级模型。"
+            )
+        realtime_base_url = (
+            str(provider_settings.get("realtime_base_url", "")).strip()
+            or os.environ.get("DASHSCOPE_REALTIME_BASE_URL", "").strip()
+        ).rstrip("/")
+        if not realtime_base_url.startswith("wss://") or not realtime_base_url.endswith("/api-ws/v1/realtime"):
+            raise RuntimeError(
+                "请在设置中配置 Qwen 3.5 的业务空间 Realtime WebSocket URL，"
+                "格式如 wss://{WorkspaceId}.cn-beijing.maas.aliyuncs.com/api-ws/v1/realtime。"
+            )
         return {
             "api_key": api_key,
             "model": resolved_model,
-            "region": region,
+            "realtime_base_url": realtime_base_url,
         }
 
     @staticmethod
@@ -1480,7 +1638,9 @@ class RealtimeVoiceService:
             enable_input_audio_transcription=True,
             enable_turn_detection=True,
             turn_detection_param={"create_response": False, "interrupt_response": False},
+            turn_detection_silence_duration_ms=1500,
             instructions=instructions,
+            tools=dashscope_tool_declarations(),
         )
 
     @staticmethod
@@ -1777,11 +1937,20 @@ class RealtimeVoiceService:
 
     @staticmethod
     def _build_live_config(voice: str):
+        declarations = [
+            types.FunctionDeclaration(
+                name=declaration["name"],
+                description=declaration["description"],
+                parameters_json_schema=declaration["parameters"],
+            )
+            for declaration in native_tool_declarations()
+        ]
         return types.LiveConnectConfig(
             response_modalities=["AUDIO"],
             system_instruction=BASE_REALTIME_INSTRUCTIONS,
             input_audio_transcription=types.AudioTranscriptionConfig(),
             output_audio_transcription=types.AudioTranscriptionConfig(),
+            tools=[types.Tool(function_declarations=declarations)],
             speech_config=types.SpeechConfig(
                 voice_config=types.VoiceConfig(
                     prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name=voice)
@@ -2064,33 +2233,117 @@ class RealtimeVoiceService:
                     )
                     pending_prefill_context = memory_context
             await self._send_event(websocket, "user_transcript", text=user_text, turn_id=voice_turn_id)
-            if not is_live_translate:
-                async def on_google_tool_result(result: dict[str, Any]) -> None:
-                    nonlocal gated_tool_turn_id
-                    gated_tool_turn_id = ""
-                    await self._apply_google_tool_result(websocket, session, result, recorder)
-
-                tool_request = VoiceAgentToolService.extract_tool_request(user_text)
-                tool_turn_id = await tool_session.handle_user_transcript(
-                    user_text,
-                    send_event=send_tool_event,
-                    on_result=on_google_tool_result,
-                )
-                if tool_turn_id:
-                    gated_tool_turn_id = tool_turn_id
-                    await self._send_response_gated(
-                        websocket,
-                        provider="Google",
-                        tool_name=tool_request.tool_name if tool_request else "voice_tool",
-                        query=tool_request.query if tool_request else "",
-                        turn_id=tool_turn_id,
-                        recorder=recorder,
-                    )
 
         async def send_tool_event(event_type: str, payload: dict[str, Any]) -> None:
             if recorder is not None:
                 await recorder.record_tool_event(event_type, payload)
             await self._send_event(websocket, event_type, **payload)
+
+        google_tool_batches: dict[str, dict[str, Any]] = {}
+
+        async def submit_google_batch_result(
+            provider_call_id: str,
+            tool_name: str,
+            response_payload: dict[str, Any],
+            result: dict[str, Any] | None = None,
+            *,
+            conversation_turn_id: str = "",
+            tool_call_id: str = "",
+            wait_for_delivery: bool = True,
+        ) -> None:
+            batch = google_tool_batches.get(provider_call_id)
+            if batch is None:
+                return
+            ready: list[dict[str, Any]] | None = None
+            ready_ids: list[str] = []
+            acknowledgement: asyncio.Future[Any] = batch["acknowledgements"][provider_call_id]
+            async with batch["lock"]:
+                if batch["phase"] != "collecting" or provider_call_id not in batch["expected"]:
+                    return
+                batch["results"][provider_call_id] = {
+                    "provider_call_id": provider_call_id,
+                    "tool_name": tool_name,
+                    "response_payload": response_payload,
+                    "result": result or {},
+                    "conversation_turn_id": conversation_turn_id,
+                    "tool_call_id": tool_call_id,
+                }
+                if batch["expected"].issubset(batch["results"]):
+                    batch["phase"] = "sending"
+                    ready_ids = [call_id for call_id in batch["order"] if call_id in batch["expected"]]
+                    ready = [batch["results"][call_id] for call_id in ready_ids]
+            if ready is not None:
+                delivery_error: BaseException | None = None
+                try:
+                    await self._send_google_tool_response_batch(
+                        websocket,
+                        session,
+                        responses=ready,
+                        recorder=recorder,
+                    )
+                except BaseException as exc:
+                    delivery_error = exc
+                for call_id in ready_ids:
+                    pending_ack = batch["acknowledgements"][call_id]
+                    if not pending_ack.done():
+                        pending_ack.set_result(delivery_error)
+                async with batch["lock"]:
+                    batch["phase"] = "failed" if delivery_error is not None else "delivered"
+                    for call_id in batch["order"]:
+                        google_tool_batches.pop(call_id, None)
+                if delivery_error is not None:
+                    raise delivery_error
+            if wait_for_delivery:
+                delivery_error = await acknowledgement
+                if isinstance(delivery_error, BaseException):
+                    raise delivery_error
+
+        async def drop_google_batch_call(provider_call_id: str) -> bool:
+            batch = google_tool_batches.get(provider_call_id)
+            if batch is None:
+                return False
+            ready: list[dict[str, Any]] | None = None
+            ready_ids: list[str] = []
+            async with batch["lock"]:
+                if batch["phase"] != "collecting":
+                    return False
+                batch["expected"].discard(provider_call_id)
+                batch["results"].pop(provider_call_id, None)
+                google_tool_batches.pop(provider_call_id, None)
+                dropped_ack = batch["acknowledgements"][provider_call_id]
+                if not dropped_ack.done():
+                    dropped_ack.set_result(asyncio.CancelledError())
+                if batch["expected"].issubset(batch["results"]):
+                    batch["phase"] = "sending"
+                    ready_ids = [call_id for call_id in batch["order"] if call_id in batch["expected"]]
+                    ready = [batch["results"][call_id] for call_id in ready_ids]
+            if ready:
+                delivery_error: BaseException | None = None
+                try:
+                    await self._send_google_tool_response_batch(
+                        websocket,
+                        session,
+                        responses=ready,
+                        recorder=recorder,
+                    )
+                except BaseException as exc:
+                    delivery_error = exc
+                for call_id in ready_ids:
+                    pending_ack = batch["acknowledgements"][call_id]
+                    if not pending_ack.done():
+                        pending_ack.set_result(delivery_error)
+                async with batch["lock"]:
+                    batch["phase"] = "failed" if delivery_error is not None else "delivered"
+                    for call_id in batch["order"]:
+                        google_tool_batches.pop(call_id, None)
+                if delivery_error is not None:
+                    raise delivery_error
+            elif not batch["expected"]:
+                async with batch["lock"]:
+                    batch["phase"] = "cancelled"
+                    for call_id in batch["order"]:
+                        google_tool_batches.pop(call_id, None)
+            return True
 
         async def complete_live_translate_turn_if_needed(*, force: bool = False) -> bool:
             nonlocal pending_google_user_transcript, finalized_google_user_transcript
@@ -2172,6 +2425,129 @@ class RealtimeVoiceService:
                             pending_google_response_text,
                             str(response_text),
                         )
+
+                    tool_call = getattr(response, "tool_call", None)
+                    if tool_call is not None and not is_live_translate:
+                        function_calls = list(getattr(tool_call, "function_calls", None) or [])
+                        new_calls: list[tuple[Any, str, str]] = []
+                        for function_call in function_calls:
+                            provider_call_id = str(getattr(function_call, "id", "") or "").strip()
+                            tool_name = str(getattr(function_call, "name", "") or "").strip()
+                            if not provider_call_id:
+                                await self._send_event(
+                                    websocket,
+                                    "error",
+                                    provider="Google",
+                                    message="Google 返回了缺少 call ID 的工具请求，已拒绝执行。",
+                                )
+                                continue
+                            if tool_session.has_seen_provider_call(provider_call_id):
+                                continue
+                            if any(existing_id == provider_call_id for _, existing_id, _ in new_calls):
+                                continue
+                            new_calls.append((function_call, provider_call_id, tool_name))
+
+                        if new_calls:
+                            batch = {
+                                "order": [call_id for _, call_id, _ in new_calls],
+                                "expected": {call_id for _, call_id, _ in new_calls},
+                                "results": {},
+                                "acknowledgements": {
+                                    call_id: asyncio.get_running_loop().create_future()
+                                    for _, call_id, _ in new_calls
+                                },
+                                "lock": asyncio.Lock(),
+                                "phase": "collecting",
+                            }
+                            for _, call_id, _ in new_calls:
+                                google_tool_batches[call_id] = batch
+
+                        for function_call, provider_call_id, tool_name in new_calls:
+                            conversation_turn_id = recorder.current_turn_id if recorder is not None else ""
+                            tool_turn_id = tool_session.reserve_tool_call_id()
+                            raw_arguments = getattr(function_call, "args", {}) or {}
+                            try:
+                                native_call = RealtimeToolCall(
+                                    provider="Google",
+                                    provider_call_id=provider_call_id,
+                                    tool_name=tool_name,
+                                    arguments=raw_arguments,
+                                )
+                                request = tool_call_to_request(native_call)
+                            except Exception as exc:
+                                tool_session.mark_provider_call_seen(provider_call_id)
+                                await submit_google_batch_result(
+                                    provider_call_id,
+                                    tool_name or "unknown_tool",
+                                    tool_error_payload(str(exc)),
+                                    conversation_turn_id=conversation_turn_id,
+                                    tool_call_id=tool_turn_id,
+                                    wait_for_delivery=False,
+                                )
+                                continue
+
+                            async def on_google_native_result(
+                                result: dict[str, Any],
+                                *,
+                                call_id: str = provider_call_id,
+                                name: str = tool_name,
+                                canonical_turn_id: str = conversation_turn_id,
+                                local_tool_call_id: str = tool_turn_id,
+                            ) -> None:
+                                await submit_google_batch_result(
+                                    call_id,
+                                    name,
+                                    tool_result_payload(result),
+                                    result,
+                                    conversation_turn_id=canonical_turn_id,
+                                    tool_call_id=local_tool_call_id,
+                                )
+
+                            async def on_google_native_error(
+                                message: str,
+                                *,
+                                call_id: str = provider_call_id,
+                                name: str = tool_name,
+                                canonical_turn_id: str = conversation_turn_id,
+                                local_tool_call_id: str = tool_turn_id,
+                            ) -> None:
+                                await submit_google_batch_result(
+                                    call_id,
+                                    name,
+                                    tool_error_payload(message),
+                                    conversation_turn_id=canonical_turn_id,
+                                    tool_call_id=local_tool_call_id,
+                                )
+
+                            async def on_google_cancel_prepare(
+                                _reason: str,
+                                *,
+                                call_id: str = provider_call_id,
+                            ) -> bool:
+                                return await drop_google_batch_call(call_id)
+
+                            await tool_session.handle_request(
+                                request,
+                                send_event=send_tool_event,
+                                on_result=on_google_native_result,
+                                on_error=on_google_native_error,
+                                on_cancel_prepare=on_google_cancel_prepare,
+                                provider_call_id=provider_call_id,
+                                conversation_turn_id=conversation_turn_id,
+                                tool_call_id=tool_turn_id,
+                            )
+
+                    tool_cancellation = getattr(response, "tool_call_cancellation", None)
+                    if tool_cancellation is not None and not is_live_translate:
+                        for provider_call_id in list(getattr(tool_cancellation, "ids", None) or []):
+                            cancelled = await tool_session.cancel_provider_call(
+                                str(provider_call_id),
+                                send_event=send_tool_event,
+                                reason="provider_cancelled",
+                                notify_provider=True,
+                            )
+                            if not cancelled:
+                                await drop_google_batch_call(str(provider_call_id))
 
                     server_content = getattr(response, "server_content", None)
                     if not server_content:
@@ -2427,9 +2803,9 @@ class RealtimeVoiceService:
                 await recorder.record_tool_event(event_type, payload)
             await self._send_event(websocket, event_type, **payload)
 
-        gated_tool_turn_id = ""
         interruption = interruption or InterruptionDecisionCoordinator()
         suppressed_response_ids: set[str] = set()
+        tool_phase_response_ids: set[str] = set()
         while True:
             event = await queue.get()
             event_type = str(event.get("type", "")).strip()
@@ -2452,6 +2828,121 @@ class RealtimeVoiceService:
                 interruption.active_response_id = (
                     str(event.get("response_id", "")) or interruption.active_response_id or "active"
                 )
+                continue
+            if event_type == "function_call":
+                function_response_id = str(event.get("response_id", "")).strip()
+                if function_response_id:
+                    tool_phase_response_ids.add(function_response_id)
+                provider_call_id = str(event.get("provider_call_id", "")).strip()
+                tool_name = str(event.get("tool_name", "")).strip()
+                if not provider_call_id:
+                    await self._send_event(
+                        websocket,
+                        "error",
+                        provider="DashScope",
+                        message="Qwen 返回了缺少 call ID 的工具请求，已拒绝执行。",
+                    )
+                    continue
+                if tool_session.has_seen_provider_call(provider_call_id):
+                    continue
+                conversation_turn_id = recorder.current_turn_id if recorder is not None else ""
+                tool_turn_id = tool_session.reserve_tool_call_id()
+                try:
+                    native_call = RealtimeToolCall(
+                        provider="DashScope",
+                        provider_call_id=provider_call_id,
+                        tool_name=tool_name,
+                        arguments=event.get("arguments", "{}"),
+                    )
+                    request = tool_call_to_request(native_call)
+                except Exception as exc:
+                    tool_session.mark_provider_call_seen(provider_call_id)
+                    await self._send_dashscope_tool_response(
+                        websocket,
+                        conversation,
+                        provider_call_id=provider_call_id,
+                        tool_name=tool_name or "unknown_tool",
+                        response_payload=tool_error_payload(str(exc)),
+                        conversation_turn_id=conversation_turn_id,
+                        recorder=recorder,
+                    )
+                    continue
+
+                async def on_dashscope_native_result(
+                    result: dict[str, Any],
+                    *,
+                    call_id: str = provider_call_id,
+                    name: str = tool_name,
+                    canonical_turn_id: str = conversation_turn_id,
+                    local_tool_call_id: str = tool_turn_id,
+                ) -> None:
+                    await self._send_dashscope_tool_response(
+                        websocket,
+                        conversation,
+                        provider_call_id=call_id,
+                        tool_name=name,
+                        response_payload=tool_result_payload(result),
+                        result=result,
+                        conversation_turn_id=canonical_turn_id,
+                        tool_call_id=local_tool_call_id,
+                        recorder=recorder,
+                    )
+
+                async def on_dashscope_native_error(
+                    message: str,
+                    *,
+                    call_id: str = provider_call_id,
+                    name: str = tool_name,
+                    canonical_turn_id: str = conversation_turn_id,
+                    local_tool_call_id: str = tool_turn_id,
+                ) -> None:
+                    await self._send_dashscope_tool_response(
+                        websocket,
+                        conversation,
+                        provider_call_id=call_id,
+                        tool_name=name,
+                        response_payload=tool_error_payload(message),
+                        conversation_turn_id=canonical_turn_id,
+                        tool_call_id=local_tool_call_id,
+                        recorder=recorder,
+                    )
+
+                async def on_dashscope_native_cancel(
+                    message: str,
+                    *,
+                    call_id: str = provider_call_id,
+                    name: str = tool_name,
+                    canonical_turn_id: str = conversation_turn_id,
+                    local_tool_call_id: str = tool_turn_id,
+                ) -> None:
+                    await self._send_dashscope_tool_response(
+                        websocket,
+                        conversation,
+                        provider_call_id=call_id,
+                        tool_name=name,
+                        response_payload=tool_error_payload(message),
+                        create_response=False,
+                        conversation_turn_id=canonical_turn_id,
+                        tool_call_id=local_tool_call_id,
+                        recorder=recorder,
+                    )
+
+                await tool_session.handle_request(
+                    request,
+                    send_event=send_tool_event,
+                    on_result=on_dashscope_native_result,
+                    on_error=on_dashscope_native_error,
+                    on_cancel=on_dashscope_native_cancel,
+                    provider_call_id=provider_call_id,
+                    conversation_turn_id=conversation_turn_id,
+                    tool_call_id=tool_turn_id,
+                )
+                continue
+            if event_type == "tool_phase_complete":
+                response_id = str(event.get("response_id", "")).strip()
+                tool_phase_response_ids.discard(response_id)
+                if response_id == interruption.active_response_id:
+                    interruption.active_response_id = ""
                 continue
             if event_type == "user_transcript":
                 user_text = str(event.get("text", ""))
@@ -2486,7 +2977,7 @@ class RealtimeVoiceService:
                     memory_session=memory_session,
                     tool_session=tool_session,
                     recorder=recorder,
-                    cancel_provider=cancel_dashscope_response,
+                    cancel_provider=(cancel_dashscope_response if interrupted_response_id else None),
                 )
                 if interruption_decision is not None and (
                     interruption_decision.get("classification") == InterruptionIntent.TRUE_BARGE_IN.value
@@ -2498,7 +2989,7 @@ class RealtimeVoiceService:
                             websocket,
                             memory_session,
                             recorder,
-                            gated=bool(gated_tool_turn_id),
+                            gated=False,
                         )
                         self._configure_dashscope_conversation(
                             conversation,
@@ -2549,63 +3040,40 @@ class RealtimeVoiceService:
                         voice=voice,
                         instructions=self._build_recall_miss_instructions(user_text),
                     )
-                async def on_dashscope_tool_result(result: dict[str, Any]) -> None:
-                    nonlocal gated_tool_turn_id
-                    gated_tool_turn_id = ""
-                    await self._apply_dashscope_tool_result(websocket, conversation, result, recorder)
-
-                tool_request = VoiceAgentToolService.extract_tool_request(user_text)
-                tool_turn_id = await tool_session.handle_user_transcript(
-                    user_text,
-                    send_event=send_tool_event,
-                    on_result=on_dashscope_tool_result,
-                )
-                if tool_turn_id:
-                    gated_tool_turn_id = tool_turn_id
-                    try:
-                        conversation.cancel_response()
-                    except Exception:
-                        pass
-                    await self._send_response_gated(
-                        websocket,
-                        provider="DashScope",
-                        tool_name=tool_request.tool_name if tool_request else "voice_tool",
-                        query=tool_request.query if tool_request else "",
-                        turn_id=tool_turn_id,
-                        recorder=recorder,
-                    )
-                else:
-                    conversation.create_response()
+                conversation.create_response()
                 await self._send_event(websocket, "user_transcript", text=user_text, turn_id=voice_turn_id)
                 continue
             elif event_type == "assistant_text":
                 response_id = str(event.get("response_id", ""))
                 if response_id in suppressed_response_ids:
                     continue
-                if not gated_tool_turn_id:
-                    await self._emit_assistant_output(
-                        websocket,
-                        interruption,
-                        event,
-                        memory_session=memory_session,
-                        recorder=recorder,
-                    )
+                await self._emit_assistant_output(
+                    websocket,
+                    interruption,
+                    event,
+                    memory_session=memory_session,
+                    recorder=recorder,
+                )
                 continue
             elif event_type == "assistant_audio":
                 response_id = str(event.get("response_id", ""))
                 if response_id in suppressed_response_ids:
                     continue
-                if not gated_tool_turn_id:
-                    await self._emit_assistant_output(
-                        websocket,
-                        interruption,
-                        event,
-                        memory_session=memory_session,
-                        recorder=recorder,
-                    )
+                await self._emit_assistant_output(
+                    websocket,
+                    interruption,
+                    event,
+                    memory_session=memory_session,
+                    recorder=recorder,
+                )
                 continue
             elif event_type == "turn_complete":
                 response_id = str(event.get("response_id", ""))
+                if response_id in tool_phase_response_ids:
+                    tool_phase_response_ids.discard(response_id)
+                    if response_id == interruption.active_response_id:
+                        interruption.active_response_id = ""
+                    continue
                 if response_id in suppressed_response_ids:
                     suppressed_response_ids.discard(response_id)
                     if response_id == interruption.active_response_id:
@@ -2619,7 +3087,7 @@ class RealtimeVoiceService:
                     continue
                 memory_result = await memory_session.flush_turn()
                 completed_turn_id = ""
-                if recorder is not None and not gated_tool_turn_id:
+                if recorder is not None:
                     completed_turn_id = await recorder.complete_turn(memory_result)
                 await self._send_event(
                     websocket,
@@ -2635,15 +3103,12 @@ class RealtimeVoiceService:
                     voice=voice,
                     instructions=self._build_realtime_instructions(),
                 )
-                if not gated_tool_turn_id:
-                    await self._send_event(
-                        websocket,
-                        "turn_complete",
-                        turn_id=completed_turn_id,
-                        interrupted=False,
-                    )
-                continue
-            if gated_tool_turn_id and event_type in {"assistant_audio", "assistant_text", "turn_complete"}:
+                await self._send_event(
+                    websocket,
+                    "turn_complete",
+                    turn_id=completed_turn_id,
+                    interrupted=False,
+                )
                 continue
             await websocket.send_json(event)
             if event_type == "error":
@@ -3127,14 +3592,7 @@ class RealtimeVoiceService:
                         websocket, openai_ws, memory_session, tool_session, recorder, interruption
                     )
                 )
-                done, pending = await asyncio.wait(
-                    {send_task, receive_task},
-                    return_when=asyncio.FIRST_EXCEPTION,
-                )
-                for task in pending:
-                    task.cancel()
-                for task in done:
-                    task.result()
+                await self._run_duplex_tasks(send_task, receive_task)
         except WebSocketDisconnect:
             return
         except Exception as e:
@@ -3148,7 +3606,7 @@ class RealtimeVoiceService:
             if recorder is not None:
                 await recorder.complete_turn(memory_result)
             await memory_session.drain()
-            await tool_session.drain()
+            await tool_session.drain(cancel=True)
             if recorder is not None:
                 await recorder.finish()
 
@@ -3217,14 +3675,7 @@ class RealtimeVoiceService:
                         interruption,
                     )
                 )
-                done, pending = await asyncio.wait(
-                    {send_task, receive_task},
-                    return_when=asyncio.FIRST_EXCEPTION,
-                )
-                for task in pending:
-                    task.cancel()
-                for task in done:
-                    task.result()
+                await self._run_duplex_tasks(send_task, receive_task)
         except WebSocketDisconnect:
             return
         except Exception as e:
@@ -3238,7 +3689,7 @@ class RealtimeVoiceService:
             if recorder is not None:
                 await recorder.complete_turn(memory_result)
             await memory_session.drain()
-            await tool_session.drain()
+            await tool_session.drain(cancel=True)
             if recorder is not None:
                 await recorder.finish()
 
@@ -3260,8 +3711,7 @@ class RealtimeVoiceService:
         import dashscope
 
         dashscope.api_key = settings["api_key"]
-        base_domain = "dashscope.aliyuncs.com" if settings["region"] == "cn" else "dashscope-intl.aliyuncs.com"
-        url = f"wss://{base_domain}/api-ws/v1/realtime"
+        url = settings["realtime_base_url"]
         event_queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
         loop = asyncio.get_running_loop()
         callback = DashScopeRealtimeCallback(loop=loop, queue=event_queue)
@@ -3307,14 +3757,7 @@ class RealtimeVoiceService:
                     interruption,
                 )
             )
-            done, pending = await asyncio.wait(
-                {send_task, receive_task},
-                return_when=asyncio.FIRST_EXCEPTION,
-            )
-            for task in pending:
-                task.cancel()
-            for task in done:
-                task.result()
+            await self._run_duplex_tasks(send_task, receive_task)
         except WebSocketDisconnect:
             return
         except Exception as e:
@@ -3328,7 +3771,7 @@ class RealtimeVoiceService:
             if recorder is not None:
                 await recorder.complete_turn(memory_result)
             await memory_session.drain()
-            await tool_session.drain()
+            await tool_session.drain(cancel=True)
             if recorder is not None:
                 await recorder.finish()
             try:

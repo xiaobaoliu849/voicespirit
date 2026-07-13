@@ -14,6 +14,8 @@ from .tts_service import TTSService
 
 SendEvent = Callable[[str, Any], Awaitable[None]]
 ToolResultHandler = Callable[[dict[str, Any]], Awaitable[None]]
+ToolErrorHandler = Callable[[str], Awaitable[None]]
+ToolCancelPrepareHandler = Callable[[str], Awaitable[bool]]
 
 
 @dataclass(frozen=True)
@@ -799,23 +801,50 @@ class VoiceAgentToolSession:
     def __init__(self, service: VoiceAgentToolService | None = None) -> None:
         self.service = service or VoiceAgentToolService()
         self._current_task: asyncio.Task[None] | None = None
+        self._native_tasks: dict[str, asyncio.Task[None]] = {}
+        self._native_turn_ids: dict[str, str] = {}
+        self._native_cancel_handlers: dict[str, ToolErrorHandler] = {}
+        self._native_cancel_prepare_handlers: dict[str, ToolCancelPrepareHandler] = {}
+        self._native_states: dict[str, dict[str, Any]] = {}
+        self._seen_provider_call_ids: set[str] = set()
         self._cancel_reason = "cancelled"
         self._current_turn_id = ""
         self._current_query = ""
+        self._current_provider_call_id = ""
         self._current_started_at = 0.0
         self._turn_index = 0
 
     @property
     def has_active_task(self) -> bool:
-        return self._current_task is not None and not self._current_task.done()
+        compatibility_active = self._current_task is not None and not self._current_task.done()
+        return compatibility_active or any(not task.done() for task in self._native_tasks.values())
 
     @property
     def current_turn_id(self) -> str:
-        return self._current_turn_id
+        return self._current_turn_id or next(iter(self._native_turn_ids.values()), "")
+
+    @property
+    def current_provider_call_id(self) -> str:
+        return self._current_provider_call_id or next(iter(self._native_tasks), "")
+
+    def has_seen_provider_call(self, provider_call_id: str) -> bool:
+        return str(provider_call_id or "").strip() in self._seen_provider_call_ids
+
+    def mark_provider_call_seen(self, provider_call_id: str) -> None:
+        call_id = str(provider_call_id or "").strip()
+        if not call_id:
+            return
+        if len(self._seen_provider_call_ids) >= 256:
+            self._seen_provider_call_ids.pop()
+        self._seen_provider_call_ids.add(call_id)
 
     def _next_turn_id(self) -> str:
         self._turn_index += 1
         return f"voice-tool-{self._turn_index}"
+
+    def reserve_tool_call_id(self) -> str:
+        """Reserve a stable local ID before native callbacks are created."""
+        return self._next_turn_id()
 
     async def handle_user_transcript(
         self,
@@ -827,56 +856,310 @@ class VoiceAgentToolSession:
         request = self.service.extract_tool_request(text)
         if request is None:
             return ""
-        await self.cancel(send_event=send_event, reason="superseded")
-        turn_id = self._next_turn_id()
+        return await self.handle_request(
+            request,
+            send_event=send_event,
+            on_result=on_result,
+        )
+
+    async def handle_request(
+        self,
+        request: VoiceToolRequest,
+        *,
+        send_event: SendEvent,
+        on_result: ToolResultHandler | None = None,
+        on_error: ToolErrorHandler | None = None,
+        on_cancel: ToolErrorHandler | None = None,
+        on_cancel_prepare: ToolCancelPrepareHandler | None = None,
+        provider_call_id: str = "",
+        conversation_turn_id: str = "",
+        tool_call_id: str = "",
+    ) -> str:
+        normalized_call_id = str(provider_call_id or "").strip()
+        is_native = bool(normalized_call_id)
+        if is_native and normalized_call_id in self._native_tasks:
+            return self._native_turn_ids.get(normalized_call_id, "")
+        if is_native and normalized_call_id in self._seen_provider_call_ids:
+            return ""
+        if not is_native:
+            await self.cancel(send_event=send_event, reason="superseded")
+        turn_id = str(tool_call_id or "").strip() or self._next_turn_id()
         self._current_turn_id = turn_id
         self._current_query = request.query
+        self._current_provider_call_id = normalized_call_id
         self._current_started_at = time.perf_counter()
+        started_at = self._current_started_at
+        call_state: dict[str, Any] = {
+            "phase": "running",
+            "cancel_reason": "cancelled",
+            "completion_payload": None,
+            "failure_payload": None,
+            "cancel_requested": False,
+            "cancel_prepare_done": asyncio.Event(),
+            "cancel_lock": asyncio.Lock(),
+            "lock": asyncio.Lock(),
+        }
+        call_state["cancel_prepare_done"].set()
+
+        async def send_correlated_event(event_type: str, payload: dict[str, Any]) -> None:
+            correlated_payload = dict(payload)
+            if is_native:
+                correlated_payload["tool_call_id"] = turn_id
+                correlated_payload["provider_call_id"] = normalized_call_id
+                correlated_payload["route"] = "native"
+                if conversation_turn_id:
+                    correlated_payload["turn_id"] = conversation_turn_id
+                if event_type in {"tool_call_completed", "tool_call_failed"}:
+                    call_state[
+                        "completion_payload" if event_type == "tool_call_completed" else "failure_payload"
+                    ] = correlated_payload
+                    return
+            await send_event(event_type, correlated_payload)
 
         async def runner() -> None:
             try:
-                result = await self.service.run_tool(request, send_event=send_event, turn_id=turn_id)
-                if on_result is not None:
-                    await on_result(result)
+                try:
+                    result = await self.service.run_tool(
+                        request,
+                        send_event=send_correlated_event,
+                        turn_id=turn_id,
+                    )
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:
+                    async with call_state["lock"]:
+                        if call_state["phase"] != "running":
+                            return
+                        if call_state["cancel_requested"]:
+                            await call_state["cancel_prepare_done"].wait()
+                            if call_state["cancel_requested"]:
+                                raise asyncio.CancelledError
+                        call_state["phase"] = "delivering"
+                        await send_correlated_event(
+                            "tool_call_failed",
+                            {
+                                "tool_name": request.tool_name,
+                                "query": request.query,
+                                "turn_id": turn_id,
+                                "message": str(exc),
+                                "elapsed_ms": int((time.perf_counter() - started_at) * 1000),
+                            },
+                        )
+                        if on_error is not None:
+                            try:
+                                await on_error(str(exc))
+                            except Exception as delivery_exc:
+                                call_state["phase"] = "delivery_failed"
+                                failure_payload = call_state.get("failure_payload")
+                                if isinstance(failure_payload, dict):
+                                    await send_event("tool_call_failed", failure_payload)
+                                await send_correlated_event(
+                                    "tool_result_delivery_failed",
+                                    {
+                                        "tool_name": request.tool_name,
+                                        "query": request.query,
+                                        "turn_id": turn_id,
+                                        "message": str(delivery_exc),
+                                    },
+                                )
+                                return
+                        if call_state["cancel_requested"]:
+                            await call_state["cancel_prepare_done"].wait()
+                            if call_state["cancel_requested"]:
+                                raise asyncio.CancelledError
+                        call_state["phase"] = "delivered"
+                        failure_payload = call_state.get("failure_payload")
+                        if isinstance(failure_payload, dict):
+                            await send_event("tool_call_failed", failure_payload)
+                    return
+
+                if is_native:
+                    async with call_state["lock"]:
+                        if call_state["phase"] != "running":
+                            return
+                        call_state["phase"] = "delivering"
+                        if on_result is not None:
+                            try:
+                                await on_result(result)
+                            except Exception as exc:
+                                call_state["phase"] = "delivery_failed"
+                                await send_correlated_event(
+                                    "tool_result_delivery_failed",
+                                    {
+                                        "tool_name": request.tool_name,
+                                        "query": request.query,
+                                        "turn_id": turn_id,
+                                        "message": str(exc),
+                                    },
+                                )
+                                return
+                        if call_state["cancel_requested"]:
+                            await call_state["cancel_prepare_done"].wait()
+                            if call_state["cancel_requested"]:
+                                raise asyncio.CancelledError
+                        call_state["phase"] = "delivered"
+                        completion_payload = call_state.get("completion_payload")
+                        if isinstance(completion_payload, dict):
+                            await send_event("tool_call_completed", completion_payload)
+                elif on_result is not None:
+                    try:
+                        await on_result(result)
+                    except Exception as exc:
+                        await send_correlated_event(
+                            "tool_result_delivery_failed",
+                            {
+                                "tool_name": request.tool_name,
+                                "query": request.query,
+                                "turn_id": turn_id,
+                                "message": str(exc),
+                            },
+                        )
             except asyncio.CancelledError:
-                await send_event(
+                await send_correlated_event(
                     "tool_call_cancelled",
                     {
                         "tool_name": request.tool_name,
                         "query": request.query,
                         "turn_id": turn_id,
-                        "reason": self._cancel_reason,
-                        "elapsed_ms": int((time.perf_counter() - self._current_started_at) * 1000),
+                        "reason": str(call_state.get("cancel_reason", "cancelled")) if is_native else self._cancel_reason,
+                        "elapsed_ms": int((time.perf_counter() - started_at) * 1000),
                     },
                 )
                 raise
-            except Exception as exc:
-                await send_event(
-                    "tool_call_failed",
-                    {
-                        "tool_name": request.tool_name,
-                        "query": request.query,
-                        "turn_id": turn_id,
-                        "message": str(exc),
-                        "elapsed_ms": int((time.perf_counter() - self._current_started_at) * 1000),
-                    },
-                )
             finally:
+                if is_native:
+                    self._native_tasks.pop(normalized_call_id, None)
+                    self._native_turn_ids.pop(normalized_call_id, None)
+                    self._native_cancel_handlers.pop(normalized_call_id, None)
+                    self._native_cancel_prepare_handlers.pop(normalized_call_id, None)
+                    self._native_states.pop(normalized_call_id, None)
                 if self._current_turn_id == turn_id:
                     self._current_task = None
                     self._current_turn_id = ""
                     self._current_query = ""
+                    self._current_provider_call_id = ""
                     self._current_started_at = 0.0
 
-        self._current_task = asyncio.create_task(runner())
+        task = asyncio.create_task(runner())
+        if is_native:
+            if len(self._seen_provider_call_ids) >= 256:
+                self._seen_provider_call_ids.pop()
+            self._seen_provider_call_ids.add(normalized_call_id)
+            self._native_tasks[normalized_call_id] = task
+            self._native_turn_ids[normalized_call_id] = turn_id
+            self._native_states[normalized_call_id] = call_state
+            if on_cancel is not None:
+                self._native_cancel_handlers[normalized_call_id] = on_cancel
+            if on_cancel_prepare is not None:
+                self._native_cancel_prepare_handlers[normalized_call_id] = on_cancel_prepare
+        else:
+            self._current_task = task
         return turn_id
 
+    async def cancel_provider_call(
+        self,
+        provider_call_id: str,
+        *,
+        send_event: SendEvent,
+        reason: str = "provider_cancelled",
+        notify_provider: bool = False,
+    ) -> bool:
+        call_id = str(provider_call_id or "").strip()
+        call_state = self._native_states.get(call_id)
+        if call_state is None:
+            return False
+        async with call_state["cancel_lock"]:
+            return await self._cancel_provider_call_locked(
+                call_id,
+                send_event=send_event,
+                reason=reason,
+                notify_provider=notify_provider,
+            )
+
+    async def _cancel_provider_call_locked(
+        self,
+        provider_call_id: str,
+        *,
+        send_event: SendEvent,
+        reason: str = "provider_cancelled",
+        notify_provider: bool = False,
+    ) -> bool:
+        call_id = str(provider_call_id or "").strip()
+        task = self._native_tasks.get(call_id)
+        call_state = self._native_states.get(call_id)
+        if task is None or task.done() or call_state is None:
+            return False
+        cancel_prepare = self._native_cancel_prepare_handlers.get(call_id)
+        if cancel_prepare is not None:
+            call_state["cancel_reason"] = reason
+            call_state["cancel_requested"] = True
+            call_state["cancel_prepare_done"].clear()
+            prepared = False
+            try:
+                prepared = await cancel_prepare(reason)
+            except asyncio.CancelledError:
+                call_state["cancel_requested"] = False
+                call_state["cancel_prepare_done"].set()
+                raise
+            except Exception:
+                pass
+            if not prepared:
+                call_state["cancel_requested"] = False
+            call_state["cancel_prepare_done"].set()
+            if prepared:
+                call_state["phase"] = "cancelled"
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
+                finally:
+                    self._native_tasks.pop(call_id, None)
+                    self._native_turn_ids.pop(call_id, None)
+                    self._native_cancel_handlers.pop(call_id, None)
+                    self._native_cancel_prepare_handlers.pop(call_id, None)
+                    self._native_states.pop(call_id, None)
+                return True
+        async with call_state["lock"]:
+            if call_state["phase"] != "running":
+                return False
+            call_state["phase"] = "cancelled"
+            call_state["cancel_reason"] = reason
+        if notify_provider:
+            cancel_handler = self._native_cancel_handlers.get(call_id)
+            if cancel_handler is not None:
+                try:
+                    await cancel_handler(reason)
+                except Exception:
+                    pass
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+        finally:
+            self._native_tasks.pop(call_id, None)
+            self._native_turn_ids.pop(call_id, None)
+            self._native_cancel_handlers.pop(call_id, None)
+            self._native_cancel_prepare_handlers.pop(call_id, None)
+            self._native_states.pop(call_id, None)
+        return True
+
     async def cancel(self, *, send_event: SendEvent, reason: str = "cancelled") -> None:
+        native_call_ids = list(self._native_tasks)
+        for provider_call_id in native_call_ids:
+            await self.cancel_provider_call(
+                provider_call_id,
+                send_event=send_event,
+                reason=reason,
+                notify_provider=True,
+            )
         task = self._current_task
         if task is None or task.done():
             self._current_task = None
             self._current_turn_id = ""
             self._current_query = ""
+            self._current_provider_call_id = ""
             self._current_started_at = 0.0
             return
         self._cancel_reason = reason
@@ -889,14 +1172,25 @@ class VoiceAgentToolSession:
             self._current_task = None
             self._current_turn_id = ""
             self._current_query = ""
+            self._current_provider_call_id = ""
             self._current_started_at = 0.0
             self._cancel_reason = "cancelled"
 
-    async def drain(self) -> None:
-        task = self._current_task
-        if task is not None and not task.done():
-            await asyncio.gather(task, return_exceptions=True)
+    async def drain(self, *, cancel: bool = False) -> None:
+        tasks = [task for task in [self._current_task, *self._native_tasks.values()] if task is not None]
+        if cancel:
+            for task in tasks:
+                if not task.done():
+                    task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+        self._native_tasks.clear()
+        self._native_turn_ids.clear()
+        self._native_cancel_handlers.clear()
+        self._native_cancel_prepare_handlers.clear()
+        self._native_states.clear()
         self._current_task = None
         self._current_turn_id = ""
         self._current_query = ""
+        self._current_provider_call_id = ""
         self._current_started_at = 0.0

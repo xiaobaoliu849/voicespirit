@@ -105,6 +105,36 @@ describe('ChatPage', () => {
         expect(screen.getByText('来源：本地待同步 1 条，云端 0 条')).toBeInTheDocument();
     });
 
+    it('renders native tool progress and grounded sources during a live call', () => {
+        render(
+            <ChatPage
+                chat={createChatController()}
+                voiceChat={createVoiceChatController({
+                    voiceChatRecording: true,
+                    voiceChatConnected: true,
+                    voiceChatAgentToolStatus: '正在搜索网页资料…',
+                    voiceChatAgentRunMeta: 'search_web · 820 ms',
+                    voiceChatAgentSources: [
+                        {
+                            title: 'Gemini Live tools',
+                            uri: 'https://ai.google.dev/gemini-api/docs/live-api/tools',
+                            snippet: 'Function calling documentation',
+                            source_type: 'web'
+                        }
+                    ]
+                })}
+                errorRuntimeContext={{}}
+            />
+        );
+
+        expect(screen.getAllByText('正在搜索网页资料…').length).toBeGreaterThan(0);
+        expect(screen.getByRole('status')).toHaveTextContent('search_web · 820 ms');
+        expect(screen.getByRole('link', { name: 'Gemini Live tools' })).toHaveAttribute(
+            'href',
+            'https://ai.google.dev/gemini-api/docs/live-api/tools'
+        );
+    });
+
     it('shows live translate controls and bilingual streaming labels for Gemini Live Translate', () => {
         render(
             <ChatPage

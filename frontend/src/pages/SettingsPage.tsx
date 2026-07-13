@@ -342,6 +342,31 @@ export default function SettingsPage({ settings, errorRuntimeContext, onClose }:
                     <span className="vsFieldHint">{t("留空则使用该供应商的默认 API 端点", "Leave empty to use the default API endpoint for this provider")}</span>
                   </label>
 
+                  {settings.settingsProvider === "DashScope" && (
+                    <label className="vsField">
+                      <span className="vsFieldLabel">Qwen Realtime WebSocket URL</span>
+                      <input
+                        className="vsInput"
+                        value={settings.settingsRealtimeApiUrl}
+                        onChange={(e) => settings.onRealtimeApiUrlChange(e.target.value)}
+                        placeholder="wss://{WorkspaceId}.cn-beijing.maas.aliyuncs.com/api-ws/v1/realtime"
+                      />
+                      <span className="vsFieldHint">
+                        {t(
+                          "Qwen 3.5 Omni Realtime 必须使用百炼业务空间的 WebSocket 地址。",
+                          "Qwen 3.5 Omni Realtime requires the WebSocket URL for your Model Studio workspace."
+                        )}{" "}
+                        <a
+                          href="https://help.aliyun.com/zh/model-studio/realtime"
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          {t("查看官方配置说明", "Open the official setup guide")}
+                        </a>
+                      </span>
+                    </label>
+                  )}
+
                   {settings.isCustomProvider && (
                     <>
                       <label className="vsField">
