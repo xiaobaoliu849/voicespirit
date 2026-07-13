@@ -3,9 +3,8 @@ import {
   getChatQuickActions,
   type QuickAction
 } from "../appConfig";
-import { extractPdfText, type VoiceAgentRunLink } from "../api";
+import { extractPdfText } from "../api";
 import ErrorNotice from "../components/ErrorNotice";
-import VoiceAgentHistoryPanel from "../components/VoiceAgentHistoryPanel";
 import type { UseChatResult } from "../hooks/useChat";
 import type { UseVoiceChatResult } from "../hooks/useVoiceChat";
 import { useI18n } from "../i18n";
@@ -15,7 +14,6 @@ type Props = {
   chat: UseChatResult;
   voiceChat: UseVoiceChatResult;
   errorRuntimeContext: ErrorRuntimeContext;
-  onResumeAgentRun?: (link: VoiceAgentRunLink) => void | Promise<void>;
 };
 
 /* ── Inline SVG icons ── */
@@ -39,10 +37,6 @@ const SpinnerIcon = () => (
 );
 const CopyIcon = () => (
   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="14" height="14" x="8" y="8" rx="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg>
-);
-
-const HistoryIcon = () => (
-  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path><path d="M3 3v5h5"></path><path d="M12 7v5l4 2"></path></svg>
 );
 
 function isVoiceRealtimeModel(provider: string, model: string): boolean {
@@ -400,14 +394,13 @@ function Composer({
   );
 }
 
-export default function ChatPage({ chat, voiceChat, errorRuntimeContext, onResumeAgentRun }: Props) {
+export default function ChatPage({ chat, voiceChat, errorRuntimeContext }: Props) {
   const { t } = useI18n();
   const quickActions: QuickAction[] = getChatQuickActions(t);
   const combinedMessages = [...chat.chatMessages, ...voiceChat.sessionSummary];
   const isEmpty = !combinedMessages.length;
   const bodyRef = useRef<HTMLDivElement>(null);
   const shouldStickToBottomRef = useRef(true);
-  const [showVoiceHistory, setShowVoiceHistory] = useState(false);
   const [copiedMessageKey, setCopiedMessageKey] = useState("");
   const copyResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -458,36 +451,6 @@ export default function ChatPage({ chat, voiceChat, errorRuntimeContext, onResum
 
   return (
     <section className="vsChatWorkspace" style={{ position: "relative" }}>
-      <div style={{ position: "absolute", top: 12, right: 16, zIndex: 31 }}>
-          <button
-            type="button"
-            className="vsBtnSecondary"
-            style={{
-              background: "rgba(255, 255, 255, 0.75)",
-              backdropFilter: "blur(8px)",
-              WebkitBackdropFilter: "blur(8px)",
-              borderRadius: "20px",
-              boxShadow: "0 2px 8px rgba(0, 0, 0, 0.08)",
-              border: "1px solid var(--line)",
-              padding: "0 14px",
-              display: "inline-flex",
-              alignItems: "center",
-              gap: "6px"
-            }}
-            aria-expanded={showVoiceHistory}
-            onClick={() => setShowVoiceHistory((value) => !value)}
-          >
-            <HistoryIcon />
-            <span>
-              {showVoiceHistory ? t("返回对话", "Back to chat") : t("语音历史", "Voice history")}
-            </span>
-          </button>
-      </div>
-      {showVoiceHistory ? (
-        <div style={{ position: "absolute", inset: 0, zIndex: 30, overflow: "auto", background: "var(--surface-color)", padding: "64px 18px 24px" }}>
-          <VoiceAgentHistoryPanel voiceChat={voiceChat} onResumeAgentRun={onResumeAgentRun} />
-        </div>
-      ) : null}
       {/* ── Body ── */}
       <div
         ref={bodyRef}

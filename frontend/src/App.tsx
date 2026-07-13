@@ -7,7 +7,6 @@ import {
   registerAuthUser,
   type AuthRuntimeConfig,
   type ChatMessage,
-  type VoiceAgentRunLink,
 } from "./api";
 import {
   getDefaultText,
@@ -368,18 +367,6 @@ export default function App() {
     setAuthRuntime(clearAuthRuntime());
   }
 
-  async function handleResumeVoiceAgentRun(link: VoiceAgentRunLink) {
-    if (link.run.source_kind !== "audio_agent") {
-      return;
-    }
-    const sourceRunId = Number(link.run.source_run_id);
-    if (!Number.isInteger(sourceRunId) || sourceRunId <= 0) {
-      return;
-    }
-    setActiveTab("audio_overview");
-    await audioOverview.onOpenAgentRunById(sourceRunId);
-  }
-
   return (
     <I18nProvider language={uiLanguage}>
       <main className={isDesktopEmbedded ? "vsApp desktopEmbedded" : "vsApp"}>
@@ -410,7 +397,6 @@ export default function App() {
                     chat={chat}
                     voiceChat={voiceChat}
                     errorRuntimeContext={errorRuntimeContext}
-                    onResumeAgentRun={handleResumeVoiceAgentRun}
                   />
                 ) : null}
 

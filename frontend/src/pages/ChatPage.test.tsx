@@ -31,23 +31,6 @@ describe('ChatPage', () => {
         expect(screen.getByRole('button', { name: '已复制' })).toBeInTheDocument();
     });
 
-    it('opens the reachable voice history workspace from the active chat page', async () => {
-        const onLoadVoiceAgentHistory = vi.fn();
-        render(
-            <ChatPage
-                chat={createChatController()}
-                voiceChat={createVoiceChatController({ onLoadVoiceAgentHistory })}
-                errorRuntimeContext={{}}
-            />
-        );
-
-        fireEvent.click(screen.getByRole('button', { name: '语音历史' }));
-        expect(screen.getByText('语音 Agent 历史与运行')).toBeInTheDocument();
-        await waitFor(() => expect(onLoadVoiceAgentHistory).toHaveBeenCalledTimes(1));
-        fireEvent.click(screen.getByRole('button', { name: '返回对话' }));
-        expect(screen.queryByText('语音 Agent 历史与运行')).not.toBeInTheDocument();
-    });
-
     it('renders correctly empty state', () => {
         render(
             <ChatPage

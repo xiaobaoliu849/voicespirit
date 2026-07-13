@@ -545,21 +545,6 @@ describe("App interactions", () => {
     expect(screen.getByRole("button", { name: /合成/ })).toBeInTheDocument();
   });
 
-  it("resumes a durable audio agent run from voice history", async () => {
-    render(<App />);
-
-    fireEvent.click(await screen.findByRole("button", { name: "语音历史" }));
-    fireEvent.click(await screen.findByRole("button", { name: /OpenAI · closed/ }));
-    fireEvent.click(await screen.findByRole("button", { name: "在播客工作台继续" }));
-
-    await waitFor(() => {
-      expect(mockedGetAudioAgentRun).toHaveBeenCalledWith(1);
-      expect(mockedListAudioAgentRunEvents).toHaveBeenCalledWith(1, 50);
-    });
-    expect(await screen.findByText("已载入 Agent 运行 #1。")).toBeInTheDocument();
-    expect(screen.getByTestId("nav-audio_overview")).toHaveClass("active");
-  });
-
   it("copies the loaded podcast script to the clipboard", async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     setClipboardWriteText(writeText);
