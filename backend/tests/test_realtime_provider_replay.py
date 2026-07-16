@@ -561,7 +561,9 @@ class RealtimeProviderReplayTests(unittest.IsolatedAsyncioTestCase):
                 self.assertLess(event_types.index("interruption_decision"), event_types.index("interrupted"))
                 decision = next(event for event in result["events"] if event["type"] == "interruption_decision")
                 self.assertEqual(decision["classification"], "TRUE_BARGE_IN")
-                self.assertEqual(decision["rule"], "non_backchannel_speech")
+                # "等一下" is an explicit interrupt command (Layer 1). Assert the semantic
+                # rule family rather than the exact internal pattern string.
+                self.assertTrue(str(decision["rule"]).startswith("explicit_barge_in"))
                 self.assertEqual(decision["provider"], provider)
                 self.assertEqual(decision["interrupted_turn_id"], "voice-turn-1")
                 self.assertEqual(decision["decision_latency_ms"], 37)

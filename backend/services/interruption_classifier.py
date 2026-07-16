@@ -212,24 +212,78 @@ class InterruptionDecisionCoordinator:
 
 class InterruptionClassifier:
     """
-    Classifies user speech transcript to determine if it is a true interruption,
-    a backchannel affirmation, or noise.
+    Classifies user speech transcript into three categories using a three-layer rule:
+
+      Layer 1 — explicit barge-in commands (highest priority): always interrupt.
+      Layer 2 — backchannels / fillers / unfinished openers: never interrupt.
+      Layer 3 — length fallback: short utterances (< _MIN_BARGE_IN_CHARS effective
+                chars) are treated as unfinished/backchannel; longer ones as true barge-in.
+
+    The goal is to avoid cutting off the assistant when the user has only said a short
+    opener (e.g. "喽", "那个", "我想想") while still honoring clear interrupt commands.
     """
 
-    # Common backchannels in Chinese
+    # Minimum effective characters for an utterance to be considered a true barge-in.
+    _MIN_BARGE_IN_CHARS = 4
+
+    # Layer 1: explicit interrupt commands — always a true barge-in regardless of length.
+    _EXPLICIT_BARGE_IN_PATTERNS = [
+        r"^停(下|一下|止)?$",
+        r"^别(说|讲|说?了|说话|出声).*$",
+        r"^打住$",
+        r"^等(等|一下|一等|会儿)$",
+        r"^闭嘴$",
+        r"^安静(点|一下)?$",
+        r"^算了$",
+        r"^不用(说|讲|再?说)了?$",
+        r"^别烦我$",
+        # --- short negation / correction: clear intent to redirect the assistant ---
+        r"^不对$",
+        r"^错了?$",
+        r"^不是$",
+        r"^不不$",
+        r"^没有$",
+        r"^不要(这个|那个|这样)?$",
+        r"^换(一个|个)?(话题|说法|方向)?$",
+        r"^(stop|wait|cancel|shut\s*up|quiet)$",
+    ]
+
+    # Layer 2: backchannels, fillers, thinking-out-loud and unfinished openers — never interrupt.
     _BACKCHANNEL_PATTERNS = [
-        r"^嗯(嗯)?$",
+        # --- original short affirmations ---
+        r"^嗯(嗯|啊)?$",
         r"^哦(哦)?$",
         r"^啊$",
-        r"^对(的)?$",
-        r"^好(的)?$",
-        r"^是(的)?$",
+        r"^对(的|啊|呀)?$",
+        r"^好(的|啊|呀|嘞)?$",
+        r"^是(的|啊)?$",
         r"^确实$",
         r"^没毛病$",
         r"^(OK|ok)$",
         r"^我知道了$",
         r"^明白(了)?$",
-        r"^原来如此$"
+        r"^原来如此$",
+        # --- hesitation / thinking / opening fillers (do not interrupt) ---
+        r"^喽$",
+        r"^呃+$",
+        r"^额+$",
+        r"^欸$",
+        r"^哎(呀|哟)?$",
+        r"^唉$",
+        r"^那个(那个)?$",
+        r"^就是(说)?$",
+        r"^我想(想|一下)?$",
+        r"^让(我|咱)(想想|想一下|想想?看)$",
+        r"^这个(这个)?$",
+        r"^这样的话$",
+        r"^然后呢$",
+        r"^喂$",
+        r"^你好$",
+        r"^在吗$",
+        r"^听着$",
+        r"^说实话$",
+        r"^其实$",
+        r"^(咋|怎么)说(呢|吧)?$",
     ]
 
     @classmethod
@@ -247,7 +301,19 @@ class InterruptionClassifier:
                 rule="empty_or_punctuation",
             )
 
-        # Check backchannels
+        # Layer 1: explicit barge-in commands always interrupt, even when short.
+        for pattern in cls._EXPLICIT_BARGE_IN_PATTERNS:
+            if re.match(pattern, eval_text, re.IGNORECASE):
+                logger.info(
+                    "interruption_classification result=TRUE_BARGE_IN text=%r rule=explicit pattern=%r",
+                    cleaned_text, pattern,
+                )
+                return InterruptionClassification(
+                    intent=InterruptionIntent.TRUE_BARGE_IN,
+                    rule=f"explicit_barge_in:{pattern}",
+                )
+
+        # Layer 2: backchannels / fillers / openers never interrupt.
         for pattern in cls._BACKCHANNEL_PATTERNS:
             if re.match(pattern, eval_text, re.IGNORECASE):
                 logger.info("interruption_classification result=BACKCHANNEL text=%r pattern=%r", cleaned_text, pattern)
@@ -256,14 +322,22 @@ class InterruptionClassifier:
                     rule=f"backchannel_pattern:{pattern}",
                 )
 
-        # If it's very short but not in backchannel list, maybe it's an unrecognized backchannel,
-        # but safely we can treat it as barge-in if it's substantial, or we can just treat everything else as barge-in.
-        # Actually, if the user says "等一下" (Wait), it's 3 chars. "停" is 1 char.
-        # "停" is a clear barge-in command, so anything not in backchannel is a true barge-in.
-        logger.info("interruption_classification result=TRUE_BARGE_IN text=%r", cleaned_text)
+        # Layer 3: length fallback. Short utterances that are neither explicit commands
+        # nor known backchannels are most likely unfinished speech — do not interrupt.
+        if len(eval_text) < cls._MIN_BARGE_IN_CHARS:
+            logger.info(
+                "interruption_classification result=BACKCHANNEL text=%r rule=too_short len=%d",
+                cleaned_text, len(eval_text),
+            )
+            return InterruptionClassification(
+                intent=InterruptionIntent.BACKCHANNEL,
+                rule=f"too_short:{len(eval_text)}",
+            )
+
+        logger.info("interruption_classification result=TRUE_BARGE_IN text=%r rule=length", cleaned_text)
         return InterruptionClassification(
             intent=InterruptionIntent.TRUE_BARGE_IN,
-            rule="non_backchannel_speech",
+            rule="substantial_speech",
         )
 
     @classmethod

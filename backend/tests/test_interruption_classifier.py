@@ -92,3 +92,104 @@ class TestInterruptionClassifier(unittest.TestCase):
             supersede_timed_out=True,
         )
         self.assertNotIn("supersedes_candidate_id", wrong_provider)
+
+
+class TestThreeLayerInterruptionRules(unittest.TestCase):
+    """Direction-A three-layer rules: explicit command > backchannel > length fallback.
+
+    Regression target: the assistant must NOT be cut off when the user has only said a
+    short opener such as "喽" / "那个" / "我想想", while explicit interrupt commands and
+    substantial utterances still interrupt immediately.
+    """
+
+    # ---- Layer 1: explicit barge-in commands always interrupt ------------------
+
+    def test_explicit_commands_interrupt_even_when_short(self):
+        for text in ["停", "停下", "别说了", "别讲了", "打住", "等等", "等一下",
+                     "闭嘴", "安静", "算了", "不用说了", "stop", "wait"]:
+            with self.subTest(text=text):
+                self.assertEqual(
+                    InterruptionClassifier.classify_interruption(text),
+                    InterruptionIntent.TRUE_BARGE_IN,
+                    f"{text!r} should be an explicit barge-in",
+                )
+
+    def test_short_negation_correction_interrupts(self):
+        """Short negation/correction words express clear intent to redirect."""
+        for text in ["不对", "错", "错了", "不是", "没有", "不要", "换个话题"]:
+            with self.subTest(text=text):
+                self.assertEqual(
+                    InterruptionClassifier.classify_interruption(text),
+                    InterruptionIntent.TRUE_BARGE_IN,
+                    f"{text!r} should interrupt (negation/correction)",
+                )
+
+    # ---- Layer 2: fillers / openers / thinking-aloud never interrupt -----------
+
+    def test_openers_and_fillers_do_not_interrupt(self):
+        """The reported bug: '喽' must NOT cut off the assistant mid-sentence."""
+        for text in ["喽", "呃", "额", "欸", "哎", "唉", "那个", "就是", "就是说",
+                     "我想", "我想想", "让我想想", "这个", "然后呢", "喂", "在吗",
+                     "听着", "说实话", "其实", "怎么说呢"]:
+            with self.subTest(text=text):
+                self.assertEqual(
+                    InterruptionClassifier.classify_interruption(text),
+                    InterruptionIntent.BACKCHANNEL,
+                    f"{text!r} should NOT interrupt (opener/filler)",
+                )
+
+    def test_original_backchannels_still_do_not_interrupt(self):
+        for text in ["嗯", "嗯嗯", "哦", "啊", "对", "好的", "是的", "确实",
+                     "没毛病", "ok", "我知道了", "明白", "原来如此"]:
+            with self.subTest(text=text):
+                self.assertEqual(
+                    InterruptionClassifier.classify_interruption(text),
+                    InterruptionIntent.BACKCHANNEL,
+                    f"{text!r} should remain a backchannel",
+                )
+
+    # ---- Layer 3: length fallback ----------------------------------------------
+
+    def test_short_unknown_utterance_does_not_interrupt(self):
+        """Unknown short utterances (< 4 effective chars) are treated as unfinished."""
+        for text in ["哈喽", "嗨", "耶", "咋"]:
+            with self.subTest(text=text):
+                self.assertEqual(
+                    InterruptionClassifier.classify_interruption(text),
+                    InterruptionIntent.BACKCHANNEL,
+                    f"{text!r} (too short) should NOT interrupt",
+                )
+
+    def test_substantial_utterance_interrupts(self):
+        """Utterances with >= 4 effective chars carry a full intent and interrupt."""
+        for text in ["你先别说了", "我问你个事情", "这个不太对吧", "帮我也查一下"]:
+            with self.subTest(text=text):
+                self.assertEqual(
+                    InterruptionClassifier.classify_interruption(text),
+                    InterruptionIntent.TRUE_BARGE_IN,
+                    f"{text!r} (substantial) should interrupt",
+                )
+
+    def test_length_boundary_exactly_at_threshold(self):
+        """4 effective chars (== threshold) is substantial; 3 chars is not."""
+        self.assertEqual(
+            InterruptionClassifier.classify_interruption("问问你呀"),  # 4 chars
+            InterruptionIntent.TRUE_BARGE_IN,
+        )
+        self.assertEqual(
+            InterruptionClassifier.classify_interruption("问问你"),  # 3 chars
+            InterruptionIntent.BACKCHANNEL,
+        )
+
+    def test_punctuation_stripped_before_length_check(self):
+        """Punctuation/whitespace must not count toward the length threshold."""
+        # "嗯。。。" -> "嗯" (backchannel), not counted as 4 chars.
+        self.assertEqual(
+            InterruptionClassifier.classify_interruption("嗯。。。"),
+            InterruptionIntent.BACKCHANNEL,
+        )
+        # "问 问 你 呀！！" -> "问问你呀" (4 effective chars) -> substantial.
+        self.assertEqual(
+            InterruptionClassifier.classify_interruption("问 问 你 呀！！"),
+            InterruptionIntent.TRUE_BARGE_IN,
+        )
