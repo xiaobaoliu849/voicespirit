@@ -756,7 +756,9 @@ export default function useVoiceChat({
         setVoiceChatVoice("Puck");
       }
     }
-  }, [voiceChatProvider, voiceChatVoice]);
+    // voiceChatModel must be a dependency: switching between qwen-audio and other
+    // DashScope models changes the valid voice set, so re-validate on model change.
+  }, [voiceChatProvider, voiceChatModel, voiceChatVoice]);
 
   useEffect(() => {
     return () => {

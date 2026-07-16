@@ -72,6 +72,16 @@ GOOGLE_LIVE_TRANSLATE_MODEL = "gemini-3.5-live-translate-preview"
 DEFAULT_GOOGLE_REALTIME_VOICE = "Puck"
 DEFAULT_DASHSCOPE_REALTIME_MODEL = "qwen3.5-omni-plus-realtime"
 DEFAULT_DASHSCOPE_REALTIME_VOICE = "Cherry"
+# Voices supported by Qwen-Audio realtime models (qwen-audio-*). The provider rejects
+# any voice outside this allow-list, so the backend defensively falls back to a valid
+# default instead of forwarding an unsupported voice and failing the whole session.
+QWEN_AUDIO_REALTIME_VOICES = (
+    "longanqian", "longanlingxin", "longanlufeng", "longanlingxi", "longanxiaoxin",
+    "longanfengyue", "longanyuanfei", "longanhuan_v3.6", "longjielidou_v3.6",
+    "longpaopao_v3.6", "longhuohuo_v3.6", "longchuanshu_v3.6", "loongmary",
+    "loongeva_v3.6", "loongjohn",
+)
+DEFAULT_QWEN_AUDIO_REALTIME_VOICE = "longanqian"
 DEFAULT_OPENAI_REALTIME_MODEL = "gpt-realtime-2"
 DEFAULT_OPENAI_REALTIME_VOICE = "alloy"
 OPENAI_REALTIME_VOICES = ("alloy", "ash", "ballad", "coral", "echo", "sage", "shimmer", "verse")
@@ -4325,7 +4335,13 @@ class RealtimeVoiceService:
         settings = self._resolve_dashscope_settings(model)
         memory_session = RealtimeMemorySession()
         tool_session = VoiceAgentToolSession()
-        resolved_voice = (voice or DEFAULT_DASHSCOPE_REALTIME_VOICE).strip()
+        resolved_voice = (voice or DEFAULT_QWEN_AUDIO_REALTIME_VOICE).strip()
+        if resolved_voice not in QWEN_AUDIO_REALTIME_VOICES:
+            logger.warning(
+                "qwen_audio_unsupported_voice voice=%s fallback=%s",
+                resolved_voice, DEFAULT_QWEN_AUDIO_REALTIME_VOICE,
+            )
+            resolved_voice = DEFAULT_QWEN_AUDIO_REALTIME_VOICE
         recorder = await self._create_voice_session_recorder(
             provider="DashScope",
             model=settings["model"],
