@@ -206,19 +206,22 @@ const OPENAI_REALTIME_VOICES = [
   { value: "verse", label: "Verse (Male)" },
 ];
 
-const DASHSCOPE_REALTIME_VOICES = [
-  { value: "Cherry", label: "Cherry (Female)" },
-  { value: "Bella", label: "Bella (Female)" },
-  { value: "Luna", label: "Luna (Female)" },
-  { value: "Stella", label: "Stella (Female)" },
-  { value: "Raya", label: "Raya (Female)" },
-  { value: "Zita", label: "Zita (Female)" },
-  { value: "Arda", label: "Arda (Male)" },
-  { value: "Kall", label: "Kall (Male)" },
-  { value: "Ollo", label: "Ollo (Male)" },
-  { value: "Vrom", label: "Vrom (Male)" },
-  { value: "Bale", label: "Bale (Male)" },
-  { value: "Gale", label: "Gale (Male)" },
+// Voices for qwen3.5-omni-*-realtime models (default: Tina), per the official
+// omni voice list (docs/全模态.txt). The older Cherry-era voices belong to
+// qwen3-omni / qwen-omni-turbo and are rejected by qwen3.5-omni models.
+const QWEN_OMNI_REALTIME_VOICES = [
+  { value: "Tina", label: "Tina · 甜甜 (Female)" },
+  { value: "Ethan", label: "Ethan · 晨煦 (Male)" },
+  { value: "Serena", label: "Serena · 苏瑶 (Female)" },
+  { value: "Maia", label: "Maia · 四月 (Female)" },
+  { value: "Momo", label: "Momo · 茉兔 (Female)" },
+  { value: "Ryan", label: "Ryan · 甜茶 (Male)" },
+  { value: "Jennifer", label: "Jennifer · 詹妮弗 (Female)" },
+  { value: "Katerina", label: "Katerina · 卡捷琳娜 (Female)" },
+  { value: "Aiden", label: "Aiden · 艾登 (Male)" },
+  { value: "Dylan", label: "Dylan · 北京-晓东 (Male)" },
+  { value: "Sunny", label: "Sunny · 四川-晴儿 (Female)" },
+  { value: "Peter", label: "Peter · 天津-李彼得 (Male)" },
 ];
 
 const QWEN_AUDIO_VOICES = [
@@ -249,7 +252,7 @@ function formatRealtimeVoiceOptions(
 ): Array<{ value: string; label: string }> {
   let options: Array<{ value: string; label: string }>;
   if (provider === DASHSCOPE_PROVIDER) {
-    options = isQwenAudioModel(model) ? QWEN_AUDIO_VOICES : DASHSCOPE_REALTIME_VOICES;
+    options = isQwenAudioModel(model) ? QWEN_AUDIO_VOICES : QWEN_OMNI_REALTIME_VOICES;
   } else if (provider === OPENAI_PROVIDER) {
     options = OPENAI_REALTIME_VOICES;
   } else {
@@ -597,7 +600,7 @@ export default function useVoiceChat({
   const [voiceChatModel, setVoiceChatModel] = useState(initialModel);
   const [voiceChatVoice, setVoiceChatVoice] = useState(
     initialProvider === DASHSCOPE_PROVIDER
-      ? (isQwenAudioModel(initialModel) ? "longanqian" : "Cherry")
+      ? (isQwenAudioModel(initialModel) ? "longanqian" : "Tina")
       : initialProvider === OPENAI_PROVIDER ? "alloy"
       : "Puck"
   );
@@ -743,9 +746,9 @@ export default function useVoiceChat({
 
   useEffect(() => {
     if (voiceChatProvider === DASHSCOPE_PROVIDER) {
-      const validVoices = isQwenAudioModel(voiceChatModel) ? QWEN_AUDIO_VOICES : DASHSCOPE_REALTIME_VOICES;
+      const validVoices = isQwenAudioModel(voiceChatModel) ? QWEN_AUDIO_VOICES : QWEN_OMNI_REALTIME_VOICES;
       if (!validVoices.some(v => v.value === voiceChatVoice)) {
-        setVoiceChatVoice(isQwenAudioModel(voiceChatModel) ? "longanqian" : "Cherry");
+        setVoiceChatVoice(isQwenAudioModel(voiceChatModel) ? "longanqian" : "Tina");
       }
     } else if (voiceChatProvider === OPENAI_PROVIDER) {
       if (!OPENAI_REALTIME_VOICES.some(v => v.value === voiceChatVoice)) {

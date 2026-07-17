@@ -9,6 +9,7 @@ from services.realtime_voice_service import (
     DEFAULT_DASHSCOPE_REALTIME_VOICE,
     DEFAULT_GOOGLE_REALTIME_VOICE,
     DEFAULT_OPENAI_REALTIME_VOICE,
+    DEFAULT_QWEN_AUDIO_REALTIME_VOICE,
     RealtimeVoiceService,
 )
 from services.voice_agent_session_repository import VoiceAgentSessionRepository
@@ -194,7 +195,7 @@ async def voice_chat_ws(
                 await voice_chat_service.stream_dashscope_audio_session(
                     websocket,
                     model=model,
-                    voice=(voice or DEFAULT_DASHSCOPE_REALTIME_VOICE).strip(),
+                    voice=(voice or DEFAULT_QWEN_AUDIO_REALTIME_VOICE).strip(),
                 )
             else:
                 await voice_chat_service.stream_dashscope_session(

@@ -71,7 +71,22 @@ DEFAULT_GOOGLE_REALTIME_MODEL = "gemini-2.5-flash-native-audio-preview-12-2025"
 GOOGLE_LIVE_TRANSLATE_MODEL = "gemini-3.5-live-translate-preview"
 DEFAULT_GOOGLE_REALTIME_VOICE = "Puck"
 DEFAULT_DASHSCOPE_REALTIME_MODEL = "qwen3.5-omni-plus-realtime"
-DEFAULT_DASHSCOPE_REALTIME_VOICE = "Cherry"
+DEFAULT_DASHSCOPE_REALTIME_VOICE = "Tina"
+# Voices supported by qwen3.5-omni-*-realtime models (default: Tina), per the
+# official omni voice list. The provider rejects voices from the older
+# qwen3-omni / qwen-omni-turbo family (e.g. "Cherry"), so the backend
+# defensively falls back to a valid default instead of failing the session.
+QWEN_OMNI_REALTIME_VOICES = (
+    "Tina", "Cindy", "Liora Mira", "Sunnybobi", "Raymond", "Ethan", "Theo Calm",
+    "Serena", "Harvey", "Maia", "Evan", "Qiao", "Momo", "Wil", "Angel",
+    "Li Cassian", "Mia", "Joyner", "Gold", "Katerina", "Ryan", "Jennifer",
+    "Aiden", "Mione", "Sunny", "Dylan", "Eric", "Peter", "Joseph Chen",
+    "Marcus", "Li", "Kiki", "Rocky", "Sohee", "Lenn", "Ono Anna", "Sonrisa",
+    "Bodega", "Emilien", "Andre", "Radio Gol", "Alek", "Rizky", "Roya", "Arda",
+    "Hana", "Dolce", "Jakub", "Griet", "Eliška", "Marina", "Siiri", "Ingrid",
+    "Sigga", "Bea", "Chloe",
+)
+DEFAULT_QWEN_OMNI_REALTIME_VOICE = "Tina"
 # Voices supported by Qwen-Audio realtime models (qwen-audio-*). The provider rejects
 # any voice outside this allow-list, so the backend defensively falls back to a valid
 # default instead of forwarding an unsupported voice and failing the whole session.
@@ -4243,10 +4258,17 @@ class RealtimeVoiceService:
         settings = self._resolve_dashscope_settings(model)
         memory_session = RealtimeMemorySession()
         tool_session = VoiceAgentToolSession()
+        resolved_voice = (voice or DEFAULT_QWEN_OMNI_REALTIME_VOICE).strip()
+        if "qwen3.5-omni" in settings["model"].lower() and resolved_voice not in QWEN_OMNI_REALTIME_VOICES:
+            logger.warning(
+                "qwen_omni_unsupported_voice voice=%s fallback=%s",
+                resolved_voice, DEFAULT_QWEN_OMNI_REALTIME_VOICE,
+            )
+            resolved_voice = DEFAULT_QWEN_OMNI_REALTIME_VOICE
         recorder = await self._create_voice_session_recorder(
             provider="DashScope",
             model=settings["model"],
-            voice=voice,
+            voice=resolved_voice,
         )
         import dashscope
 
@@ -4266,7 +4288,7 @@ class RealtimeVoiceService:
             await asyncio.sleep(0.5)
             self._configure_dashscope_conversation(
                 conversation,
-                voice=voice,
+                voice=resolved_voice,
                 instructions=self._build_realtime_instructions(),
             )
             await asyncio.sleep(0.5)
@@ -4275,7 +4297,7 @@ class RealtimeVoiceService:
                 "session_open",
                 provider="DashScope",
                 model=settings["model"],
-                voice=voice,
+                voice=resolved_voice,
                 session_id=recorder.session_id if recorder is not None else "",
             )
 
