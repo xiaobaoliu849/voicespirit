@@ -604,6 +604,21 @@ class RealtimeProviderReplayTests(unittest.IsolatedAsyncioTestCase):
                 self.assertTrue(result["turns"][0]["completed"])
                 self.assertEqual(event_types.count("interruption_pending"), 1)
 
+    async def test_true_barge_in_when_terminal_before_transcript_does_not_cancel_provider(self) -> None:
+        for provider in ("Google", "DashScope", "OpenAI"):
+            with self.subTest(provider=provider):
+                result = await self._replay(
+                    provider,
+                    "等一下",
+                    true_barge_in=True,
+                    terminal_before_transcript=True,
+                )
+                self.assertEqual(result["provider_stop_count"], 0)
+                event_types = [event["type"] for event in result["events"]]
+                self.assertIn("interruption_decision", event_types)
+                decision = next(event for event in result["events"] if event["type"] == "interruption_decision")
+                self.assertEqual(decision["classification"], "TRUE_BARGE_IN")
+
     async def test_idle_noise_never_creates_a_turn(self) -> None:
         for provider in ("Google", "DashScope", "OpenAI"):
             with self.subTest(provider=provider):

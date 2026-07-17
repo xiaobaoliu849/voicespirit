@@ -1,4 +1,4 @@
-import { act, renderHook } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
@@ -66,6 +66,12 @@ class FakeBufferSourceNode extends FakeAudioNode {
   addEventListener = vi.fn();
 }
 
+class FakeAnalyserNode extends FakeAudioNode {
+  fftSize = 64;
+  frequencyBinCount = 32;
+  getByteFrequencyData = vi.fn();
+}
+
 class FakeAudioContext {
   static instances: FakeAudioContext[] = [];
   static processors: FakeProcessorNode[] = [];
@@ -102,6 +108,7 @@ class FakeAudioContext {
     FakeAudioContext.bufferSources.push(source);
     return source;
   });
+  createAnalyser = vi.fn(() => new FakeAnalyserNode());
 }
 
 class FakeWebSocket {
@@ -435,7 +442,11 @@ describe("useVoiceChat", () => {
     );
 
     expect(result.current.voiceChatModel).toBe("qwen3.5-omni-plus-realtime");
-    expect(result.current.voiceChatModelOptions).toEqual(["qwen3.5-omni-plus-realtime"]);
+    expect(result.current.voiceChatModelOptions).toEqual([
+      "qwen3.5-omni-plus-realtime",
+      "qwen-audio-3.0-realtime-plus",
+      "qwen-audio-3.0-realtime-flash",
+    ]);
   });
 
   it("keeps configured DashScope realtime models outside the built-in defaults", () => {
@@ -485,8 +496,32 @@ describe("useVoiceChat", () => {
     expect(result.current.voiceChatModel).toBe("qwen3.5-omni-plus-realtime");
     expect(result.current.voiceChatModelOptions).toEqual([
       "qwen3.5-omni-plus-realtime",
+      "qwen-audio-3.0-realtime-plus",
+      "qwen-audio-3.0-realtime-flash",
       "qwen3.5-omni-flash-realtime",
     ]);
+  });
+
+  it("uses longan voices for Qwen Audio realtime models", async () => {
+    const { result } = renderHook(() =>
+      useVoiceChat({
+        formatErrorMessage: createFormatErrorMessageStub(),
+        providerOptions: ["DashScope"],
+        preferredProvider: "DashScope",
+        preferredModel: "qwen-audio-3.0-realtime-plus",
+        providerModelCatalog: {
+          DashScope: {
+            defaultModel: "qwen-audio-3.0-realtime-plus",
+            availableModels: ["qwen-audio-3.0-realtime-plus"],
+          },
+        },
+      })
+    );
+
+    expect(result.current.voiceChatModel).toBe("qwen-audio-3.0-realtime-plus");
+    expect(result.current.voiceChatVoiceOptions.map((item) => item.value)).toContain("longanqian");
+    expect(result.current.voiceChatVoiceOptions.map((item) => item.value)).not.toContain("Cherry");
+    await waitFor(() => expect(result.current.voiceChatVoice).toBe("longanqian"));
   });
 
   it("adds Live Translate target language parameters to the websocket URL", async () => {

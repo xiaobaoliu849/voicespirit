@@ -135,6 +135,83 @@ class DuckDuckGoResultParser(HTMLParser):
             self._current_snippet_parts.append(data)
 
 
+class BingResultParser(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.results: list[dict[str, str]] = []
+        self._in_b_algo = False
+        self._in_h2 = False
+        self._capture_title = False
+        self._capture_snippet = False
+        self._current_href = ""
+        self._current_title_parts: list[str] = []
+        self._current_snippet_parts: list[str] = []
+        self._snippet_tag_depth = 0
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        attrs_dict = {name: value or "" for name, value in attrs}
+        class_name = attrs_dict.get("class", "")
+        tag_name = tag.lower()
+
+        if tag_name == "li" and "b_algo" in class_name:
+            self._in_b_algo = True
+            self._current_href = ""
+            self._current_title_parts = []
+            self._current_snippet_parts = []
+            self._capture_title = False
+            self._capture_snippet = False
+            return
+
+        if self._in_b_algo:
+            if tag_name == "h2":
+                self._in_h2 = True
+                return
+            if self._in_h2 and tag_name == "a":
+                self._capture_title = True
+                self._current_href = attrs_dict.get("href", "")
+                return
+            
+            if ("b_caption" in class_name or "b_snippet" in class_name or tag_name == "p") and not self._capture_snippet:
+                if self._current_href and self._current_title_parts:
+                    self._capture_snippet = True
+                    self._snippet_tag_depth = 1
+                    return
+
+            if self._capture_snippet:
+                self._snippet_tag_depth += 1
+
+    def handle_endtag(self, tag: str) -> None:
+        tag_name = tag.lower()
+        if tag_name == "li" and self._in_b_algo:
+            self._in_b_algo = False
+            title = _normalize_whitespace(" ".join(self._current_title_parts))
+            url = self._current_href.strip()
+            snippet = _normalize_whitespace(" ".join(self._current_snippet_parts))[:500]
+            if title and url and url.startswith(("http://", "https://")):
+                self.results.append({"title": title[:240], "url": url, "snippet": snippet})
+            return
+
+        if self._in_b_algo:
+            if tag_name == "h2":
+                self._in_h2 = False
+                return
+            if tag_name == "a" and self._capture_title:
+                self._capture_title = False
+                return
+            
+            if self._capture_snippet:
+                self._snippet_tag_depth -= 1
+                if self._snippet_tag_depth <= 0:
+                    self._capture_snippet = False
+
+    def handle_data(self, data: str) -> None:
+        if self._in_b_algo:
+            if self._capture_title:
+                self._current_title_parts.append(data)
+            elif self._capture_snippet:
+                self._current_snippet_parts.append(data)
+
+
 def _normalize_whitespace(value: str) -> str:
     return re.sub(r"\s+", " ", html.unescape(str(value or ""))).strip()
 
@@ -209,7 +286,13 @@ async def _resolve_public_host(hostname: str, port: int | None) -> list[str]:
             ip = ipaddress.ip_address(ip_text)
         except ValueError as exc:
             raise ValueError(f"Resolved host to invalid address: {ip_text}") from exc
-        if (
+        is_clash_fake_ip = False
+        try:
+            is_clash_fake_ip = ip in ipaddress.ip_network("198.18.0.0/15")
+        except Exception:
+            pass
+
+        if not is_clash_fake_ip and (
             ip.is_private
             or ip.is_loopback
             or ip.is_link_local
@@ -236,75 +319,13 @@ class AudioResearchService:
 
     @staticmethod
     def _request_public_url_once(url: str, ip_address: str) -> httpx.Response:
-        parsed = urlparse(url)
-        if parsed.scheme not in {"http", "https"} or not parsed.hostname:
-            raise ValueError("URL is not a public HTTP(S) source")
-
-        default_port = 443 if parsed.scheme == "https" else 80
-        port = parsed.port or default_port
-        path = parsed.path or "/"
-        if parsed.query:
-            path = f"{path}?{parsed.query}"
-        host_header = parsed.hostname
-        if parsed.port and parsed.port != default_port:
-            host_header = f"{host_header}:{parsed.port}"
-
-        raw_socket = socket.create_connection(
-            (ip_address, port),
-            timeout=REQUEST_TIMEOUT_SECONDS,
-        )
-        try:
-            if parsed.scheme == "https":
-                context = ssl.create_default_context()
-                stream = context.wrap_socket(raw_socket, server_hostname=parsed.hostname)
-            else:
-                stream = raw_socket
-            try:
-                request = (
-                    f"GET {path} HTTP/1.1\r\n"
-                    f"Host: {host_header}\r\n"
-                    f"User-Agent: {USER_AGENT}\r\n"
-                    "Accept: text/html,text/plain;q=0.9,*/*;q=0.1\r\n"
-                    "Accept-Encoding: identity\r\n"
-                    "Connection: close\r\n"
-                    "\r\n"
-                ).encode("ascii", errors="ignore")
-                stream.sendall(request)
-                chunks: list[bytes] = []
-                total = 0
-                while total < MAX_RESPONSE_BYTES:
-                    chunk = stream.recv(min(65536, MAX_RESPONSE_BYTES - total))
-                    if not chunk:
-                        break
-                    chunks.append(chunk)
-                    total += len(chunk)
-            finally:
-                stream.close()
-        except Exception:
-            raw_socket.close()
-            raise
-
-        raw_response = b"".join(chunks)
-        header_bytes, separator, body = raw_response.partition(b"\r\n\r\n")
-        if not separator:
-            raise httpx.ProtocolError("Response did not include HTTP headers")
-        header_lines = header_bytes.decode("iso-8859-1", errors="replace").split("\r\n")
-        status_parts = header_lines[0].split(" ", 2)
-        if len(status_parts) < 2 or not status_parts[1].isdigit():
-            raise httpx.ProtocolError("Response status line is invalid")
-        headers: list[tuple[bytes, bytes]] = []
-        for line in header_lines[1:]:
-            if ":" not in line:
-                continue
-            name, value = line.split(":", 1)
-            headers.append((name.strip().encode("ascii", errors="ignore"), value.strip().encode("iso-8859-1", errors="ignore")))
-        request_obj = httpx.Request("GET", url)
-        return httpx.Response(
-            int(status_parts[1]),
-            headers=headers,
-            content=body,
-            request=request_obj,
-        )
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        }
+        with httpx.Client(follow_redirects=False, timeout=REQUEST_TIMEOUT_SECONDS) as client:
+            response = client.get(url, headers=headers)
+            response.request = httpx.Request("GET", url)
+            return response
 
     async def _get_public_response(self, url: str) -> httpx.Response:
         current_url = url
@@ -339,26 +360,49 @@ class AudioResearchService:
         cleaned = _normalize_whitespace(query)
         if not cleaned:
             return []
-        search_url = f"https://duckduckgo.com/html/?q={quote_plus(cleaned)}"
+
+        # 1. Attempt DuckDuckGo search first
+        ddg_url = f"https://duckduckgo.com/html/?q={quote_plus(cleaned)}"
         try:
-            response = await self._get_public_response(search_url)
+            response = await self._get_public_response(ddg_url)
             response.raise_for_status()
+            parser = DuckDuckGoResultParser()
+            parser.feed(response.text[:300_000])
+            results: list[dict[str, str]] = []
+            seen: set[str] = set()
+            for item in parser.results:
+                url = item.get("url", "")
+                if not _is_safe_public_url(url) or url in seen:
+                    continue
+                seen.add(url)
+                results.append(item)
+                if len(results) >= max(1, min(limit, MAX_SEARCH_RESULTS)):
+                    break
+            if results:
+                return results
+        except (httpx.HTTPError, ValueError):
+            pass
+
+        # 2. Fallback to cn.bing.com search (accessible in China)
+        bing_url = f"https://cn.bing.com/search?q={quote_plus(cleaned)}"
+        try:
+            response = await self._get_public_response(bing_url)
+            response.raise_for_status()
+            parser = BingResultParser()
+            parser.feed(response.text[:300_000])
+            results = []
+            seen = set()
+            for item in parser.results:
+                url = item.get("url", "")
+                if not _is_safe_public_url(url) or url in seen:
+                    continue
+                seen.add(url)
+                results.append(item)
+                if len(results) >= max(1, min(limit, MAX_SEARCH_RESULTS)):
+                    break
+            return results
         except (httpx.HTTPError, ValueError):
             return []
-
-        parser = DuckDuckGoResultParser()
-        parser.feed(response.text[:300_000])
-        results: list[dict[str, str]] = []
-        seen: set[str] = set()
-        for item in parser.results:
-            url = item.get("url", "")
-            if not _is_safe_public_url(url) or url in seen:
-                continue
-            seen.add(url)
-            results.append(item)
-            if len(results) >= max(1, min(limit, MAX_SEARCH_RESULTS)):
-                break
-        return results
 
     async def fetch_document(
         self,

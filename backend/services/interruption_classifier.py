@@ -229,9 +229,9 @@ class InterruptionClassifier:
     # Layer 1: explicit interrupt commands — always a true barge-in regardless of length.
     _EXPLICIT_BARGE_IN_PATTERNS = [
         r"^停(下|一下|止)?$",
-        r"^别(说|讲|说?了|说话|出声).*$",
+        r"^别(说|讲|说?了|说话|出声)?.*$",
         r"^打住$",
-        r"^等(等|一下|一等|会儿)$",
+        r"^等(等|一下|一等|会儿)?$",
         r"^闭嘴$",
         r"^安静(点|一下)?$",
         r"^算了$",
@@ -240,6 +240,7 @@ class InterruptionClassifier:
         # --- short negation / correction: clear intent to redirect the assistant ---
         r"^不对$",
         r"^错了?$",
+        r"^not$",
         r"^不是$",
         r"^不不$",
         r"^没有$",
@@ -321,6 +322,16 @@ class InterruptionClassifier:
                     intent=InterruptionIntent.BACKCHANNEL,
                     rule=f"backchannel_pattern:{pattern}",
                 )
+
+        # Single-character noise/echo filtering:
+        # If the transcript is a single character and not a known barge-in command or backchannel,
+        # treat it as noise/silence to prevent false interruptions from echoes or ASR errors.
+        if len(eval_text) == 1:
+            logger.info("interruption_classification result=NOISE_OR_SILENCE text=%r reason=single_char_noise", cleaned_text)
+            return InterruptionClassification(
+                intent=InterruptionIntent.NOISE_OR_SILENCE,
+                rule="single_char_noise",
+            )
 
         # Layer 3: length fallback. Short utterances that are neither explicit commands
         # nor known backchannels are most likely unfinished speech — do not interrupt.

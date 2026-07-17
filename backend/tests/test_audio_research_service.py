@@ -320,7 +320,7 @@ class AudioResearchServiceTests(unittest.TestCase):
         self.assertEqual([item["url"] for item in results], ["https://example.com/a", "https://example.com/b"])
 
     def test_search_handles_socket_failure_as_empty_results(self) -> None:
-        FakeAsyncClient.errors = [OSError("network unavailable")]
+        FakeAsyncClient.errors = [OSError("network unavailable"), OSError("network unavailable")]
         with (
             patch(
                 "services.audio_research_service.AudioResearchService._request_public_url_once",
@@ -330,6 +330,37 @@ class AudioResearchServiceTests(unittest.TestCase):
         ):
             results = asyncio.run(AudioResearchService().search("topic", limit=2))
         self.assertEqual(results, [])
+
+    def test_search_fallback_to_bing_on_duckduckgo_failure(self) -> None:
+        FakeAsyncClient.errors = [OSError("network unavailable")]
+        FakeAsyncClient.responses = [
+            Response(
+                200,
+                text="""
+                <li class="b_algo">
+                  <h2><a href="https://example.com/bing-a">Bing Title A</a></h2>
+                  <div class="b_caption">
+                    <p>Snippet Bing A</p>
+                  </div>
+                </li>
+                <li class="b_algo">
+                  <h2><a href="https://example.com/bing-b">Bing Title B</a></h2>
+                  <p>Snippet Bing B</p>
+                </li>
+                """,
+            )
+        ]
+        with (
+            patch(
+                "services.audio_research_service.AudioResearchService._request_public_url_once",
+                staticmethod(fake_request_public_url_once),
+            ),
+            patch("services.audio_research_service._resolve_public_host", fake_resolve_public_host),
+        ):
+            results = asyncio.run(AudioResearchService().search("topic", limit=2))
+        self.assertEqual([item["url"] for item in results], ["https://example.com/bing-a", "https://example.com/bing-b"])
+        self.assertEqual([item["title"] for item in results], ["Bing Title A", "Bing Title B"])
+        self.assertEqual([item["snippet"] for item in results], ["Snippet Bing A", "Snippet Bing B"])
 
 
 class AudioRetrievalServiceTests(unittest.TestCase):

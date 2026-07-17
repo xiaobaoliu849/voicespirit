@@ -4,7 +4,11 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
-from services.realtime_voice_service import DashScopeRealtimeCallback, RealtimeVoiceService
+from services.realtime_voice_service import (
+    DashScopeAudioRealtimeConversation,
+    DashScopeRealtimeCallback,
+    RealtimeVoiceService,
+)
 from services.realtime_tool_protocol import tool_error_payload, tool_result_payload
 from services.voice_agent_tools import VoiceAgentToolSession
 
@@ -174,6 +178,58 @@ class TestRealtimeNativeToolDelivery(unittest.IsolatedAsyncioTestCase):
 
         with self.assertRaisesRegex(RuntimeError, "qwen3.5-omni-plus-realtime"):
             self.service._resolve_dashscope_settings(None)
+
+    def test_dashscope_settings_accept_qwen_audio_beijing_workspace_endpoint(self) -> None:
+        config = MagicMock()
+        config.get_provider_settings.return_value = {
+            "api_key": "test_key",
+            "model": "qwen-audio-3.0-realtime-plus",
+            "base_url": "",
+            "realtime_base_url": "wss://workspace.cn-beijing.maas.aliyuncs.com/api-ws/v1/realtime",
+        }
+        self.service.config = config
+
+        settings = self.service._resolve_dashscope_settings(None)
+
+        self.assertEqual(settings["model"], "qwen-audio-3.0-realtime-plus")
+
+    def test_dashscope_settings_reject_qwen_audio_non_beijing_endpoint(self) -> None:
+        config = MagicMock()
+        config.get_provider_settings.return_value = {
+            "api_key": "test_key",
+            "model": "qwen-audio-3.0-realtime-plus",
+            "base_url": "",
+            "realtime_base_url": "wss://workspace.ap-southeast-1.maas.aliyuncs.com/api-ws/v1/realtime",
+        }
+        self.service.config = config
+
+        with self.assertRaisesRegex(RuntimeError, "北京地域"):
+            self.service._resolve_dashscope_settings(None)
+
+    def test_qwen_audio_session_update_uses_smart_turn_and_first_update_voiceprint_only(self) -> None:
+        conversation = DashScopeAudioRealtimeConversation(
+            model="qwen-audio-3.0-realtime-plus",
+            api_key="test_key",
+            url="wss://workspace.cn-beijing.maas.aliyuncs.com/api-ws/v1/realtime",
+            callback=MagicMock(),
+            voiceprint_audio_urls=["https://example.com/voice.wav"],
+        )
+        sent = []
+        conversation._send_event = sent.append  # type: ignore[method-assign]
+
+        conversation.update_session(voice="invalid-ignored-by-test", instructions="first", tools=[])
+        conversation.update_session(voice="invalid-ignored-by-test", instructions="second", tools=[])
+
+        first_session = sent[0]["session"]
+        second_session = sent[1]["session"]
+        self.assertEqual(first_session["turn_detection"]["type"], "smart_turn")
+        self.assertNotIn("threshold", first_session["turn_detection"])
+        self.assertNotIn("silence_duration_ms", first_session["turn_detection"])
+        self.assertNotIn("create_response", first_session["turn_detection"])
+        self.assertNotIn("interrupt_response", first_session["turn_detection"])
+        self.assertEqual(first_session["turn_detection"]["voiceprint_audio_urls"], ["https://example.com/voice.wav"])
+        self.assertNotIn("turn_detection", second_session)
+        self.assertEqual(second_session["instructions"], "second")
 
     async def test_google_tool_result_uses_typed_function_response(self) -> None:
         websocket = MagicMock()

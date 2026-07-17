@@ -12,6 +12,7 @@ import time
 import uuid
 from pathlib import Path
 from typing import Any, Awaitable, Callable
+from urllib.parse import urlparse, parse_qsl, urlunparse, urlencode
 
 import websockets
 from fastapi import WebSocket, WebSocketDisconnect
@@ -104,7 +105,11 @@ BASE_REALTIME_INSTRUCTIONS = (
     "You are a helpful, friendly, and intelligent AI assistant. "
     "Respond naturally and conversationally in the same language the user speaks. "
     "Use an available tool when current information or an explicit transformation requires it. "
-    "Do not state a factual result before the tool response arrives, and give exactly one concise final answer."
+    "Do not state a factual result before the tool response arrives, and give exactly one concise final answer. "
+    "Respond in natural, clean, spoken-style conversational text. "
+    "Absolutely do not use any Markdown formatting, bolding, list indicators, asterisks (*), hashtags (#), or other special formatting symbols, "
+    "as your response is read aloud by real-time Text-to-Speech (TTS). Write all numbers, formulas, and abbreviations in their "
+    "fully spoken-out verbal forms in the language of the conversation."
 )
 
 QWEN_AUDIO_REALTIME_INSTRUCTIONS = (
@@ -131,6 +136,33 @@ QWEN_AUDIO_REALTIME_INSTRUCTIONS = (
 
 def _is_google_live_translate_model(model: str | None) -> bool:
     return "live-translate" in str(model or "").strip().lower()
+
+
+def _is_dashscope_audio_realtime_model(model: str | None) -> bool:
+    return bool(
+        re.fullmatch(
+            r"qwen-audio-3\.0-realtime(?:-(?:plus|flash))?",
+            str(model or "").strip().lower(),
+        )
+    )
+
+
+def _is_dashscope_omni_realtime_model(model: str | None) -> bool:
+    return bool(
+        re.fullmatch(
+            r"qwen3\.5-omni-(?:plus|flash)-realtime(?:-\d{4}-\d{2}-\d{2})?",
+            str(model or "").strip().lower(),
+        )
+    )
+
+
+def _normalize_dashscope_realtime_voice(model: str | None, voice: str | None) -> str:
+    selected = str(voice or "").strip()
+    if _is_dashscope_audio_realtime_model(model):
+        if selected in QWEN_AUDIO_REALTIME_VOICES:
+            return selected
+        return DEFAULT_QWEN_AUDIO_REALTIME_VOICE
+    return selected or DEFAULT_DASHSCOPE_REALTIME_VOICE
 
 
 def _is_google_public_rest_base_url(base_url: str | None) -> bool:
@@ -1096,6 +1128,167 @@ class DashScopeRealtimeCallback:
         )
 
 
+class DashScopeAudioRealtimeConversation:
+    def __init__(
+        self,
+        *,
+        model: str,
+        api_key: str,
+        url: str,
+        callback: DashScopeRealtimeCallback,
+        voiceprint_audio_urls: list[str] | None = None,
+    ) -> None:
+        self.model = model
+        self.api_key = api_key
+        self.url = url
+        self.callback = callback
+        self.voiceprint_audio_urls = list(voiceprint_audio_urls) if voiceprint_audio_urls is not None else []
+        self._ws = None
+        self._receiver_task = None
+        self._closed = False
+        self._session_update_count = 0
+
+    @staticmethod
+    def _url_with_model(base_url: str, model: str) -> str:
+        parsed = urlparse(base_url)
+        query = dict(parse_qsl(parsed.query, keep_blank_values=True))
+        query['model'] = model
+        return urlunparse(parsed._replace(query=urlencode(query)))
+
+    async def connect(self) -> None:
+        ws_url = self._url_with_model(self.url, self.model)
+        self._ws = await websockets.connect(
+            ws_url,
+            additional_headers={
+                'Authorization': f'Bearer {self.api_key}',
+                'user-agent': 'VoiceSpirit/Realtime',
+            },
+            max_size=16777216,
+            ping_interval=30,
+            ping_timeout=30,
+        )
+        self.callback.on_open()
+        self._receiver_task = asyncio.create_task(self._receive_loop())
+
+    async def _receive_loop(self) -> None:
+        close_code = 1000
+        close_message = ''
+        try:
+            try:
+                async for message in self._ws:
+                    if isinstance(message, bytes):
+                        continue
+                    try:
+                        event = json.loads(message)
+                    except Exception:
+                        self.callback.on_event({
+                            'type': 'error',
+                            'error': {'message': 'Qwen returned invalid JSON.'}
+                        })
+                        continue
+                    self.callback.on_event(event)
+            except asyncio.CancelledError:
+                raise
+            except websockets.exceptions.ConnectionClosed as exc:
+                close_code = getattr(exc, 'code', 1006)
+                close_message = getattr(exc, 'reason', '')
+            except Exception as exc:
+                close_code = 1011
+                close_message = str(exc)
+                self.callback.on_event({
+                    'type': 'error',
+                    'error': {'message': str(exc)}
+                })
+        finally:
+            self.callback.on_close(close_code, close_message)
+
+    def _send_event(self, event: dict[str, Any]) -> None:
+        if self._closed or self._ws is None:
+            raise RuntimeError('Qwen Audio realtime websocket is not connected.')
+        asyncio.create_task(self._ws.send(json.dumps(event, ensure_ascii=False)))
+
+    def update_session(self, **kwargs: Any) -> None:
+        if self._session_update_count == 0:
+            # Enable smart_turn (Semantic VAD) by default for Qwen-Audio to prevent ambient noise
+            # from triggering responses and enable natural back-and-forth dialogue.
+            turn_detection = {
+                'type': 'smart_turn',
+            }
+            if self.voiceprint_audio_urls:
+                turn_detection['voiceprint_audio_urls'] = self.voiceprint_audio_urls
+            
+            session = {
+                'modalities': ['text', 'audio'],
+                'voice': str(kwargs.get('voice') or DEFAULT_QWEN_AUDIO_REALTIME_VOICE),
+                'instructions': str(kwargs.get('instructions') or ''),
+                'input_audio_format': 'pcm',
+                'output_audio_format': 'pcm',
+                'input_audio_transcription': {'model': 'fun-asr'},
+                'turn_detection': turn_detection,
+                'tools': kwargs.get('tools') or [],
+                'max_history_turns': 50,
+            }
+        else:
+            session = {
+                'instructions': str(kwargs.get('instructions') or ''),
+                'tools': kwargs.get('tools') or [],
+            }
+        
+        self._send_event({
+            'event_id': f'event_{uuid.uuid4().hex}',
+            'type': 'session.update',
+            'session': session,
+        })
+        self._session_update_count += 1
+
+    def append_audio(self, audio_b64: str) -> None:
+        self._send_event({
+            'event_id': f'event_{uuid.uuid4().hex}',
+            'type': 'input_audio_buffer.append',
+            'audio': audio_b64,
+        })
+
+    def send_raw(self, payload: str) -> None:
+        if not isinstance(payload, str):
+            raise TypeError('raw DashScope event payload must be a string.')
+        if self._closed or self._ws is None:
+            raise RuntimeError('Qwen Audio realtime websocket is not connected.')
+        asyncio.create_task(self._ws.send(payload))
+
+    def create_response(self) -> None:
+        self._send_event({
+            'event_id': f'event_{uuid.uuid4().hex}',
+            'type': 'response.create',
+        })
+
+    def cancel_response(self) -> None:
+        self._send_event({
+            'event_id': f'event_{uuid.uuid4().hex}',
+            'type': 'response.cancel',
+        })
+
+    def retrieve_item(self, item_id: str) -> None:
+        self._send_event({
+            'event_id': f'event_{uuid.uuid4().hex}',
+            'type': 'conversation.item.retrieve',
+            'item_id': item_id,
+        })
+
+    def delete_item(self, item_id: str) -> None:
+        self._send_event({
+            'event_id': f'event_{uuid.uuid4().hex}',
+            'type': 'conversation.item.delete',
+            'item_id': item_id,
+        })
+
+    def close(self) -> None:
+        self._closed = True
+        if self._receiver_task is not None:
+            self._receiver_task.cancel()
+        if self._ws is not None:
+            asyncio.create_task(self._ws.close())
+
+
 class VoiceAgentSessionRecorder:
     def __init__(self, repository: VoiceAgentSessionRepository, session_id: str) -> None:
         self.repository = repository
@@ -1387,11 +1580,18 @@ class RealtimeVoiceService:
             return None
 
     @staticmethod
+    def _get_base_instructions() -> str:
+        import datetime
+        current_date = datetime.date.today().isoformat()
+        return f"{BASE_REALTIME_INSTRUCTIONS}\nCurrent Date: {current_date}."
+
+    @staticmethod
     def _build_realtime_instructions(memory_context: str = "") -> str:
+        base_inst = RealtimeVoiceService._get_base_instructions()
         if not memory_context:
-            return BASE_REALTIME_INSTRUCTIONS
+            return base_inst
         return (
-            f"{BASE_REALTIME_INSTRUCTIONS}\n\n"
+            f"{base_inst}\n\n"
             "Relevant long-term memories for personalization are provided below. Use them whenever they are relevant. "
             "If the user asks what they said earlier, what the current focus is, or asks you to recall/search memory, "
             "answer from this memory block directly. Do not claim you cannot remember, do not say each conversation is "
@@ -1402,8 +1602,9 @@ class RealtimeVoiceService:
 
     @staticmethod
     def _build_recall_miss_instructions(user_query: str) -> str:
+        base_inst = RealtimeVoiceService._get_base_instructions()
         return (
-            f"{BASE_REALTIME_INSTRUCTIONS}\n\n"
+            f"{base_inst}\n\n"
             "The user is explicitly asking you to recall prior conversation memory, but no matching long-term "
             "memory was retrieved for this turn. Do not pretend you remember specific prior facts. "
             "State briefly that you could not retrieve a matching saved memory, then ask the user to restate "
@@ -1652,12 +1853,13 @@ class RealtimeVoiceService:
         api_key = provider_settings["api_key"].strip()
         if not api_key:
             raise RuntimeError("DashScope API Key 未配置，无法启动实时语音会话。")
-        if OmniRealtimeConversation is None or MultiModality is None or AudioFormat is None:
-            raise RuntimeError("DashScope Omni Realtime 依赖未安装，无法启动实时语音会话。")
+        if _is_dashscope_omni_realtime_model(resolved_model):
+            if OmniRealtimeConversation is None or MultiModality is None or AudioFormat is None:
+                raise RuntimeError("DashScope Omni Realtime 依赖未安装，无法启动实时语音会话。")
         if not dashscope_supports_native_tools(resolved_model):
             raise RuntimeError(
                 "VoiceSpirit 实时语音仅支持具备原生 Function Calling 的 "
-                "qwen3.5-omni-plus-realtime 或 qwen3.5-omni-flash-realtime；请在设置中升级模型。"
+                "qwen3.5-omni-plus-realtime、qwen3.5-omni-flash-realtime，或 qwen-audio-3.0-realtime-plus/flash；请在设置中升级模型。"
             )
         realtime_base_url = (
             str(provider_settings.get("realtime_base_url", "")).strip()
@@ -1665,7 +1867,14 @@ class RealtimeVoiceService:
         ).rstrip("/")
         if not realtime_base_url.startswith("wss://") or not realtime_base_url.endswith("/api-ws/v1/realtime"):
             raise RuntimeError(
-                "请在设置中配置 Qwen 3.5 的业务空间 Realtime WebSocket URL，"
+                "请在设置中配置 Qwen 的业务空间 Realtime WebSocket URL，"
+                "格式如 wss://{WorkspaceId}.cn-beijing.maas.aliyuncs.com/api-ws/v1/realtime。"
+            )
+        parsed_url = urlparse(realtime_base_url)
+        endpoint_host = (parsed_url.hostname or "").lower()
+        if _is_dashscope_audio_realtime_model(resolved_model) and not endpoint_host.endswith(".cn-beijing.maas.aliyuncs.com"):
+            raise RuntimeError(
+                "qwen-audio-3.0-realtime 仅支持北京地域业务空间 Realtime WebSocket URL，"
                 "格式如 wss://{WorkspaceId}.cn-beijing.maas.aliyuncs.com/api-ws/v1/realtime。"
             )
         return {
@@ -1673,6 +1882,40 @@ class RealtimeVoiceService:
             "model": resolved_model,
             "realtime_base_url": realtime_base_url,
         }
+
+    @staticmethod
+    def _resolve_dashscope_voiceprint_audio_urls(
+        provider_settings: dict[str, Any],
+        urls: list[str] | None,
+    ) -> list[str]:
+        raw_values = []
+        if urls:
+            raw_values.extend(urls)
+        
+        raw_config = provider_settings.get('voiceprint_audio_urls')
+        if isinstance(raw_config, list):
+            raw_values.extend(raw_config)
+        elif isinstance(raw_config, str):
+            raw_values.extend(re.split(r'[\r\n,]+', raw_config))
+            
+        env_config = os.environ.get('DASHSCOPE_VOICEPRINT_AUDIO_URLS', '')
+        if env_config:
+            raw_values.extend(re.split(r'[\r\n,]+', env_config))
+            
+        normalized = []
+        seen = set()
+        for value in raw_values:
+            item = str(value or '').strip()
+            if not item or item in seen:
+                continue
+            if not item.startswith(('http://', 'https://')):
+                continue
+            normalized.append(item)
+            seen.add(item)
+            if len(normalized) >= 5:
+                return normalized
+                
+        return normalized
 
     @staticmethod
     def _configure_dashscope_conversation(conversation: Any, *, voice: str, instructions: str) -> None:
@@ -1736,6 +1979,8 @@ class RealtimeVoiceService:
         event_type = str(event.get("type", ""))
         if event_type == "assistant_text":
             text = str(event.get("text", ""))
+            # Strip Markdown symbols to prevent TTS from reading them aloud
+            text = re.sub(r"[\*#`]", "", text)
             if record_memory:
                 memory_session.note_assistant_text(text)
             turn_id = await recorder.note_assistant_text(text) if recorder is not None else ""
@@ -1982,7 +2227,7 @@ class RealtimeVoiceService:
         )
 
     @staticmethod
-    def _build_live_config(voice: str):
+    def _build_live_config(voice: str, instructions: str = ""):
         declarations = [
             types.FunctionDeclaration(
                 name=declaration["name"],
@@ -1991,9 +2236,10 @@ class RealtimeVoiceService:
             )
             for declaration in native_tool_declarations()
         ]
+        system_inst = instructions or RealtimeVoiceService._build_realtime_instructions()
         return types.LiveConnectConfig(
             response_modalities=["AUDIO"],
-            system_instruction=BASE_REALTIME_INSTRUCTIONS,
+            system_instruction=system_inst,
             input_audio_transcription=types.AudioTranscriptionConfig(),
             output_audio_transcription=types.AudioTranscriptionConfig(),
             tools=[types.Tool(function_declarations=declarations)],
@@ -2136,9 +2382,10 @@ class RealtimeVoiceService:
 
             audio_bytes = message.get("bytes")
             if audio_bytes:
-                await session.send_realtime_input(
-                    audio=types.Blob(data=audio_bytes, mime_type="audio/pcm;rate=16000")
-                )
+                if not tool_session.has_active_task:
+                    await session.send_realtime_input(
+                        audio=types.Blob(data=audio_bytes, mime_type="audio/pcm;rate=16000")
+                    )
 
     async def _google_to_client_loop(
         self,
@@ -2533,44 +2780,60 @@ class RealtimeVoiceService:
                                 continue
 
                             async def on_google_native_result(
-                                result: dict[str, Any],
-                                *,
-                                call_id: str = provider_call_id,
-                                name: str = tool_name,
-                                canonical_turn_id: str = conversation_turn_id,
-                                local_tool_call_id: str = tool_turn_id,
-                            ) -> None:
-                                await submit_google_batch_result(
-                                    call_id,
-                                    name,
-                                    tool_result_payload(result),
-                                    result,
-                                    conversation_turn_id=canonical_turn_id,
-                                    tool_call_id=local_tool_call_id,
-                                )
+                                 result: dict[str, Any],
+                                 *,
+                                 call_id: str = provider_call_id,
+                                 name: str = tool_name,
+                                 canonical_turn_id: str = conversation_turn_id,
+                                 local_tool_call_id: str = tool_turn_id,
+                             ) -> None:
+                                 nonlocal gated_tool_turn_id
+                                 gated_tool_turn_id = ""
+                                 await submit_google_batch_result(
+                                     call_id,
+                                     name,
+                                     tool_result_payload(result),
+                                     result,
+                                     conversation_turn_id=canonical_turn_id,
+                                     tool_call_id=local_tool_call_id,
+                                 )
 
                             async def on_google_native_error(
-                                message: str,
-                                *,
-                                call_id: str = provider_call_id,
-                                name: str = tool_name,
-                                canonical_turn_id: str = conversation_turn_id,
-                                local_tool_call_id: str = tool_turn_id,
-                            ) -> None:
-                                await submit_google_batch_result(
-                                    call_id,
-                                    name,
-                                    tool_error_payload(message),
-                                    conversation_turn_id=canonical_turn_id,
-                                    tool_call_id=local_tool_call_id,
-                                )
+                                 message: str,
+                                 *,
+                                 call_id: str = provider_call_id,
+                                 name: str = tool_name,
+                                 canonical_turn_id: str = conversation_turn_id,
+                                 local_tool_call_id: str = tool_turn_id,
+                             ) -> None:
+                                 nonlocal gated_tool_turn_id
+                                 gated_tool_turn_id = ""
+                                 await submit_google_batch_result(
+                                     call_id,
+                                     name,
+                                     tool_error_payload(message),
+                                     conversation_turn_id=canonical_turn_id,
+                                     tool_call_id=local_tool_call_id,
+                                 )
 
                             async def on_google_cancel_prepare(
-                                _reason: str,
-                                *,
-                                call_id: str = provider_call_id,
-                            ) -> bool:
-                                return await drop_google_batch_call(call_id)
+                                 _reason: str,
+                                 *,
+                                 call_id: str = provider_call_id,
+                             ) -> bool:
+                                 nonlocal gated_tool_turn_id
+                                 gated_tool_turn_id = ""
+                                 return await drop_google_batch_call(call_id)
+
+                            gated_tool_turn_id = tool_turn_id
+                            await self._send_response_gated(
+                                websocket,
+                                provider="Google",
+                                tool_name=tool_name,
+                                query=request.query,
+                                turn_id=tool_turn_id,
+                                recorder=recorder,
+                            )
 
                             await tool_session.handle_request(
                                 request,
@@ -2852,6 +3115,8 @@ class RealtimeVoiceService:
         interruption = interruption or InterruptionDecisionCoordinator()
         suppressed_response_ids: set[str] = set()
         tool_phase_response_ids: set[str] = set()
+        cannot_create_response_retries = 0
+        gated_tool_turn_id = ""
         while True:
             event = await queue.get()
             event_type = str(event.get("type", "")).strip()
@@ -2922,6 +3187,8 @@ class RealtimeVoiceService:
                     canonical_turn_id: str = conversation_turn_id,
                     local_tool_call_id: str = tool_turn_id,
                 ) -> None:
+                    nonlocal gated_tool_turn_id
+                    gated_tool_turn_id = ""
                     await self._send_dashscope_tool_response(
                         websocket,
                         conversation,
@@ -2942,6 +3209,8 @@ class RealtimeVoiceService:
                     canonical_turn_id: str = conversation_turn_id,
                     local_tool_call_id: str = tool_turn_id,
                 ) -> None:
+                    nonlocal gated_tool_turn_id
+                    gated_tool_turn_id = ""
                     await self._send_dashscope_tool_response(
                         websocket,
                         conversation,
@@ -2961,6 +3230,8 @@ class RealtimeVoiceService:
                     canonical_turn_id: str = conversation_turn_id,
                     local_tool_call_id: str = tool_turn_id,
                 ) -> None:
+                    nonlocal gated_tool_turn_id
+                    gated_tool_turn_id = ""
                     await self._send_dashscope_tool_response(
                         websocket,
                         conversation,
@@ -2972,6 +3243,16 @@ class RealtimeVoiceService:
                         tool_call_id=local_tool_call_id,
                         recorder=recorder,
                     )
+
+                gated_tool_turn_id = tool_turn_id
+                await self._send_response_gated(
+                    websocket,
+                    provider="DashScope",
+                    tool_name=tool_name,
+                    query=request.query,
+                    turn_id=tool_turn_id,
+                    recorder=recorder,
+                )
 
                 await tool_session.handle_request(
                     request,
@@ -2991,6 +3272,7 @@ class RealtimeVoiceService:
                     interruption.active_response_id = ""
                 continue
             if event_type == "user_transcript":
+                cannot_create_response_retries = 0
                 user_text = str(event.get("text", ""))
                 if interruption.pending is None and (
                     interruption.active_response_id
@@ -3023,7 +3305,7 @@ class RealtimeVoiceService:
                     memory_session=memory_session,
                     tool_session=tool_session,
                     recorder=recorder,
-                    cancel_provider=(cancel_dashscope_response if interrupted_response_id else None),
+                    cancel_provider=(cancel_dashscope_response if (interrupted_response_id and not had_deferred_terminal) else None),
                 )
                 if interruption_decision is not None and (
                     interruption_decision.get("classification") == InterruptionIntent.TRUE_BARGE_IN.value
@@ -3086,32 +3368,38 @@ class RealtimeVoiceService:
                         voice=voice,
                         instructions=self._build_recall_miss_instructions(user_text),
                     )
-                conversation.create_response()
+                if interrupted_response_id and not had_deferred_terminal:
+                    await asyncio.sleep(0.2)
+                # Note: Qwen Server VAD automatically triggers response generation when speech ends,
+                # so calling create_response() here is redundant and causes collision errors.
+                # conversation.create_response()
                 await self._send_event(websocket, "user_transcript", text=user_text, turn_id=voice_turn_id)
                 continue
             elif event_type == "assistant_text":
                 response_id = str(event.get("response_id", ""))
                 if response_id in suppressed_response_ids:
                     continue
-                await self._emit_assistant_output(
-                    websocket,
-                    interruption,
-                    event,
-                    memory_session=memory_session,
-                    recorder=recorder,
-                )
+                if not gated_tool_turn_id:
+                    await self._emit_assistant_output(
+                        websocket,
+                        interruption,
+                        event,
+                        memory_session=memory_session,
+                        recorder=recorder,
+                    )
                 continue
             elif event_type == "assistant_audio":
                 response_id = str(event.get("response_id", ""))
                 if response_id in suppressed_response_ids:
                     continue
-                await self._emit_assistant_output(
-                    websocket,
-                    interruption,
-                    event,
-                    memory_session=memory_session,
-                    recorder=recorder,
-                )
+                if not gated_tool_turn_id:
+                    await self._emit_assistant_output(
+                        websocket,
+                        interruption,
+                        event,
+                        memory_session=memory_session,
+                        recorder=recorder,
+                    )
                 continue
             elif event_type == "turn_complete":
                 response_id = str(event.get("response_id", ""))
@@ -3131,34 +3419,58 @@ class RealtimeVoiceService:
                     interruption.active_response_id = ""
                 if str(event.get("status", "completed")) in {"cancelled", "canceled", "failed"}:
                     continue
-                memory_result = await memory_session.flush_turn()
-                completed_turn_id = ""
-                if recorder is not None:
-                    completed_turn_id = await recorder.complete_turn(memory_result)
-                await self._send_event(
-                    websocket,
-                    "memory_write",
-                    attempted_count=int(memory_result.get("attempted_count", 0)),
-                    saved_count=int(memory_result.get("saved_count", 0)),
-                    failed_count=int(memory_result.get("failed_count", 0)),
-                    local_pending_count=int(memory_result.get("local_pending_count", 0)),
-                    reason=str(memory_result.get("reason", "")),
-                )
-                self._configure_dashscope_conversation(
-                    conversation,
-                    voice=voice,
-                    instructions=self._build_realtime_instructions(),
-                )
-                await self._send_event(
-                    websocket,
-                    "turn_complete",
-                    turn_id=completed_turn_id,
-                    interrupted=False,
-                )
+                if not gated_tool_turn_id:
+                    memory_result = await memory_session.flush_turn()
+                    completed_turn_id = ""
+                    if recorder is not None:
+                        completed_turn_id = await recorder.complete_turn(memory_result)
+                    await self._send_event(
+                        websocket,
+                        "memory_write",
+                        attempted_count=int(memory_result.get("attempted_count", 0)),
+                        saved_count=int(memory_result.get("saved_count", 0)),
+                        failed_count=int(memory_result.get("failed_count", 0)),
+                        local_pending_count=int(memory_result.get("local_pending_count", 0)),
+                        reason=str(memory_result.get("reason", "")),
+                    )
+                    self._configure_dashscope_conversation(
+                        conversation,
+                        voice=voice,
+                        instructions=self._build_realtime_instructions(),
+                    )
+                    await self._send_event(
+                        websocket,
+                        "turn_complete",
+                        turn_id=completed_turn_id,
+                        interrupted=False,
+                    )
                 continue
-            await websocket.send_json(event)
             if event_type == "error":
+                error_msg = str(event.get("message", ""))
+                if "no active response" in error_msg.lower():
+                    logger.warning("DashScope returned non-fatal error: %s. Ignoring.", error_msg)
+                    continue
+                if "cannot create response" in error_msg.lower():
+                    if cannot_create_response_retries < 2:
+                        cannot_create_response_retries += 1
+                        logger.warning(
+                            "DashScope returned error: %s. Retrying create_response (attempt %d/2) after 300ms.",
+                            error_msg,
+                            cannot_create_response_retries,
+                        )
+                        async def delayed_retry():
+                            await asyncio.sleep(0.3)
+                            try:
+                                conversation.create_response()
+                            except Exception as exc:
+                                logger.exception("dashscope_retry_create_response_failed")
+                        asyncio.create_task(delayed_retry())
+                    else:
+                        logger.warning("DashScope returned error: %s. Max retries exceeded. Ignoring.", error_msg)
+                    continue
+                await websocket.send_json(event)
                 break
+            await websocket.send_json(event)
 
     # ── OpenAI Realtime ──────────────────────────────────────────────
 
@@ -3388,7 +3700,7 @@ class RealtimeVoiceService:
                     memory_session=memory_session,
                     tool_session=tool_session,
                     recorder=recorder,
-                    cancel_provider=cancel_openai_response,
+                    cancel_provider=(cancel_openai_response if not had_deferred_terminal else None),
                     resume_provider=discard_openai_candidate,
                 )
                 if interruption_decision is not None and (
@@ -3604,6 +3916,8 @@ class RealtimeVoiceService:
                 ws_url,
                 additional_headers=extra_headers,
                 max_size=2**24,
+                ping_interval=30,
+                ping_timeout=30,
             ) as openai_ws:
                 # Configure session
                 await openai_ws.send(json.dumps({
@@ -3682,7 +3996,7 @@ class RealtimeVoiceService:
         live_config = (
             self._build_live_translate_config(target_language_code, echo_target_language)
             if is_live_translate
-            else self._build_live_config(voice)
+            else self._build_live_config(voice, self._build_realtime_instructions())
         )
 
         try:
@@ -4254,8 +4568,10 @@ class RealtimeVoiceService:
         *,
         model: str | None = None,
         voice: str = DEFAULT_DASHSCOPE_REALTIME_VOICE,
+        voiceprint_audio_urls: list[str] | None = None,
     ) -> None:
         settings = self._resolve_dashscope_settings(model)
+        voice = _normalize_dashscope_realtime_voice(settings["model"], voice)
         memory_session = RealtimeMemorySession()
         tool_session = VoiceAgentToolSession()
         resolved_voice = (voice or DEFAULT_QWEN_OMNI_REALTIME_VOICE).strip()
@@ -4270,21 +4586,44 @@ class RealtimeVoiceService:
             model=settings["model"],
             voice=resolved_voice,
         )
-        import dashscope
-
-        dashscope.api_key = settings["api_key"]
         url = settings["realtime_base_url"]
         event_queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
         loop = asyncio.get_running_loop()
         callback = DashScopeRealtimeCallback(loop=loop, queue=event_queue)
-        conversation = OmniRealtimeConversation(  # type: ignore[misc]
-            model=settings["model"],
-            callback=callback,
-            url=url,
-        )
+        if _is_dashscope_audio_realtime_model(settings["model"]):
+            all_settings = self.config.get_all()
+            dashscope_realtime_settings = all_settings.get("dashscope_realtime")
+            voiceprint_settings = dashscope_realtime_settings if isinstance(dashscope_realtime_settings, dict) else {}
+            if "voiceprint_audio_urls" not in voiceprint_settings and "voiceprint_audio_urls" in all_settings:
+                voiceprint_settings = {
+                    **voiceprint_settings,
+                    "voiceprint_audio_urls": all_settings.get("voiceprint_audio_urls"),
+                }
+            conversation = DashScopeAudioRealtimeConversation(
+                model=settings["model"],
+                api_key=settings["api_key"],
+                callback=callback,
+                url=url,
+                voiceprint_audio_urls=self._resolve_dashscope_voiceprint_audio_urls(
+                    voiceprint_settings,
+                    voiceprint_audio_urls,
+                ),
+            )
+        else:
+            import dashscope
+
+            dashscope.api_key = settings["api_key"]
+            conversation = OmniRealtimeConversation(  # type: ignore[misc]
+                model=settings["model"],
+                callback=callback,
+                url=url,
+            )
 
         try:
-            conversation.connect()
+            if isinstance(conversation, DashScopeAudioRealtimeConversation):
+                await conversation.connect()
+            else:
+                conversation.connect()
             await asyncio.sleep(0.5)
             self._configure_dashscope_conversation(
                 conversation,

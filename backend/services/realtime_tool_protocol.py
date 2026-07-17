@@ -69,7 +69,7 @@ def dashscope_supports_native_tools(model: str | None) -> bool:
     normalized = str(model or "").strip().lower()
     return bool(
         re.fullmatch(
-            r"qwen3\.5-omni-(?:plus|flash)-realtime(?:-\d{4}-\d{2}-\d{2})?",
+            r"(?:qwen3\.5-omni-(?:plus|flash)-realtime(?:-\d{4}-\d{2}-\d{2})?|qwen-audio-3\.0-realtime(?:-(?:plus|flash))?)",
             normalized,
         )
     )

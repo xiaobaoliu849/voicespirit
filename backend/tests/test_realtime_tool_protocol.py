@@ -23,10 +23,13 @@ class RealtimeToolProtocolTests(unittest.TestCase):
         self.assertEqual(tools[0]["function"]["name"], "search_web")
         self.assertNotIn("name", tools[0])
 
-    def test_model_support_is_explicitly_qwen_35_realtime_only(self) -> None:
+    def test_model_support_is_explicitly_current_qwen_realtime_only(self) -> None:
         self.assertTrue(dashscope_supports_native_tools("qwen3.5-omni-plus-realtime"))
         self.assertTrue(dashscope_supports_native_tools("qwen3.5-omni-flash-realtime-2026-03-15"))
+        self.assertTrue(dashscope_supports_native_tools("qwen-audio-3.0-realtime-plus"))
+        self.assertTrue(dashscope_supports_native_tools("qwen-audio-3.0-realtime-flash"))
         self.assertFalse(dashscope_supports_native_tools("qwen3-omni-flash-realtime-2025-12-01"))
+        self.assertFalse(dashscope_supports_native_tools("qwen-audio-2.0-realtime-plus"))
         self.assertFalse(dashscope_supports_native_tools("qwen3.5-omni-plus"))
         self.assertFalse(dashscope_supports_native_tools("custom-qwen3.5-omni-plus-realtime"))
         self.assertFalse(dashscope_supports_native_tools("qwen3.5-omni-plus-realtime-fake"))

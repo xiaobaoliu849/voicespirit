@@ -166,6 +166,8 @@ export function createVoiceChatController(
     onOpenVoiceAgentSession: vi.fn(),
     onExportVoiceAgentSession: vi.fn(),
     replaceSession: vi.fn(),
+    micAnalyser: null,
+    assistantAnalyser: null,
     ...overrides
   };
 }

@@ -172,6 +172,7 @@ async def voice_chat_ws(
     provider: str = "Google",
     model: str | None = None,
     voice: str | None = None,
+    voiceprint_audio_urls: list[str] | None = Query(default=None),
     target_language_code: str = "en",
     echo_target_language: bool = True,
 ) -> None:
@@ -202,6 +203,7 @@ async def voice_chat_ws(
                     websocket,
                     model=model,
                     voice=(voice or DEFAULT_DASHSCOPE_REALTIME_VOICE).strip(),
+                    voiceprint_audio_urls=voiceprint_audio_urls,
                 )
         elif selected_provider == "OpenAI":
             await voice_chat_service.stream_openai_session(

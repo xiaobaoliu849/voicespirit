@@ -120,7 +120,7 @@ function Composer({
   const hasInput = chat.chatInput.trim().length > 0;
   const isRealtime = isVoiceRealtimeModel(chat.chatProvider, chat.chatModel);
   const isLiveTranslate = voiceChat.voiceChatLiveTranslate;
-  const textChatBlockedReason = isRealtime
+  const textChatBlockedReason = (isRealtime && !isVoiceActive)
     ? t(
       "当前是实时语音/实时翻译模型。请点击实时通话按钮开始语音会话，或切换到普通文本模型后再发送文字。",
       "The current model is realtime voice/live translation only. Start a realtime call, or switch to a text model before sending."
@@ -129,6 +129,89 @@ function Composer({
   const [dictating, setDictating] = useState(false);
   const [dictationError, setDictationError] = useState("");
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
+
+  // Soundwave visualizer requestAnimationFrame animation loop
+  useEffect(() => {
+    if (!voiceChat.voiceChatConnected) return;
+
+    const micAnalyser = voiceChat.micAnalyser;
+    const assistantAnalyser = voiceChat.assistantAnalyser;
+
+    if (!micAnalyser && !assistantAnalyser) return;
+
+    let animationFrameId: number;
+    const micDataArray = micAnalyser ? new Uint8Array(micAnalyser.frequencyBinCount) : null;
+    const assistantDataArray = assistantAnalyser ? new Uint8Array(assistantAnalyser.frequencyBinCount) : null;
+
+    const updateVisualizer = () => {
+      let micVolume = 0;
+      let assistantVolume = 0;
+
+      if (micAnalyser && micDataArray) {
+        micAnalyser.getByteFrequencyData(micDataArray);
+        let sum = 0;
+        for (let i = 0; i < micDataArray.length; i++) {
+          sum += micDataArray[i];
+        }
+        micVolume = sum / micDataArray.length;
+      }
+
+      if (assistantAnalyser && assistantDataArray) {
+        assistantAnalyser.getByteFrequencyData(assistantDataArray);
+        let sum = 0;
+        for (let i = 0; i < assistantDataArray.length; i++) {
+          sum += assistantDataArray[i];
+        }
+        assistantVolume = sum / assistantDataArray.length;
+      }
+
+      const visualizerEl = document.getElementById("vs-voice-visualizer");
+      if (visualizerEl) {
+        const activeVolume = assistantVolume > 0 ? assistantVolume : micVolume;
+        const dataArray = assistantVolume > 0 ? assistantDataArray : micDataArray;
+        
+        // Dynamic background glow scaling and opacity based on active volume
+        const glowEl = visualizerEl.querySelector(".vsVoiceGlow") as HTMLElement;
+        if (glowEl) {
+          const scale = 0.9 + (activeVolume / 255) * 0.5;
+          const opacity = 0.5 + (activeVolume / 255) * 0.5;
+          glowEl.style.transform = `scale(${scale})`;
+          glowEl.style.opacity = `${opacity}`;
+        }
+
+        const bars = visualizerEl.querySelectorAll(".vsWaveBar");
+        if (activeVolume > 2 && dataArray && bars.length > 0) {
+          const step = Math.floor(dataArray.length / bars.length) || 1;
+          bars.forEach((bar, index) => {
+            const val = dataArray[index * step] || 0;
+            // Scale bar height: map 0-255 to 15% - 100%
+            const height = 15 + (val / 255) * 85;
+            (bar as HTMLElement).style.height = `${height}%`;
+          });
+        } else {
+          // Reset style so CSS keyframe animations breathe during silence
+          bars.forEach((bar) => {
+            (bar as HTMLElement).style.height = "";
+          });
+          if (glowEl) {
+            glowEl.style.transform = "";
+            glowEl.style.opacity = "";
+          }
+        }
+      }
+
+      animationFrameId = requestAnimationFrame(updateVisualizer);
+    };
+
+    const timerId = setTimeout(() => {
+      updateVisualizer();
+    }, 100);
+
+    return () => {
+      clearTimeout(timerId);
+      cancelAnimationFrame(animationFrameId);
+    };
+  }, [voiceChat.voiceChatConnected, voiceChat.micAnalyser, voiceChat.assistantAnalyser]);
 
   function appendDictationText(text: string) {
     const clean = text.trim();
@@ -240,13 +323,51 @@ function Composer({
           {dictationError ? <div className="vsComposerInlineHint">{dictationError}</div> : null}
         </>
       ) : (
-        <div className="vsLiveSessionBanner">
-          <div className="vsPulseDot vsPulseDotRed" />
-          <span className="vsLiveSessionLabel">
-            {voiceChat.voiceChatRecording
-              ? t("正在聆听您的声音...", "Listening to your voice...")
-              : t("实时通话连接中...", "Connecting live session...")}
-          </span>
+        <div className="vsLiveVoicePanel">
+          <div className="vsVoiceStatusSection">
+            <span className="vsVoiceStatusText">
+              <span className={`vsVoiceStatusDot ${voiceChat.voiceChatConnected ? "connected" : "connecting"}`} />
+              {voiceChat.voiceChatConnected
+                ? (voiceChat.voiceChatReply 
+                    ? t("正在回复...", "Replying...") 
+                    : (voiceChat.voiceChatTranscript 
+                        ? t("正在聆听...", "Listening...") 
+                        : t("已连接，您可以说话", "Connected, feel free to speak")))
+                : t("正在建立安全连接...", "Connecting live session...")}
+            </span>
+            {voiceChat.voiceChatConnected && (
+              <span className="vsVoiceModelBadge">
+                {voiceChat.voiceChatProvider} / {voiceChat.voiceChatModel}
+              </span>
+            )}
+          </div>
+          
+          <div className="vsVoiceVisualizerContainer" id="vs-voice-visualizer">
+            <div className="vsVoiceVisualizerWave">
+              <div className="vsWaveBar bar-1"></div>
+              <div className="vsWaveBar bar-2"></div>
+              <div className="vsWaveBar bar-3"></div>
+              <div className="vsWaveBar bar-4"></div>
+              <div className="vsWaveBar bar-5"></div>
+              <div className="vsWaveBar bar-6"></div>
+              <div className="vsWaveBar bar-7"></div>
+            </div>
+            <div className="vsVoiceGlow"></div>
+          </div>
+          
+
+
+          <div className="vsVoiceCallControlRow">
+            <button
+              type="button"
+              className="vsVoiceCallHangupBtn"
+              onClick={() => void voiceChat.onToggleRecording()}
+              title={t("结束实时通话", "End realtime call")}
+            >
+              <StopIcon />
+              <span>{t("挂断", "Hang up")}</span>
+            </button>
+          </div>
         </div>
       )}
 
@@ -277,120 +398,120 @@ function Composer({
       )}
 
       <div className="vsComposerToolbar">
-        <div className="vsComposerToolbarLeft">
-          <input
-            type="file"
-            ref={fileInputRef}
-            style={{ display: "none" }}
-            onChange={handleFileChange}
-            multiple
-          />
-          <button
-            type="button"
-            className="vsToolbarBtn"
-            aria-label={t("附件", "Attachment")}
-            onClick={() => fileInputRef.current?.click()}
-          >
-            <PaperclipIcon />
-          </button>
-          
-          {/* Alma-style inline dropdowns */}
-          <select
-            className="vsComposerPillSelect vsComposerModelSelect"
-            value={chat.chatModelChoiceValue || chat.chatModel}
-            onChange={(e) => chat.onModelChoiceChange(e.target.value)}
-            title={t("切换模型", "Switch model")}
-          >
-            {chat.chatModelChoices.map((item) => (
-              <option key={item.value} value={item.value}>{item.label}</option>
-            ))}
-            {!chat.chatModelChoices.some((item) => item.value === chat.chatModelChoiceValue) && chat.chatModel && (
-              <option value={chat.chatModel}>{chat.chatModel}</option>
-            )}
-          </select>
-
-          {isRealtime && (
-            <select
-              className="vsComposerPillSelect vsComposerVoiceSelect"
-              value={voiceChat.voiceChatVoice}
-              onChange={(e) => voiceChat.onVoiceChange(e.target.value)}
-              disabled={isVoiceActive}
-              title={t(`当前音色：${voiceChat.voiceChatVoiceLabel}`, `Current voice: ${voiceChat.voiceChatVoiceLabel}`)}
+          <div className="vsComposerToolbarLeft">
+            <input
+              type="file"
+              ref={fileInputRef}
+              style={{ display: "none" }}
+              onChange={handleFileChange}
+              multiple
+            />
+            <button
+              type="button"
+              className="vsToolbarBtn"
+              aria-label={t("附件", "Attachment")}
+              onClick={() => fileInputRef.current?.click()}
             >
-              {voiceChat.voiceChatVoiceOptions.map((item) => (
+              <PaperclipIcon />
+            </button>
+            
+            {/* Alma-style inline dropdowns */}
+            <select
+              className="vsComposerPillSelect vsComposerModelSelect"
+              value={chat.chatModelChoiceValue || chat.chatModel}
+              onChange={(e) => chat.onModelChoiceChange(e.target.value)}
+              title={t("切换模型", "Switch model")}
+            >
+              {chat.chatModelChoices.map((item) => (
                 <option key={item.value} value={item.value}>{item.label}</option>
               ))}
+              {!chat.chatModelChoices.some((item) => item.value === chat.chatModelChoiceValue) && chat.chatModel && (
+                <option value={chat.chatModel}>{chat.chatModel}</option>
+              )}
             </select>
-          )}
 
-          {isRealtime && isLiveTranslate && (
-            <>
+            {isRealtime && (
               <select
-                className="vsComposerPillSelect vsComposerLanguageSelect"
-                value={voiceChat.voiceChatTargetLanguageCode}
-                onChange={(e) => voiceChat.onTargetLanguageCodeChange(e.target.value)}
+                className="vsComposerPillSelect vsComposerVoiceSelect"
+                value={voiceChat.voiceChatVoice}
+                onChange={(e) => voiceChat.onVoiceChange(e.target.value)}
                 disabled={isVoiceActive}
-                title={t("翻译目标语言", "Translation target language")}
+                title={t(`当前音色：${voiceChat.voiceChatVoiceLabel}`, `Current voice: ${voiceChat.voiceChatVoiceLabel}`)}
               >
-                {voiceChat.voiceChatTargetLanguageOptions.map((item) => (
+                {voiceChat.voiceChatVoiceOptions.map((item) => (
                   <option key={item.value} value={item.value}>{item.label}</option>
                 ))}
               </select>
-              <label className="vsComposerToggle" title={t("输入已经是目标语言时也朗读出来", "Echo speech that is already in the target language")}>
-                <input
-                  type="checkbox"
-                  checked={voiceChat.voiceChatEchoTargetLanguage}
-                  onChange={(e) => voiceChat.onEchoTargetLanguageChange(e.target.checked)}
-                  disabled={isVoiceActive}
-                />
-                <span>{t("同语回放", "Echo")}</span>
-              </label>
-            </>
-          )}
-        </div>
-
-        <div className="vsComposerToolbarRight">
-          <button
-            type="button"
-            className={`vsToolbarBtn ${dictating ? "recording" : ""}`}
-            aria-label={dictating ? t("停止语音转写", "Stop dictation") : t("语音转写", "Dictate")}
-            onClick={toggleDictation}
-            disabled={isVoiceActive || chat.chatBusy}
-            title={dictating ? t("停止语音转写", "Stop dictation") : t("语音转写到输入框", "Dictate into the input")}
-          >
-            <MicIcon />
-          </button>
-
-          <button
-            type="button"
-            className={`vsComposerCallBtn ${isVoiceActive ? "recording" : ""}`}
-            aria-label={isVoiceActive ? t("结束实时通话", "End realtime call") : t("实时通话", "Realtime call")}
-            onClick={() => void voiceChat.onToggleRecording()}
-            disabled={!voiceChat.voiceChatSupported || voiceChat.voiceChatBusy}
-            title={isVoiceActive ? t("结束实时通话", "End realtime call") : (
-              isLiveTranslate
-                ? t(`实时翻译：${voiceChat.voiceChatProvider} / ${voiceChat.voiceChatModel}`, `Live translate: ${voiceChat.voiceChatProvider} / ${voiceChat.voiceChatModel}`)
-                : t(`实时通话：${voiceChat.voiceChatProvider} / ${voiceChat.voiceChatModel}`, `Realtime call: ${voiceChat.voiceChatProvider} / ${voiceChat.voiceChatModel}`)
             )}
-          >
-            {isVoiceActive ? <StopIcon /> : <PhoneIcon />}
-          </button>
 
-          {hasInput && !isVoiceActive ? (
+            {isRealtime && isLiveTranslate && (
+              <>
+                <select
+                  className="vsComposerPillSelect vsComposerLanguageSelect"
+                  value={voiceChat.voiceChatTargetLanguageCode}
+                  onChange={(e) => voiceChat.onTargetLanguageCodeChange(e.target.value)}
+                  disabled={isVoiceActive}
+                  title={t("翻译目标语言", "Translation target language")}
+                >
+                  {voiceChat.voiceChatTargetLanguageOptions.map((item) => (
+                    <option key={item.value} value={item.value}>{item.label}</option>
+                  ))}
+                </select>
+                <label className="vsComposerToggle" title={t("输入已经是目标语言时也朗读出来", "Echo speech that is already in the target language")}>
+                  <input
+                    type="checkbox"
+                    checked={voiceChat.voiceChatEchoTargetLanguage}
+                    onChange={(e) => voiceChat.onEchoTargetLanguageChange(e.target.checked)}
+                    disabled={isVoiceActive}
+                  />
+                  <span>{t("同语回放", "Echo")}</span>
+                </label>
+              </>
+            )}
+          </div>
+
+          <div className="vsComposerToolbarRight">
             <button
-              type="submit"
-              className="vsSendBtn"
-              disabled={chat.chatBusy || Boolean(textChatBlockedReason)}
-              aria-label={t("发送", "Send")}
-              title={textChatBlockedReason || t("发送", "Send")}
+              type="button"
+              className={`vsToolbarBtn ${dictating ? "recording" : ""}`}
+              aria-label={dictating ? t("停止语音转写", "Stop dictation") : t("语音转写", "Dictate")}
+              onClick={toggleDictation}
+              disabled={isVoiceActive || chat.chatBusy}
+              title={dictating ? t("停止语音转写", "Stop dictation") : t("语音转写到输入框", "Dictate into the input")}
             >
-              {chat.chatBusy ? <SpinnerIcon /> : <SendIcon />}
+              <MicIcon />
             </button>
-          ) : (
-            null
-          )}
+
+            <button
+              type="button"
+              className={`vsComposerCallBtn ${isVoiceActive ? "recording" : ""}`}
+              aria-label={isVoiceActive ? t("结束实时通话", "End realtime call") : t("实时通话", "Realtime call")}
+              onClick={() => void voiceChat.onToggleRecording()}
+              disabled={!voiceChat.voiceChatSupported || voiceChat.voiceChatBusy}
+              title={isVoiceActive ? t("结束实时通话", "End realtime call") : (
+                isLiveTranslate
+                  ? t(`实时翻译：${voiceChat.voiceChatProvider} / ${voiceChat.voiceChatModel}`, `Live translate: ${voiceChat.voiceChatProvider} / ${voiceChat.voiceChatModel}`)
+                  : t(`实时通话：${voiceChat.voiceChatProvider} / ${voiceChat.voiceChatModel}`, `Realtime call: ${voiceChat.voiceChatProvider} / ${voiceChat.voiceChatModel}`)
+              )}
+            >
+              {isVoiceActive ? <StopIcon /> : <PhoneIcon />}
+            </button>
+
+            {hasInput && !isVoiceActive ? (
+              <button
+                type="submit"
+                className="vsSendBtn"
+                disabled={chat.chatBusy || Boolean(textChatBlockedReason)}
+                aria-label={t("发送", "Send")}
+                title={textChatBlockedReason || t("发送", "Send")}
+              >
+                {chat.chatBusy ? <SpinnerIcon /> : <SendIcon />}
+              </button>
+            ) : (
+              null
+            )}
+          </div>
         </div>
-      </div>
       {textChatBlockedReason ? <div className="vsComposerInlineHint">{textChatBlockedReason}</div> : null}
     </div>
   );
@@ -580,6 +701,24 @@ export default function ChatPage({ chat, voiceChat, errorRuntimeContext }: Props
             ))}
 
             {/* ── Live Streaming Bubbles ── */}
+            {isVoiceActive && voiceChat.voiceChatTranscript && (
+              <div className="bubble user live hasCopyAction">
+                <div className="vsBubbleMeta">
+                  <span className="vsStreamingIndicator">{voiceChat.voiceChatLiveTranslate ? t("原文实时转写", "Live source transcript") : t("(实时输入)", "(live input)")}</span>
+                </div>
+                <p>{voiceChat.voiceChatTranscript}</p>
+                <button
+                  type="button"
+                  className={`vsBubbleCopyBtn${copiedMessageKey === "live-source" ? " copied" : ""}`}
+                  aria-label={copiedMessageKey === "live-source" ? t("已复制", "Copied") : t("复制实时原文", "Copy live source")}
+                  title={t("复制实时原文", "Copy live source")}
+                  onClick={() => void copyMessage(voiceChat.voiceChatTranscript, "live-source")}
+                >
+                  <CopyIcon />
+                  <span>{copiedMessageKey === "live-source" ? t("已复制", "Copied") : t("复制", "Copy")}</span>
+                </button>
+              </div>
+            )}
             {isVoiceActive && voiceChat.voiceChatAgentToolStatus && (
               <div className="vsVoiceToolStatus" role="status" aria-live="polite">
                 <span className="vsPulseDot" aria-hidden="true" />
@@ -602,24 +741,6 @@ export default function ChatPage({ chat, voiceChat, errorRuntimeContext }: Props
                     {source.title || t(`来源 ${index + 1}`, `Source ${index + 1}`)}
                   </a>
                 ))}
-              </div>
-            )}
-            {isVoiceActive && voiceChat.voiceChatTranscript && (
-              <div className="bubble user live hasCopyAction">
-                <div className="vsBubbleMeta">
-                  <span className="vsStreamingIndicator">{voiceChat.voiceChatLiveTranslate ? t("原文实时转写", "Live source transcript") : t("(实时输入)", "(live input)")}</span>
-                </div>
-                <p>{voiceChat.voiceChatTranscript}</p>
-                <button
-                  type="button"
-                  className={`vsBubbleCopyBtn${copiedMessageKey === "live-source" ? " copied" : ""}`}
-                  aria-label={copiedMessageKey === "live-source" ? t("已复制", "Copied") : t("复制实时原文", "Copy live source")}
-                  title={t("复制实时原文", "Copy live source")}
-                  onClick={() => void copyMessage(voiceChat.voiceChatTranscript, "live-source")}
-                >
-                  <CopyIcon />
-                  <span>{copiedMessageKey === "live-source" ? t("已复制", "Copied") : t("复制", "Copy")}</span>
-                </button>
               </div>
             )}
             {isVoiceActive && voiceChat.voiceChatReply && (
