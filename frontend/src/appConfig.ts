@@ -16,11 +16,6 @@ export type SidebarItem = {
   tooltip: string;
 };
 
-export type QuickAction = {
-  title: string;
-  icon: string;
-  prompt: string;
-};
 
 export type HistoryItem = {
   id: string;
@@ -55,39 +50,4 @@ export function getSidebarItems(t: TranslatePair): SidebarItem[] {
   ];
 }
 
-export function getChatQuickActions(t: TranslatePair): QuickAction[] {
-  return [
-    {
-      title: t("写一封邮件", "Draft an Email"),
-      icon: t("邮", "M"),
-      prompt: t(
-        "请帮我起草一封语气专业但不生硬的项目进度更新邮件。",
-        "Please draft a professional but warm project status update email."
-      )
-    },
-    {
-      title: t("写段代码", "Write Code"),
-      icon: t("码", "C"),
-      prompt: t(
-        "请帮我写一个 TypeScript 工具函数，用于安全解析 JSON 并返回默认值。",
-        "Please write a TypeScript utility that safely parses JSON and falls back to a default value."
-      )
-    },
-    {
-      title: t("想想方案", "Brainstorm"),
-      icon: t("想", "I"),
-      prompt: t(
-        "围绕语音类 AI 应用，给我 10 个可以快速上线验证的产品想法。",
-        "Give me 10 voice AI product ideas that could be validated quickly."
-      )
-    },
-    {
-      title: t("提炼要点", "Summarize"),
-      icon: t("总", "S"),
-      prompt: t(
-        "请把下面内容总结为 5 个要点，并给出 2 条可执行建议。",
-        "Summarize the following into 5 key points and 2 actionable recommendations."
-      )
-    }
-  ];
-}
+

@@ -311,7 +311,8 @@ describe("App interactions", () => {
   it("sends a quick chat prompt and renders the streamed reply", async () => {
     render(<App />);
 
-    fireEvent.click(await screen.findByRole("button", { name: "写一封邮件" }));
+    const textarea = await screen.findByPlaceholderText(/输入聊天内容/);
+    fireEvent.change(textarea, { target: { value: "请帮我起草一封语气专业但不生硬的项目进度更新邮件。" } });
     fireEvent.click(screen.getByRole("button", { name: "发送" }));
 
     await waitFor(() => {
@@ -340,7 +341,8 @@ describe("App interactions", () => {
   it("archives the previous conversation into the sidebar and restores it on click", async () => {
     render(<App />);
 
-    fireEvent.click(await screen.findByRole("button", { name: "写一封邮件" }));
+    const textarea = await screen.findByPlaceholderText(/输入聊天内容/);
+    fireEvent.change(textarea, { target: { value: "请帮我起草一封语气专业但不生硬的项目进度更新邮件。" } });
     fireEvent.click(screen.getByRole("button", { name: "发送" }));
 
     await waitFor(() => {
@@ -364,7 +366,8 @@ describe("App interactions", () => {
   it("automatically saves the active conversation into the sidebar history", async () => {
     render(<App />);
 
-    fireEvent.click(await screen.findByRole("button", { name: "写一封邮件" }));
+    const textarea = await screen.findByPlaceholderText(/输入聊天内容/);
+    fireEvent.change(textarea, { target: { value: "请帮我起草一封语气专业但不生硬的项目进度更新邮件。" } });
     fireEvent.click(screen.getByRole("button", { name: "发送" }));
 
     await waitFor(() => {
@@ -384,7 +387,8 @@ describe("App interactions", () => {
   it("does not duplicate a restored conversation when starting a new chat", async () => {
     render(<App />);
 
-    fireEvent.click(await screen.findByRole("button", { name: "写一封邮件" }));
+    const textarea = await screen.findByPlaceholderText(/输入聊天内容/);
+    fireEvent.change(textarea, { target: { value: "请帮我起草一封语气专业但不生硬的项目进度更新邮件。" } });
     fireEvent.click(screen.getByRole("button", { name: "发送" }));
 
     await waitFor(() => {
@@ -406,7 +410,8 @@ describe("App interactions", () => {
   it("deletes a single archived conversation from the sidebar", async () => {
     render(<App />);
 
-    fireEvent.click(await screen.findByRole("button", { name: "写一封邮件" }));
+    const textarea = await screen.findByPlaceholderText(/输入聊天内容/);
+    fireEvent.change(textarea, { target: { value: "请帮我起草一封语气专业但不生硬的项目进度更新邮件。" } });
     fireEvent.click(screen.getByRole("button", { name: "发送" }));
 
     await waitFor(() => {

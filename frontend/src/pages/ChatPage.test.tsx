@@ -74,11 +74,11 @@ describe('ChatPage', () => {
             />
         );
 
-        expect(screen.getByPlaceholderText(/输入聊天内容/)).toBeInTheDocument();
-        expect(screen.getByRole('button', { name: '语音转写' })).toBeInTheDocument();
+        expect(screen.getByPlaceholderText(/当前模型仅支持实时通话/)).toBeDisabled();
+        expect(screen.queryByRole('button', { name: '语音转写' })).not.toBeInTheDocument();
         expect(screen.getByRole('button', { name: '实时通话' })).toBeInTheDocument();
         expect(screen.getByRole('button', { name: '发送' })).toBeDisabled();
-        expect(screen.getByText(/实时语音\/实时翻译模型/)).toBeInTheDocument();
+        expect(screen.queryByText(/实时语音\/实时翻译模型/)).not.toBeInTheDocument();
     });
 
     it('shows memory badges for realtime voice turns', () => {
@@ -161,9 +161,10 @@ describe('ChatPage', () => {
             />
         );
 
-        expect(screen.getByTitle('翻译目标语言')).toBeInTheDocument();
-        expect(screen.getByTitle('当前音色：Puck')).toBeInTheDocument();
-        expect(screen.getByText('同语回放')).toBeInTheDocument();
+        expect(screen.getByTitle('通话设置')).toBeDisabled();
+        expect(document.querySelector('.vsVoiceModelBadge')).toHaveTextContent(
+            'Google / gemini-3.5-live-translate-preview · Puck'
+        );
         expect(screen.getByText('原文实时转写')).toBeInTheDocument();
         expect(screen.getByText('译文：中文（简体）/ Chinese (Simplified) (zh-Hans)')).toBeInTheDocument();
         expect(screen.getByRole('button', { name: '复制实时原文' })).toBeInTheDocument();

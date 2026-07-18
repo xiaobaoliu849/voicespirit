@@ -111,6 +111,9 @@ export function createVoiceChatController(
     voiceChatProviderOptions: ["Google"],
     voiceChatModel: "gemini-2.5-flash-native-audio-preview-12-2025",
     voiceChatModelOptions: ["gemini-2.5-flash-native-audio-preview-12-2025"],
+    voiceChatRealtimeChoicesByProvider: [
+      { provider: "Google", models: ["gemini-2.5-flash-native-audio-preview-12-2025"] },
+    ],
     voiceChatVoice: "Puck",
     voiceChatVoiceLabel: "Puck",
     voiceChatVoiceOptions: [{ value: "Puck", label: "Puck" }],

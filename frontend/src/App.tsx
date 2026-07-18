@@ -397,6 +397,7 @@ export default function App() {
                     chat={chat}
                     voiceChat={voiceChat}
                     errorRuntimeContext={errorRuntimeContext}
+                    onOpenSettings={() => setIsSettingsOpen(true)}
                   />
                 ) : null}
 

@@ -210,26 +210,26 @@ const OPENAI_REALTIME_VOICES = [
 // omni voice list (docs/全模态.txt). The older Cherry-era voices belong to
 // qwen3-omni / qwen-omni-turbo and are rejected by qwen3.5-omni models.
 const QWEN_OMNI_REALTIME_VOICES = [
-  { value: "Tina", label: "Tina · 甜甜 (Female)" },
-  { value: "Ethan", label: "Ethan · 晨煦 (Male)" },
-  { value: "Serena", label: "Serena · 苏瑶 (Female)" },
-  { value: "Maia", label: "Maia · 四月 (Female)" },
-  { value: "Momo", label: "Momo · 茉兔 (Female)" },
-  { value: "Ryan", label: "Ryan · 甜茶 (Male)" },
-  { value: "Jennifer", label: "Jennifer · 詹妮弗 (Female)" },
-  { value: "Katerina", label: "Katerina · 卡捷琳娜 (Female)" },
-  { value: "Aiden", label: "Aiden · 艾登 (Male)" },
-  { value: "Dylan", label: "Dylan · 北京-晓东 (Male)" },
-  { value: "Sunny", label: "Sunny · 四川-晴儿 (Female)" },
-  { value: "Peter", label: "Peter · 天津-李彼得 (Male)" },
+  { value: "Tina", label: "Tina · 甜甜 (Female)", description: "像温热的奶茶，甜甜的暖暖的" },
+  { value: "Ethan", label: "Ethan · 晨煦 (Male)", description: "标准普通话，阳光温暖有活力" },
+  { value: "Serena", label: "Serena · 苏瑶 (Female)", description: "温柔小姐姐" },
+  { value: "Maia", label: "Maia · 四月 (Female)", description: "知性与温柔的碰撞" },
+  { value: "Momo", label: "Momo · 茉兔 (Female)", description: "撒娇搞怪，逗你开心" },
+  { value: "Ryan", label: "Ryan · 甜茶 (Male)", description: "节奏拉满，戏感炸裂" },
+  { value: "Jennifer", label: "Jennifer · 詹妮弗 (Female)", description: "品牌级电影质感美语女声" },
+  { value: "Katerina", label: "Katerina · 卡捷琳娜 (Female)", description: "御姐音色，韵律回味十足" },
+  { value: "Aiden", label: "Aiden · 艾登 (Male)", description: "精通厨艺的美语大男孩" },
+  { value: "Dylan", label: "Dylan · 北京-晓东 (Male)", description: "北京胡同里长大的少年" },
+  { value: "Sunny", label: "Sunny · 四川-晴儿 (Female)", description: "甜到你心里的川妹子" },
+  { value: "Peter", label: "Peter · 天津-李彼得 (Male)", description: "天津相声，专业捧哏" },
 ];
 
 const QWEN_AUDIO_VOICES = [
-  { value: "longanqian", label: "longanqian · 龙千倩 (Female)" },
-  { value: "longanlingxin", label: "longanlingxin · 龙灵馨 (Female)" },
-  { value: "longanlingxi", label: "longanlingxi · 龙灵犀 (Female)" },
-  { value: "longanxiaoxin", label: "longanxiaoxin · 龙小新 (Female)" },
-  { value: "longanlufeng", label: "longanlufeng · 龙陆风 (Male)" },
+  { value: "longanqian", label: "longanqian · 龙千倩 (Female)", description: "qwen-audio 女声" },
+  { value: "longanlingxin", label: "longanlingxin · 龙灵馨 (Female)", description: "qwen-audio 女声" },
+  { value: "longanlingxi", label: "longanlingxi · 龙灵犀 (Female)", description: "qwen-audio 女声" },
+  { value: "longanxiaoxin", label: "longanxiaoxin · 龙小新 (Female)", description: "qwen-audio 女声" },
+  { value: "longanlufeng", label: "longanlufeng · 龙陆风 (Male)", description: "qwen-audio 男声" },
 ];
 
 function isQwenAudioModel(model: string | undefined): boolean {
@@ -249,8 +249,8 @@ function formatRealtimeVoiceOptions(
   provider: string,
   language: UiLanguage,
   model?: string,
-): Array<{ value: string; label: string }> {
-  let options: Array<{ value: string; label: string }>;
+): Array<{ value: string; label: string; description?: string }> {
+  let options: Array<{ value: string; label: string; description?: string }>;
   if (provider === DASHSCOPE_PROVIDER) {
     options = isQwenAudioModel(model) ? QWEN_AUDIO_VOICES : QWEN_OMNI_REALTIME_VOICES;
   } else if (provider === OPENAI_PROVIDER) {
@@ -261,6 +261,9 @@ function formatRealtimeVoiceOptions(
   return options.map((item) => ({
     value: item.value,
     label: formatVoiceOptionLabel(item.label, language),
+    // Voice descriptions are display-only metadata for richer pickers; they
+    // must never be appended to the label itself.
+    ...(item.description ? { description: item.description } : {}),
   }));
 }
 
@@ -690,6 +693,14 @@ export default function useVoiceChat({
   const sessionEpochRef = useRef(0);
 
   const voiceChatModelOptions = resolveRealtimeModelOptions(voiceChatProvider, providerModelCatalog);
+  // Realtime-capable models for every configured provider, so pickers can offer
+  // cross-provider switching without going through the text-chat model list.
+  const voiceChatRealtimeChoicesByProvider = resolvedProviders
+    .map((provider) => ({
+      provider,
+      models: resolveRealtimeModelOptions(provider, providerModelCatalog),
+    }))
+    .filter((group) => group.models.length > 0);
   const voiceChatLiveTranslate = isLiveTranslateModel(voiceChatProvider, voiceChatModel);
   const voiceChatVoiceOptions = useMemo(
     () => formatRealtimeVoiceOptions(voiceChatProvider, language, voiceChatModel),
@@ -2167,6 +2178,7 @@ export default function useVoiceChat({
     voiceChatProviderOptions: resolvedProviders,
     voiceChatModel,
     voiceChatModelOptions,
+    voiceChatRealtimeChoicesByProvider,
     voiceChatVoice,
     voiceChatVoiceLabel,
     voiceChatVoiceOptions,

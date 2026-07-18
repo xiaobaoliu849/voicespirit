@@ -1,10 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import {
-  getChatQuickActions,
-  type QuickAction
-} from "../appConfig";
 import { extractPdfText } from "../api";
 import ErrorNotice from "../components/ErrorNotice";
+import VoiceCallSettingsPopover from "../components/VoiceCallSettingsPopover";
 import type { UseChatResult } from "../hooks/useChat";
 import type { UseVoiceChatResult } from "../hooks/useVoiceChat";
 import { useI18n } from "../i18n";
@@ -14,6 +11,7 @@ type Props = {
   chat: UseChatResult;
   voiceChat: UseVoiceChatResult;
   errorRuntimeContext: ErrorRuntimeContext;
+  onOpenSettings?: () => void;
 };
 
 /* ── Inline SVG icons ── */
@@ -111,9 +109,11 @@ type SpeechRecognitionWindow = Window & {
 function Composer({
   chat,
   voiceChat,
+  onOpenSettings,
 }: {
   chat: UseChatResult;
   voiceChat: UseVoiceChatResult;
+  onOpenSettings?: () => void;
 }) {
   const { t } = useI18n();
   const isVoiceActive = voiceChat.voiceChatRecording || voiceChat.voiceChatConnected;
@@ -316,8 +316,11 @@ function Composer({
           <textarea
             rows={1}
             value={chat.chatInput}
+            disabled={isRealtime}
             onChange={(e) => chat.onInputChange(e.target.value)}
-            placeholder={t("输入聊天内容，或者点击右下角麦克风开始语音通话...", "Type to chat, or click the microphone in the bottom right to start a voice call...")}
+            placeholder={isRealtime
+              ? t("当前模型仅支持实时通话，请点击右侧电话按钮开始...", "This model only supports realtime calls. Click the phone button in the bottom right to start...")
+              : t("输入聊天内容，或者点击右侧麦克风语音转写...", "Type to chat, or click the microphone on the right to dictate...")}
             onKeyDown={chat.onComposerKeyDown}
           />
           {dictationError ? <div className="vsComposerInlineHint">{dictationError}</div> : null}
@@ -337,7 +340,7 @@ function Composer({
             </span>
             {voiceChat.voiceChatConnected && (
               <span className="vsVoiceModelBadge">
-                {voiceChat.voiceChatProvider} / {voiceChat.voiceChatModel}
+                {voiceChat.voiceChatProvider} / {voiceChat.voiceChatModel} · {voiceChat.voiceChatVoiceLabel}
               </span>
             )}
           </div>
@@ -406,81 +409,52 @@ function Composer({
               onChange={handleFileChange}
               multiple
             />
-            <button
-              type="button"
-              className="vsToolbarBtn"
-              aria-label={t("附件", "Attachment")}
-              onClick={() => fileInputRef.current?.click()}
-            >
-              <PaperclipIcon />
-            </button>
+            {!isRealtime && (
+              <button
+                type="button"
+                className="vsToolbarBtn"
+                aria-label={t("附件", "Attachment")}
+                onClick={() => fileInputRef.current?.click()}
+              >
+                <PaperclipIcon />
+              </button>
+            )}
             
             {/* Alma-style inline dropdowns */}
-            <select
-              className="vsComposerPillSelect vsComposerModelSelect"
-              value={chat.chatModelChoiceValue || chat.chatModel}
-              onChange={(e) => chat.onModelChoiceChange(e.target.value)}
-              title={t("切换模型", "Switch model")}
-            >
-              {chat.chatModelChoices.map((item) => (
-                <option key={item.value} value={item.value}>{item.label}</option>
-              ))}
-              {!chat.chatModelChoices.some((item) => item.value === chat.chatModelChoiceValue) && chat.chatModel && (
-                <option value={chat.chatModel}>{chat.chatModel}</option>
-              )}
-            </select>
-
-            {isRealtime && (
+            {!isRealtime && (
               <select
-                className="vsComposerPillSelect vsComposerVoiceSelect"
-                value={voiceChat.voiceChatVoice}
-                onChange={(e) => voiceChat.onVoiceChange(e.target.value)}
-                disabled={isVoiceActive}
-                title={t(`当前音色：${voiceChat.voiceChatVoiceLabel}`, `Current voice: ${voiceChat.voiceChatVoiceLabel}`)}
+                className="vsComposerPillSelect vsComposerModelSelect"
+                value={chat.chatModelChoiceValue || chat.chatModel}
+                onChange={(e) => chat.onModelChoiceChange(e.target.value)}
+                title={t("切换模型", "Switch model")}
               >
-                {voiceChat.voiceChatVoiceOptions.map((item) => (
+                {chat.chatModelChoices.map((item) => (
                   <option key={item.value} value={item.value}>{item.label}</option>
                 ))}
+                {!chat.chatModelChoices.some((item) => item.value === chat.chatModelChoiceValue) && chat.chatModel && (
+                  <option value={chat.chatModel}>{chat.chatModel}</option>
+                )}
               </select>
             )}
 
-            {isRealtime && isLiveTranslate && (
-              <>
-                <select
-                  className="vsComposerPillSelect vsComposerLanguageSelect"
-                  value={voiceChat.voiceChatTargetLanguageCode}
-                  onChange={(e) => voiceChat.onTargetLanguageCodeChange(e.target.value)}
-                  disabled={isVoiceActive}
-                  title={t("翻译目标语言", "Translation target language")}
-                >
-                  {voiceChat.voiceChatTargetLanguageOptions.map((item) => (
-                    <option key={item.value} value={item.value}>{item.label}</option>
-                  ))}
-                </select>
-                <label className="vsComposerToggle" title={t("输入已经是目标语言时也朗读出来", "Echo speech that is already in the target language")}>
-                  <input
-                    type="checkbox"
-                    checked={voiceChat.voiceChatEchoTargetLanguage}
-                    onChange={(e) => voiceChat.onEchoTargetLanguageChange(e.target.checked)}
-                    disabled={isVoiceActive}
-                  />
-                  <span>{t("同语回放", "Echo")}</span>
-                </label>
-              </>
+            {isRealtime && (
+              <VoiceCallSettingsPopover voiceChat={voiceChat} t={t} disabled={isVoiceActive} onOpenSettings={onOpenSettings} />
             )}
           </div>
 
           <div className="vsComposerToolbarRight">
-            <button
-              type="button"
-              className={`vsToolbarBtn ${dictating ? "recording" : ""}`}
-              aria-label={dictating ? t("停止语音转写", "Stop dictation") : t("语音转写", "Dictate")}
-              onClick={toggleDictation}
-              disabled={isVoiceActive || chat.chatBusy}
-              title={dictating ? t("停止语音转写", "Stop dictation") : t("语音转写到输入框", "Dictate into the input")}
-            >
-              <MicIcon />
-            </button>
+            {!isRealtime && (
+              <button
+                type="button"
+                className={`vsToolbarBtn ${dictating ? "recording" : ""}`}
+                aria-label={dictating ? t("停止语音转写", "Stop dictation") : t("语音转写", "Dictate")}
+                onClick={toggleDictation}
+                disabled={isVoiceActive || chat.chatBusy}
+                title={dictating ? t("停止语音转写", "Stop dictation") : t("语音转写到输入框", "Dictate into the input")}
+              >
+                <MicIcon />
+              </button>
+            )}
 
             <button
               type="button"
@@ -512,14 +486,12 @@ function Composer({
             )}
           </div>
         </div>
-      {textChatBlockedReason ? <div className="vsComposerInlineHint">{textChatBlockedReason}</div> : null}
     </div>
   );
 }
 
-export default function ChatPage({ chat, voiceChat, errorRuntimeContext }: Props) {
+export default function ChatPage({ chat, voiceChat, errorRuntimeContext, onOpenSettings }: Props) {
   const { t } = useI18n();
-  const quickActions: QuickAction[] = getChatQuickActions(t);
   const combinedMessages = [...chat.chatMessages, ...voiceChat.sessionSummary];
   const isEmpty = !combinedMessages.length;
   const bodyRef = useRef<HTMLDivElement>(null);
@@ -588,8 +560,8 @@ export default function ChatPage({ chat, voiceChat, errorRuntimeContext }: Props
                 ✨
               </div>
               <div>
-                <h1 className="vsWelcomeHeroTitle">{t("声之灵，倾听你的声音", "Voice Spirit, listening to your voice")}</h1>
-                <p className="vsWelcomeHeroSubtitle">{t("点击右下角麦克风开启实时通话。", "Click the microphone in the bottom right to start a live voice call.")}</p>
+                <h1 className="vsWelcomeHeroTitle">{t("声之灵", "Voice Spirit")}</h1>
+                <p className="vsWelcomeHeroSubtitle">{t("双向实时语音与 AI 智能助理", "Realtime two-way voice & AI assistant")}</p>
               </div>
             </div>
 
@@ -597,24 +569,10 @@ export default function ChatPage({ chat, voiceChat, errorRuntimeContext }: Props
               <Composer
                 chat={chat}
                 voiceChat={voiceChat}
+                onOpenSettings={onOpenSettings}
               />
             </form>
 
-            <div className="vsQuickActions">
-              {quickActions.map((action) => (
-                <button
-                  key={action.title}
-                  type="button"
-                  className="vsQuickActionPill"
-                  onClick={() => chat.onQuickAction(action.prompt)}
-                >
-                  <span className="vsQuickActionIcon" aria-hidden="true">
-                    {action.icon}
-                  </span>
-                  <span>{action.title}</span>
-                </button>
-              ))}
-            </div>
 
             <p className="vsChatDisclaimer">{t("AI 生成内容可能存在误差。", "AI content may contain mistakes.")}</p>
             <ErrorNotice
@@ -772,6 +730,7 @@ export default function ChatPage({ chat, voiceChat, errorRuntimeContext }: Props
             <Composer
               chat={chat}
               voiceChat={voiceChat}
+              onOpenSettings={onOpenSettings}
             />
           </form>
 

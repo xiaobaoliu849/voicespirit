@@ -1773,10 +1773,9 @@ button:focus-visible {
 .vsComposerToolbarLeft {
   display: flex;
   align-items: center;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
   gap: 8px;
   min-width: 0;
-  overflow: hidden;
 }
 
 .vsComposer.liveActive .vsComposerToolbarLeft {
@@ -1848,13 +1847,15 @@ button:focus-visible {
 }
 
 .vsComposerVoiceSelect {
-  flex: 0 1 126px;
-  width: 126px;
+  flex: 0 1 auto;
+  min-width: 96px;
+  width: auto;
+  max-width: 320px;
 }
 
 .vsComposerModelSelect {
   flex: 1 1 178px;
-  max-width: 210px;
+  max-width: 320px;
 }
 
 .vsComposerLanguageSelect {
@@ -1888,32 +1889,205 @@ button:focus-visible {
   opacity: 0.6;
 }
 
+/* Voice call settings popover (realtime model/voice/language picker) */
+.vsVoiceSettings {
+  position: relative;
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.vsVoiceSettingsSummary {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--line);
+  background: var(--bg-card);
+  color: var(--text-secondary);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  padding: 6px 12px;
+  border-radius: 20px;
+  cursor: pointer;
+  outline: none;
+  transition: all 0.2s;
+  height: 34px;
+  min-width: 0;
+  max-width: 320px;
+}
+
+.vsVoiceSettingsSummary:hover {
+  background-color: var(--surface);
+  border-color: var(--brand);
+  color: var(--text-primary);
+}
+
+.vsVoiceSettingsSummary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.vsVoiceSettingsSummaryText {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vsVoiceSettingsSummaryChevron {
+  flex: 0 0 auto;
+  color: var(--muted);
+}
+
+.vsVoiceSettingsPanel {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  width: 320px;
+  max-width: calc(100vw - 48px);
+  max-height: 420px;
+  overflow-y: auto;
+  background: var(--bg-card);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow:
+    0 10px 28px color-mix(in oklab, var(--brand-dark) 14%, transparent),
+    0 2px 8px color-mix(in oklab, black 8%, transparent);
+  padding: 6px;
+  z-index: 1000;
+  animation: vsDropdownIn 0.12s ease-out;
+}
+
+.vsVoiceSettingsPanel.below {
+  top: calc(100% + 8px);
+  bottom: auto;
+}
+
+.vsVoiceSettingsSection + .vsVoiceSettingsSection {
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px solid var(--line);
+}
+
+.vsVoiceSettingsSectionTitle {
+  padding: 6px 10px 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.vsVoiceSettingsList {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.vsVoiceSettingsLanguageList {
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.vsVoiceSettingsRow {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  padding: 7px 10px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+
+.vsVoiceSettingsRow:hover {
+  background: var(--vs-sidebar-hover-bg);
+  color: var(--sidebar-text-strong);
+}
+
+.vsVoiceSettingsRow.selected {
+  background: color-mix(in oklab, var(--accent) 12%, var(--bg-card));
+  color: var(--brand-dark);
+}
+
+.vsVoiceSettingsRowHint {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--muted);
+}
+
+.vsVoiceSettingsEcho {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin: 6px 10px 4px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.vsVoiceSettingsEcho input {
+  width: 14px;
+  height: 14px;
+  accent-color: var(--brand);
+}
+
+.vsVoiceSettingsProviderRow {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+
+.vsVoiceSettingsProviderCheck {
+  width: 14px;
+  flex: 0 0 14px;
+  color: var(--brand);
+  font-weight: 600;
+}
+
+.vsVoiceSettingsProviderRow .vsVoiceSettingsRowLabel {
+  flex: 1 1 auto;
+}
+
+.vsVoiceSettingsProviderChevron {
+  color: var(--muted);
+  transition: transform 0.15s;
+}
+
+.vsVoiceSettingsProviderChevron.expanded {
+  transform: rotate(90deg);
+}
+
+.vsVoiceSettingsModelList {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 2px 0 4px 22px;
+  padding-left: 8px;
+  border-left: 1px solid var(--line);
+}
+
+.vsVoiceSettingsFooter {
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px solid var(--line);
+}
+
+.vsVoiceSettingsManageRow {
+  color: var(--muted);
+}
+
 .vsLiveTranslateSettings {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: end;
   gap: 12px;
-}
-
-@media (max-width: 760px) {
-  .vsComposerToolbar {
-    grid-template-columns: 1fr;
-  }
-
-  .vsComposerToolbarLeft {
-    flex-wrap: wrap;
-    overflow: visible;
-  }
-
-  .vsComposerToolbarRight {
-    justify-content: flex-end;
-  }
-
-  .vsComposerModelSelect,
-  .vsComposerLanguageSelect {
-    flex: 1 1 160px;
-    max-width: none;
-  }
 }
 
 /* Voice-First Primary Action Button */
