@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import re
 import time
 from dataclasses import dataclass
@@ -331,7 +332,8 @@ class VoiceAgentToolService:
                 {
                     "title": str(source.get("title", ""))[:240],
                     "uri": str(source.get("uri", ""))[:1000],
-                    "snippet": str(source.get("snippet") or source.get("content") or "")[:500],
+                    "snippet": str(source.get("snippet") or "")[:500],
+                    "content": str(source.get("content") or "")[:2000],
                     "source_type": str(source.get("source_type", "web_search")),
                     "score": float(source.get("score", 0.0) or 0.0),
                 }
@@ -721,15 +723,19 @@ class VoiceAgentToolService:
                 "function": {
                     "name": "search_web",
                     "description": (
-                        "搜索互联网获取实时信息。当用户询问需要最新数据、事实核查、"
-                        "新闻、或当前事件相关问题时调用此工具。"
+                        "Search the web for real-time, factual, or current-event information. "
+                        "Only call this when the user explicitly asks a question that requires "
+                        "up-to-date data, news, facts, or verification. Do NOT call for casual "
+                        "conversation, opinions, or generic knowledge the model already knows. "
+                        "搜索互联网获取实时事实信息。仅在用户明确询问需要最新数据、新闻、"
+                        "事实核查或验证的问题时调用。不要为闲聊或模型已知的通用知识调用。"
                     ),
                     "parameters": {
                         "type": "object",
                         "properties": {
                             "query": {
                                 "type": "string",
-                                "description": "用户想要搜索的关键词或问题，用用户当前使用的语言",
+                                "description": "The search query in the user's language / 用用户当前语言的搜索关键词",
                             },
                         },
                         "required": ["query"],
@@ -877,38 +883,83 @@ class VoiceAgentToolService:
                 f"Tool summary:\n{answer}"
             )
         sources = result.get("sources", [])
-        source_lines: list[str] = []
+        source_blocks: list[str] = []
+        source_count = 0
         if isinstance(sources, list):
             for idx, source in enumerate(sources[:3], start=1):
                 if not isinstance(source, dict):
                     continue
                 title = str(source.get("title", "")).strip() or f"Source {idx}"
                 uri = str(source.get("uri", "")).strip()
-                snippet = re.sub(r"\s+", " ", str(source.get("snippet", "")).strip())[:500]
-                source_lines.append(f"{idx}. {title}\nURL: {uri}\nSnippet: {snippet}")
-        source_block = "\n\n".join(source_lines) or "No usable sources were found."
+                # Use full extracted content when available (up to 2000 chars),
+                # fall back to the shorter snippet.
+                full_content = str(source.get("content") or "").strip()
+                snippet = str(source.get("snippet") or "").strip()
+                body = (
+                    full_content[:2000]
+                    if full_content and len(full_content) > 60
+                    else snippet[:500]
+                )
+                body = re.sub(r"\s+", " ", body).strip()
+                if not body:
+                    body = snippet[:300] if snippet else "(no content extracted)"
+                source_blocks.append(f"--- Source {idx} ---\n标题: {title}\n网址: {uri}\n内容:\n{body}")
+                source_count += 1
+        if source_count == 0:
+            return (
+                f"【搜索指令】搜索工具返回了 0 条结果。\n"
+                f"用户查询: {query}\n"
+                f"你必须如实告知用户: \"抱歉，没有搜索到相关信息。\"\n"
+                f"绝对禁止编造或猜测。请建议用户换一种方式提问。"
+            )
+        # If all sources have degenerate content (very short, likely search
+        # engine returned irrelevant / placeholder pages), treat as invalid.
+        total_content_len = sum(
+            len(str(s.get("content") or s.get("snippet") or ""))
+            for s in (sources if isinstance(sources, list) else [])
+        )
+        if total_content_len < 100:
+            return (
+                f"【搜索指令 - 搜索返回了无效结果】\n"
+                f"用户查询: {query}\n"
+                f"搜索工具返回了 {source_count} 条结果，但内容质量极低，"
+                f"可能是不相关的页面或搜索失败。\n"
+                f"你必须如实告知用户: \"抱歉，搜索到的内容与问题不相关，"
+                f"未能找到可靠信息。\"\n"
+                f"绝对禁止根据结果标题或 URL 猜测内容，禁止编造任何信息。"
+                f"请建议用户提供更具体的关键词或换一种方式提问。"
+            )
+        sources_text = "\n\n".join(source_blocks)
         return (
-            "External search tool context is ready. Continue the live voice conversation naturally, "
-            "answer the user's search request from this context, and mention source titles briefly when useful. "
-            "If sources are weak or missing, say that clearly. Keep the reply concise and conversational.\n\n"
-            f"User search query: {query}\n\n"
-            f"Tool summary:\n{answer}\n\n"
-            f"Sources:\n{source_block}"
+            "【搜索指令 - 请严格遵守】\n"
+            "你必须仅基于以下搜索来源回答问题。\n"
+            "禁止编造、猜测或使用你的训练数据中的信息。\n"
+            "如果搜索结果不足以完全回答问题，请如实说明哪些信息来自来源、哪些不确定。\n"
+            "用与用户对话的自然语言组织回答，不要直接复制粘贴来源内容。\n\n"
+            f"用户查询: {query}\n"
+            f"找到 {source_count} 条来源：\n\n"
+            f"{sources_text}\n\n"
+            "重要提醒: 你的回答必须仅基于以上来源。不要添加来源中没有的信息。"
         )
 
     @staticmethod
     def _build_grounded_answer(query: str, sources: list[dict[str, Any]]) -> str:
         if not sources:
-            return f"我尝试搜索“{query}”，但没有拿到可用来源。你可以换一个更具体的关键词再试。"
+            return (
+                f'SEARCH RETURNED NO RESULTS for query: "{query}". '
+                "You MUST NOT fabricate or guess information. "
+                "Tell the user honestly that the web search found nothing, "
+                "and ask them to rephrase or try a different query."
+            )
 
         bullets: list[str] = []
         for idx, source in enumerate(sources[:3], start=1):
-            title = str(source.get("title", "")).strip() or f"来源 {idx}"
+            title = str(source.get("title", "")).strip() or f"Source {idx}"
             snippet = re.sub(r"\s+", " ", str(source.get("snippet", "")).strip())
-            if len(snippet) > 180:
-                snippet = f"{snippet[:180]}..."
+            if len(snippet) > 300:
+                snippet = f"{snippet[:300]}..."
             bullets.append(f"{idx}. {title}: {snippet}")
-        return "我查到这些信息，可以先按来源做一个简要整合：\n" + "\n".join(bullets)
+        return "Search results (use ONLY these to answer):\n" + "\n".join(bullets)
 
 
 class VoiceAgentToolSession:

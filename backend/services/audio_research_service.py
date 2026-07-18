@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import html
 import ipaddress
+import logging
 import re
 import socket
 import ssl
@@ -308,6 +309,8 @@ async def _resolve_public_host(hostname: str, port: int | None) -> list[str]:
 
 
 class AudioResearchService:
+    _logger = logging.getLogger(__name__)
+
     async def _validate_public_target(self, url: str) -> list[str]:
         if not _is_safe_public_url(url):
             raise ValueError("URL is not a public HTTP(S) source")
@@ -359,6 +362,7 @@ class AudioResearchService:
     async def search(self, query: str, *, limit: int = MAX_SEARCH_RESULTS) -> list[dict[str, str]]:
         cleaned = _normalize_whitespace(query)
         if not cleaned:
+            self._logger.info("voice_search_skipped reason=empty_query")
             return []
 
         # 1. Attempt DuckDuckGo search first
@@ -378,10 +382,15 @@ class AudioResearchService:
                 results.append(item)
                 if len(results) >= max(1, min(limit, MAX_SEARCH_RESULTS)):
                     break
+            self._logger.info(
+                "voice_search_result engine=duckduckgo query=%r count=%s titles=%s",
+                cleaned[:200], len(results),
+                [r.get("title", "")[:80] for r in results],
+            )
             if results:
                 return results
-        except (httpx.HTTPError, ValueError):
-            pass
+        except (httpx.HTTPError, ValueError) as exc:
+            self._logger.warning("voice_search_duckduckgo_failed query=%r error=%s", cleaned[:200], exc)
 
         # 2. Fallback to cn.bing.com search (accessible in China)
         bing_url = f"https://cn.bing.com/search?q={quote_plus(cleaned)}"
@@ -400,8 +409,14 @@ class AudioResearchService:
                 results.append(item)
                 if len(results) >= max(1, min(limit, MAX_SEARCH_RESULTS)):
                     break
+            self._logger.info(
+                "voice_search_result engine=bing query=%r count=%s titles=%s",
+                cleaned[:200], len(results),
+                [r.get("title", "")[:80] for r in results],
+            )
             return results
-        except (httpx.HTTPError, ValueError):
+        except (httpx.HTTPError, ValueError) as exc:
+            self._logger.warning("voice_search_bing_failed query=%r error=%s", cleaned[:200], exc)
             return []
 
     async def fetch_document(

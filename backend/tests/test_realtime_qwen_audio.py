@@ -469,6 +469,481 @@ class TestQwenAudioRealtime(unittest.IsolatedAsyncioTestCase):
         self.assertIn("error", empty["item"]["output"])
         client_event_types = [e.get("type") for e in ws.events]
         self.assertNotIn("turn_complete", client_event_types)
+    # ---- 9: regression – ws URL must come from realtime_base_url -------------
+
+    async def test_audio_session_uses_configured_workspace_realtime_url(self):
+        """stream_dashscope_audio_session must dial settings['realtime_base_url'].
+
+        Regression: the raw-WebSocket path previously read a non-existent
+        ``settings['region']`` key (KeyError: 'region') and hard-coded the
+        public dashscope.aliyuncs.com domain, while qwen-audio-3.0-realtime
+        only works on the cn-beijing workspace maas URL.
+        """
+        workspace_url = "wss://ws-abc123.cn-beijing.maas.aliyuncs.com/api-ws/v1/realtime"
+        service = self.service
+        service._resolve_dashscope_settings = MagicMock(return_value={
+            "api_key": "sk-test",
+            "model": "qwen-audio-3.0-realtime-flash",
+            "realtime_base_url": workspace_url,
+        })
+        service._create_voice_session_recorder = AsyncMock(return_value=None)
+
+        dash_ws = FakeDashWs([
+            {"type": "session.created", "session": {"id": "sess-1"}},
+        ])  # handshake succeeds; subsequent recv raises ConnectionError
+
+        class _FakeConnect:
+            def __init__(self) -> None:
+                self.calls: list[tuple] = []
+
+            def __call__(self, url, **kwargs):
+                self.calls.append((url, kwargs))
+                return self
+
+            async def __aenter__(self):
+                return dash_ws
+
+            async def __aexit__(self, *exc):
+                return False
+
+        fake_connect = _FakeConnect()
+        with patch("services.realtime_voice_service.websockets") as ws_module:
+            ws_module.connect = fake_connect
+            client_ws = CollectingWebSocket()
+            await service.stream_dashscope_audio_session(
+                client_ws,
+                model="qwen-audio-3.0-realtime-flash",
+                voice="longanqian",
+            )
+
+        self.assertEqual(len(fake_connect.calls), 1)
+        dialed_url = fake_connect.calls[0][0]
+        self.assertEqual(
+            dialed_url,
+            f"{workspace_url}?model=qwen-audio-3.0-realtime-flash",
+            f"Must dial the configured workspace realtime URL. Got: {dialed_url}",
+        )
+        # The KeyError: 'region' regression surfaced as an error event whose
+        # message was literally "'region'"; session_open proves we got past
+        # URL construction and session.update instead.
+        event_types = [e.get("type") for e in client_ws.events]
+        self.assertIn("session_open", event_types,
+                      f"session_open expected; events: {client_ws.events}")
+        error_messages = [str(e.get("message", "")) for e in client_ws.events
+                          if e.get("type") == "error"]
+        self.assertFalse(any("'region'" in m for m in error_messages),
+                         f"KeyError 'region' regression: {error_messages}")
+
+    # ---- 10: handshake surfaces server error events --------------------------
+
+    async def test_audio_session_handshake_surfaces_server_error_event(self):
+        """A server `error` event during handshake must reach the client verbatim.
+
+        Previously the handshake read one message and ignored its content, so a
+        server-side rejection (bad voice/param/workspace) looked like a random
+        later failure instead of the real reason.
+        """
+        workspace_url = "wss://ws-abc123.cn-beijing.maas.aliyuncs.com/api-ws/v1/realtime"
+        service = self.service
+        service._resolve_dashscope_settings = MagicMock(return_value={
+            "api_key": "sk-test",
+            "model": "qwen-audio-3.0-realtime-flash",
+            "realtime_base_url": workspace_url,
+        })
+        service._create_voice_session_recorder = AsyncMock(return_value=None)
+
+        dash_ws = FakeDashWs([
+            {"type": "error", "error": {"message": "model not enabled for workspace"}},
+        ])
+
+        class _FakeConnect:
+            def __call__(self, url, **kwargs):
+                return self
+
+            async def __aenter__(self):
+                return dash_ws
+
+            async def __aexit__(self, *exc):
+                return False
+
+        with patch("services.realtime_voice_service.websockets") as ws_module:
+            ws_module.connect = _FakeConnect()
+            client_ws = CollectingWebSocket()
+            await service.stream_dashscope_audio_session(
+                client_ws,
+                model="qwen-audio-3.0-realtime-flash",
+                voice="longanqian",
+            )
+
+        event_types = [e.get("type") for e in client_ws.events]
+        self.assertNotIn("session_open", event_types)
+        error_messages = [str(e.get("message", "")) for e in client_ws.events
+                          if e.get("type") == "error"]
+        self.assertTrue(
+            any("model not enabled for workspace" in m for m in error_messages),
+            f"Server error detail must reach the client. Events: {client_ws.events}",
+        )
+
+    async def test_audio_session_handshake_timeout_has_explicit_message(self):
+        """A silent server must produce an explicit timeout error, not an empty one.
+
+        Regression: the bare TimeoutError from wait_for has an empty str(), which
+        reached the client as 'Qwen-Audio 实时会话启动失败: ' with no detail.
+        """
+        workspace_url = "wss://ws-abc123.cn-beijing.maas.aliyuncs.com/api-ws/v1/realtime"
+        service = self.service
+        service._resolve_dashscope_settings = MagicMock(return_value={
+            "api_key": "sk-test",
+            "model": "qwen-audio-3.0-realtime-flash",
+            "realtime_base_url": workspace_url,
+        })
+        service._create_voice_session_recorder = AsyncMock(return_value=None)
+
+        class _HangingDashWs(FakeDashWs):
+            async def recv(self) -> str:
+                await asyncio.sleep(60)
+                raise AssertionError("unreachable")
+
+        dash_ws = _HangingDashWs()
+
+        class _FakeConnect:
+            def __call__(self, url, **kwargs):
+                return self
+
+            async def __aenter__(self):
+                return dash_ws
+
+            async def __aexit__(self, *exc):
+                return False
+
+        import time as real_time_module
+        monotonic_state = {"calls": 0}
+
+        def fake_monotonic() -> float:
+            # First call computes the 15s handshake deadline; later calls
+            # simulate the deadline having expired.
+            monotonic_state["calls"] += 1
+            return 0.0 if monotonic_state["calls"] == 1 else 100.0
+
+        with patch("services.realtime_voice_service.websockets") as ws_module, \
+                patch("services.realtime_voice_service.time", wraps=real_time_module) as fake_time:
+            ws_module.connect = _FakeConnect()
+            fake_time.monotonic = fake_monotonic
+            client_ws = CollectingWebSocket()
+            await service.stream_dashscope_audio_session(
+                client_ws,
+                model="qwen-audio-3.0-realtime-flash",
+                voice="longanqian",
+            )
+
+        error_messages = [str(e.get("message", "")) for e in client_ws.events
+                          if e.get("type") == "error"]
+        self.assertTrue(error_messages, f"Expected an error event. Events: {client_ws.events}")
+        self.assertTrue(
+            all(m.strip() and not m.rstrip().endswith(":") for m in error_messages),
+            f"Error message must not be empty. Events: {client_ws.events}",
+        )
+        self.assertTrue(
+            any("session.created" in m for m in error_messages),
+            f"Timeout message should mention session.created. Events: {client_ws.events}",
+        )
+    # ---- 11: no manual response.create on transcription.completed -------------
+
+    async def test_transcription_completed_does_not_send_response_create(self):
+        """With server-side turn detection (server_vad/smart_turn), the server
+        auto-creates the response after finalizing the transcript. The backend
+        must NOT send its own response.create — it races ongoing speech and the
+        server rejects it with 'Cannot create response while user is speaking'.
+        """
+        events = [
+            {"type": "conversation.item.input_audio_transcription.completed",
+             "transcript": "你好"},
+        ]
+        ws, dash_ws, memory, tool_session, interruption = self._make_loop_deps(events)
+
+        await self.service._qwen_audio_to_client_loop(
+            ws, dash_ws, memory, "test-voice", tool_session, None, interruption,
+        )
+
+        payloads = dash_ws.sent_payloads()
+        response_creates = [p for p in payloads if p.get("type") == "response.create"]
+        self.assertEqual(response_creates, [],
+                         f"No response.create expected on transcription.completed. "
+                         f"Sent: {payloads}")
+        # The transcript itself must still be forwarded to the client.
+        user_transcripts = [e for e in ws.events if e.get("type") == "user_transcript"]
+        self.assertEqual(len(user_transcripts), 1)
+        self.assertEqual(user_transcripts[0].get("text"), "你好")
+
+    # ---- 12: duplicate text/audio_transcript delta streams --------------------
+
+    async def test_duplicate_text_streams_forwarded_once(self):
+        """With modalities [text,audio] the model streams identical content over
+        response.text.delta AND response.audio_transcript.delta; only the first
+        family may be forwarded or the client transcript duplicates every sentence.
+        """
+        events = [
+            {"type": "response.created", "response": {"id": "r1"}},
+            {"type": "response.audio_transcript.delta", "response_id": "r1",
+             "delta": "你好呀"},
+            {"type": "response.text.delta", "response_id": "r1", "delta": "你好呀"},
+            {"type": "response.audio_transcript.delta", "response_id": "r1",
+             "delta": "！今天过得怎么样"},
+            {"type": "response.text.delta", "response_id": "r1",
+             "delta": "！今天过得怎么样"},
+            {"type": "response.done", "response": {"id": "r1", "status": "completed"}},
+        ]
+        ws, dash_ws, memory, tool_session, interruption = self._make_loop_deps(events)
+
+        await self.service._qwen_audio_to_client_loop(
+            ws, dash_ws, memory, "test-voice", tool_session, None, interruption,
+        )
+
+        assistant_texts = [e.get("text", "") for e in ws.events
+                           if e.get("type") == "assistant_text"]
+        self.assertEqual(assistant_texts, ["你好呀", "！今天过得怎么样"],
+                         f"Only one delta family may be forwarded. Got: {assistant_texts}")
+
+    # ---- 13: benign server errors must not kill the session -------------------
+
+    async def test_benign_response_create_race_error_does_not_end_session(self):
+        """'Cannot create response while user is speaking' is a benign race with
+        the server's turn management; the loop must ignore it and keep going
+        instead of forwarding an error and tearing the session down.
+        """
+        events = [
+            {"type": "response.created", "response": {"id": "r1"}},
+            {"type": "error",
+             "error": {"message": "Cannot create response while user is speaking."}},
+            {"type": "response.audio_transcript.delta", "response_id": "r1",
+             "delta": "继续回答"},
+            {"type": "response.done", "response": {"id": "r1", "status": "completed"}},
+        ]
+        ws, dash_ws, memory, tool_session, interruption = self._make_loop_deps(events)
+
+        await self.service._qwen_audio_to_client_loop(
+            ws, dash_ws, memory, "test-voice", tool_session, None, interruption,
+        )
+
+        client_event_types = [e.get("type") for e in ws.events]
+        self.assertNotIn("error", client_event_types,
+                         f"Benign race error must not reach the client. Events: {ws.events}")
+        # The session kept processing: the delta after the error was forwarded.
+        assistant_texts = [e.get("text", "") for e in ws.events
+                           if e.get("type") == "assistant_text"]
+        self.assertEqual(assistant_texts, ["继续回答"])
+        self.assertIn("turn_complete", client_event_types)
+
+    async def test_tool_events_buffered_before_user_transcript(self):
+        """When a native function_call fires before the ASR transcript, tool events
+        (tool_call_started, agent_progress, tool_call_completed, agent_result) must
+        be buffered and flushed only after user_transcript is sent.
+        """
+        events = [
+            # response.created starts buffering
+            {"type": "response.created", "response": {"id": "r1"}},
+            # function_call fires BEFORE transcript
+            {"type": "response.output_item.added",
+             "item": {"type": "function_call", "call_id": "c1", "name": "search_web"}},
+            {"type": "response.function_call_arguments.done",
+             "call_id": "c1", "name": "search_web", "arguments": '{"query":"test"}'},
+            # Simulate tool result → response.create
+            {"type": "response.created", "response": {"id": "r2"}},
+            # Now the transcript finally arrives
+            {"type": "conversation.item.input_audio_transcription.completed",
+             "transcript": "帮我搜索一下", "item_id": "msg_1"},
+            # AI text follows
+            {"type": "response.audio_transcript.delta", "response_id": "r2",
+             "delta": "搜索结果显示"},
+            {"type": "response.done", "response": {"id": "r2", "status": "completed"}},
+        ]
+        ws, dash_ws, memory, tool_session, interruption = self._make_loop_deps(events)
+
+        # run_tool sends tool_call_started/agent_progress/tool_call_completed/agent_result
+        tool_session.service.run_tool = AsyncMock()
+        async def run_tool_side_effect(request, *, send_event, turn_id):
+            await send_event("tool_call_started",
+                {"tool_name": "search_web", "query": "test", "turn_id": turn_id})
+            await send_event("agent_progress",
+                {"stage": "search", "message": "found 1 result", "turn_id": turn_id})
+            await send_event("tool_call_completed",
+                {"tool_name": "search_web", "query": "test", "turn_id": turn_id, "source_count": 1})
+            await send_event("agent_result",
+                {"tool_name": "search_web", "query": "test", "answer": "ok", "sources": [],
+                 "source_count": 1, "turn_id": turn_id})
+            return {"tool_name": "search_web", "query": "test", "answer": "ok",
+                    "sources": [], "source_count": 1}
+        tool_session.service.run_tool.side_effect = run_tool_side_effect
+
+        await self.service._qwen_audio_to_client_loop(
+            ws, dash_ws, memory, "test-voice", tool_session, None, interruption,
+        )
+
+        event_types = [e.get("type") for e in ws.events]
+        # user_transcript must appear BEFORE tool events and assistant text
+        user_idx = event_types.index("user_transcript") if "user_transcript" in event_types else -1
+        tool_started_idx = event_types.index("tool_call_started") if "tool_call_started" in event_types else -1
+        agent_result_idx = event_types.index("agent_result") if "agent_result" in event_types else -1
+        assistant_idx = event_types.index("assistant_text") if "assistant_text" in event_types else -1
+
+        self.assertGreater(user_idx, -1, "user_transcript must be emitted")
+        self.assertGreater(tool_started_idx, -1, "tool_call_started must be emitted")
+        self.assertGreater(agent_result_idx, -1, "agent_result must be emitted")
+        self.assertGreater(assistant_idx, -1, "assistant_text must be emitted")
+
+        # Order: user_transcript → tool events → assistant text
+        self.assertLess(user_idx, tool_started_idx,
+            f"user_transcript must come before tool_call_started. Events: {event_types}")
+        self.assertLess(agent_result_idx, assistant_idx,
+            f"agent_result must come before assistant_text. Events: {event_types}")
+
+    async def test_pending_output_flush_order_tool_before_ai(self):
+        """Flush order: user_transcript → tool events → AI output."""
+        events = [
+            {"type": "response.created", "response": {"id": "r1"}},
+            # No function_call this time - just AI text
+            {"type": "conversation.item.input_audio_transcription.completed",
+             "transcript": "你好", "item_id": "msg_1"},
+            {"type": "response.audio_transcript.delta", "response_id": "r1",
+             "delta": "你好！有什么可以帮助你的吗？"},
+            {"type": "response.done", "response": {"id": "r1", "status": "completed"}},
+        ]
+        ws, dash_ws, memory, tool_session, interruption = self._make_loop_deps(events)
+
+        await self.service._qwen_audio_to_client_loop(
+            ws, dash_ws, memory, "test-voice", tool_session, None, interruption,
+        )
+
+        event_types = [e.get("type") for e in ws.events]
+        # Verify user_transcript comes before assistant_text
+        user_idx = event_types.index("user_transcript")
+        assistant_idx = event_types.index("assistant_text") if "assistant_text" in event_types else -1
+        turn_complete_idx = event_types.index("turn_complete") if "turn_complete" in event_types else -1
+
+        self.assertLess(user_idx, assistant_idx,
+            f"user_transcript ({user_idx}) must come before assistant_text ({assistant_idx})")
+        self.assertLess(assistant_idx, turn_complete_idx,
+            f"assistant_text ({assistant_idx}) must come before turn_complete ({turn_complete_idx})")
+
+    async def test_native_fc_occurred_flag_prevents_regex_double_trigger(self):
+        """When a native function call has already occurred this turn, the transcript
+        handler must skip the regex tool extraction path entirely — no response_gated,
+        no response.cancel, no duplicate tool execution.
+        """
+        events = [
+            # Turn starts
+            {"type": "response.created", "response": {"id": "r1"}},
+            # Native function call fires
+            {"type": "response.output_item.added",
+             "item": {"type": "function_call", "call_id": "c1", "name": "search_web"}},
+            {"type": "response.function_call_arguments.done",
+             "call_id": "c1", "name": "search_web", "arguments": '{"query":"test"}'},
+            # Tool completes, response.create triggers follow-up
+            {"type": "response.created", "response": {"id": "r2"}},
+            # Transcript arrives — must NOT trigger regex path
+            {"type": "conversation.item.input_audio_transcription.completed",
+             "transcript": "帮我搜索一下", "item_id": "msg_1"},
+            {"type": "response.audio_transcript.delta", "response_id": "r2",
+             "delta": "根据搜索结果"},
+            {"type": "response.done", "response": {"id": "r2", "status": "completed"}},
+        ]
+        ws, dash_ws, memory, tool_session, interruption = self._make_loop_deps(events)
+
+        # Mock run_tool so native FC works
+        tool_session.service.run_tool = AsyncMock(return_value={
+            "tool_name": "search_web", "query": "test", "answer": "ok",
+            "sources": [], "source_count": 0, "elapsed_ms": 10,
+        })
+        # Make extract_tool_request return a match so we can verify it's NOT called
+        extract_calls = []
+        orig_extract = tool_session.service.extract_tool_request
+        def tracking_extract(text):
+            extract_calls.append(text)
+            return orig_extract(text)
+        tool_session.service.extract_tool_request = MagicMock(side_effect=tracking_extract)
+
+        await self.service._qwen_audio_to_client_loop(
+            ws, dash_ws, memory, "test-voice", tool_session, None, interruption,
+        )
+
+        event_types = [e.get("type") for e in ws.events]
+        # Must NOT emit response_gated (regex path was skipped)
+        self.assertNotIn("response_gated", event_types,
+            f"response_gated must NOT be emitted when native FC already occurred. Events: {event_types}")
+        # Must NOT send response.cancel (no double execution)
+        cancel_sent = any(
+            json.loads(s).get("type") == "response.cancel"
+            for s in dash_ws.sent
+        )
+        self.assertFalse(cancel_sent,
+            f"response.cancel must NOT be sent when native FC already occurred. Sent: {dash_ws.sent}")
+        # extract_tool_request must NOT be called (regex path skipped entirely)
+        self.assertEqual(len(extract_calls), 0,
+            f"extract_tool_request must NOT be called. Was called with: {extract_calls}")
+        # user_transcript must still be emitted
+        self.assertIn("user_transcript", event_types)
+
+    async def test_native_fc_flag_reset_on_new_speech(self):
+        """After a native FC turn completes, new user speech must reset the flag
+        so that the regex path can work again on the next turn (if needed).
+        """
+        events = [
+            # First turn: native FC occurs
+            {"type": "response.created", "response": {"id": "r1"}},
+            {"type": "response.output_item.added",
+             "item": {"type": "function_call", "call_id": "c1", "name": "search_web"}},
+            {"type": "response.function_call_arguments.done",
+             "call_id": "c1", "name": "search_web", "arguments": '{"query":"t1"}'},
+            {"type": "response.created", "response": {"id": "r2"}},
+            {"type": "conversation.item.input_audio_transcription.completed",
+             "transcript": "搜索 t1", "item_id": "msg_1"},
+            {"type": "response.done", "response": {"id": "r2", "status": "completed"}},
+            # New user speech starts (must reset flag)
+            {"type": "input_audio_buffer.speech_started"},
+            # Second turn: no native FC this time, regex SHOULD fire
+            {"type": "response.created", "response": {"id": "r3"}},
+            {"type": "conversation.item.input_audio_transcription.completed",
+             "transcript": "搜索 t2", "item_id": "msg_2"},
+            {"type": "response.done", "response": {"id": "r3", "status": "completed"}},
+        ]
+        ws, dash_ws, memory, tool_session, interruption = self._make_loop_deps(events)
+
+        # run_tool for native FC in turn 1
+        tool_session.service.run_tool = AsyncMock(return_value={
+            "tool_name": "search_web", "query": "t1", "answer": "ok",
+            "sources": [], "source_count": 0,
+        })
+        # extract_tool_request should match "搜索 t2" in turn 2
+        from services.voice_agent_tools import VoiceAgentToolService, VoiceToolRequest
+        extract_count = {"count": 0}
+        def smart_extract(text):
+            extract_count["count"] += 1
+            if "t2" in text:
+                return VoiceToolRequest(
+                    tool_name="search_web", query="t2",
+                    display_name="搜索网页资料",
+                )
+            return None
+        tool_session.service.extract_tool_request = MagicMock(side_effect=smart_extract)
+        # handle_user_transcript must handle the tool request for turn 2
+        async def handle_transcript(text, *, send_event, on_result):
+            req = smart_extract(text)
+            if req is None:
+                return ""
+            return "voice-tool-turn2"
+        tool_session.service.handle_user_transcript = MagicMock()
+        tool_session.handle_user_transcript = AsyncMock(side_effect=handle_transcript)
+
+        await self.service._qwen_audio_to_client_loop(
+            ws, dash_ws, memory, "test-voice", tool_session, None, interruption,
+        )
+
+        event_types = [e.get("type") for e in ws.events]
+        # Turn 1 must NOT have response_gated (native FC prevented regex)
+        # Turn 2 SHOULD have response_gated (flag was reset, regex fires)
+        # We can verify by checking extract_tool_request was called
+        self.assertGreaterEqual(extract_count["count"], 1,
+            f"extract_tool_request must be called at least once for turn 2. Count: {extract_count['count']}")
 
 
 if __name__ == "__main__":

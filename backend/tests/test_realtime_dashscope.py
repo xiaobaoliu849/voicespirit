@@ -206,7 +206,7 @@ class TestRealtimeNativeToolDelivery(unittest.IsolatedAsyncioTestCase):
         with self.assertRaisesRegex(RuntimeError, "北京地域"):
             self.service._resolve_dashscope_settings(None)
 
-    def test_qwen_audio_session_update_uses_smart_turn_and_first_update_voiceprint_only(self) -> None:
+    def test_qwen_audio_session_update_uses_server_vad_with_voiceprint(self) -> None:
         conversation = DashScopeAudioRealtimeConversation(
             model="qwen-audio-3.0-realtime-plus",
             api_key="test_key",
@@ -222,11 +222,9 @@ class TestRealtimeNativeToolDelivery(unittest.IsolatedAsyncioTestCase):
 
         first_session = sent[0]["session"]
         second_session = sent[1]["session"]
-        self.assertEqual(first_session["turn_detection"]["type"], "smart_turn")
-        self.assertNotIn("threshold", first_session["turn_detection"])
-        self.assertNotIn("silence_duration_ms", first_session["turn_detection"])
-        self.assertNotIn("create_response", first_session["turn_detection"])
-        self.assertNotIn("interrupt_response", first_session["turn_detection"])
+        self.assertEqual(first_session["turn_detection"]["type"], "server_vad")
+        self.assertEqual(first_session["turn_detection"]["threshold"], 0.3)
+        self.assertEqual(first_session["turn_detection"]["silence_duration_ms"], 5000)
         self.assertEqual(first_session["turn_detection"]["voiceprint_audio_urls"], ["https://example.com/voice.wav"])
         self.assertNotIn("turn_detection", second_session)
         self.assertEqual(second_session["instructions"], "second")

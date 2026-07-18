@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import unittest
 
 from services.audio_research_service import ResearchDocument
@@ -30,7 +31,7 @@ class FakeResearchService:
             title=title_hint or "Voice Agent Research",
             url=url,
             snippet=snippet_hint or "Voice agent source snippet",
-            content="Voice agents use interruption handling, tool calls, and grounded answers.",
+            content="Voice agents use interruption handling, tool calls, and grounded answers for realtime voice chat interactions. They can search the web and summarize results.",
             score=score,
             source_type=source_type,
             meta={"fetch_status": "ok"},
@@ -282,7 +283,109 @@ class VoiceAgentToolServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(handled[0]["tool_name"], "search_web")
         self.assertEqual(handled[0]["turn_id"], "voice-tool-1")
         self.assertEqual(handled[0]["source_count"], 1)
-        self.assertIn("External search tool context", service.build_model_context_prompt(handled[0]))
+        prompt = service.build_model_context_prompt(handled[0])
+        self.assertIsInstance(prompt, str)
+        # Natural language format: must contain grounding instruction and source content
+        self.assertIn("搜索指令", prompt)
+        self.assertIn("仅基于以下搜索来源", prompt)
+        self.assertIn("禁止编造", prompt)
+        self.assertIn("Voice Agent Research", prompt)
+        self.assertIn("https://example.com/voice-agent", prompt)
+        # Must NOT be JSON format
+        self.assertNotIn('"tool": "search_web"', prompt)
+
+    async def test_search_context_prompt_natural_language_format(self) -> None:
+        """build_model_context_prompt returns natural language (not JSON) for search results."""
+        result: dict[str, Any] = {
+            "tool_name": "search_web",
+            "query": "FIFA World Cup 2026",
+            "answer": "Search results for FIFA World Cup...",
+            "source_count": 1,
+            "sources": [
+                {
+                    "title": "FIFA World Cup 2026",
+                    "uri": "https://example.com/fifa2026",
+                    "snippet": "The 2026 World Cup will be hosted by USA, Canada, and Mexico.",
+                    "content": "The 2026 FIFA World Cup will be the 23rd edition of the tournament, hosted across 16 cities in three countries: the United States, Canada, and Mexico. This marks the first time the World Cup will be hosted by three nations.",
+                }
+            ],
+        }
+        prompt = VoiceAgentToolService.build_model_context_prompt(result)
+        # Natural language markers
+        self.assertIn("搜索指令", prompt)
+        self.assertIn("仅基于以下搜索来源", prompt)
+        self.assertIn("禁止编造", prompt)
+        self.assertIn("FIFA World Cup 2026", prompt)
+        self.assertIn("16 cities", prompt)  # from full content
+        # NOT JSON
+        self.assertNotIn('"tool"', prompt)
+        self.assertNotIn('"status"', prompt)
+
+    async def test_search_context_prompt_includes_full_content(self) -> None:
+        """Full content field from ResearchDocument is included, not just short snippet."""
+        result: dict[str, Any] = {
+            "tool_name": "search_web",
+            "query": "test",
+            "answer": "Results",
+            "source_count": 1,
+            "sources": [
+                {
+                    "title": "Test Page",
+                    "uri": "https://example.com/test",
+                    "snippet": "Short snippet.",
+                    "content": "This is the full extracted page content that contains much more detail than the short snippet alone would provide, including specific numbers like 42 and detailed technical descriptions.",
+                }
+            ],
+        }
+        prompt = VoiceAgentToolService.build_model_context_prompt(result)
+        # Full content (longer than snippet) should appear
+        self.assertIn("full extracted page content", prompt)
+        self.assertIn("specific numbers like 42", prompt)
+
+    async def test_search_context_prompt_no_results_anti_hallucination(self) -> None:
+        """Empty search results must produce a strong anti-hallucination instruction."""
+        result: dict[str, Any] = {
+            "tool_name": "search_web",
+            "query": "test",
+            "answer": "",
+            "source_count": 0,
+            "sources": [],
+        }
+        prompt = VoiceAgentToolService.build_model_context_prompt(result)
+        self.assertIn("0 条结果", prompt)
+        self.assertIn("禁止编造", prompt)
+        self.assertIn("如实告知用户", prompt)
+
+    async def test_search_context_prompt_low_quality_results_anti_hallucination(self) -> None:
+        """When all search sources have very short content (< 100 chars total),
+        the prompt must treat results as invalid and forbid fabrication."""
+        result: dict[str, Any] = {
+            "tool_name": "search_web",
+            "query": "test",
+            "answer": "",
+            "source_count": 2,
+            "sources": [
+                {"title": "Page 1", "uri": "http://a.com", "snippet": "x", "content": ""},
+                {"title": "Page 2", "uri": "http://b.com", "snippet": "y", "content": ""},
+            ],
+        }
+        prompt = VoiceAgentToolService.build_model_context_prompt(result)
+        # Must detect low-quality and forbid fabrication
+        self.assertIn("无效结果", prompt)
+        self.assertIn("内容质量极低", prompt)
+        self.assertIn("禁止根据结果标题或 URL 猜测", prompt)
+        self.assertIn("禁止编造", prompt)
+
+    async def test_run_search_preserves_content_field(self) -> None:
+        """run_search includes the full content field from ResearchDocument in sources."""
+        service = VoiceAgentToolService(research_service=FakeResearchService())  # type: ignore[arg-type]
+        result = await service.run_search("voice agent", send_event=self._send_event)
+        self.assertEqual(len(result["sources"]), 1)
+        source = result["sources"][0]
+        self.assertIn("content", source)
+        full = str(source.get("content", ""))
+        self.assertGreater(len(full), 30)
+        self.assertIn("interruption handling", full)
 
     async def test_tool_session_cancels_active_search_on_interruption(self) -> None:
         session = VoiceAgentToolSession(
