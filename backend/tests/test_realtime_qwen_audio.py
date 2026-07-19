@@ -946,5 +946,237 @@ class TestQwenAudioRealtime(unittest.IsolatedAsyncioTestCase):
             f"extract_tool_request must be called at least once for turn 2. Count: {extract_count['count']}")
 
 
+    # ---- 14: P0 bug – response.done arrives BEFORE ASR transcript ------------
+
+    async def test_response_done_before_transcript_defers_turn_complete(self):
+        """When response.done arrives before the ASR transcript, the turn must NOT
+        be finalized until the transcript arrives.  The frontend must receive events
+        in the correct order: user_transcript → assistant_text → turn_complete.
+
+        This is the core bug: Qwen-Audio server_vad mode sends response.done before
+        conversation.item.input_audio_transcription.completed because ASR runs
+        asynchronously and doesn't block model inference.
+        """
+        events = [
+            # Model starts responding
+            {"type": "response.created", "response": {"id": "r1"}},
+            # Model streams text
+            {"type": "response.audio_transcript.delta", "response_id": "r1",
+             "delta": "你好呀！我是小云"},
+            # Model finishes BEFORE the ASR transcript arrives
+            {"type": "response.done",
+             "response": {"id": "r1", "status": "completed"}},
+            # ASR transcript finally arrives (late!)
+            {"type": "conversation.item.input_audio_transcription.completed",
+             "transcript": "Hello, can you hear me?", "item_id": "msg_1"},
+        ]
+        ws, dash_ws, memory, tool_session, interruption = self._make_loop_deps(events)
+
+        await self.service._qwen_audio_to_client_loop(
+            ws, dash_ws, memory, "test-voice", tool_session, None, interruption,
+        )
+
+        event_types = [e.get("type") for e in ws.events]
+
+        # user_transcript MUST be present
+        self.assertIn("user_transcript", event_types,
+            f"user_transcript must be emitted. Events: {event_types}")
+        # assistant_text MUST be present
+        self.assertIn("assistant_text", event_types,
+            f"assistant_text must be emitted. Events: {event_types}")
+        # turn_complete MUST be present
+        self.assertIn("turn_complete", event_types,
+            f"turn_complete must be emitted. Events: {event_types}")
+
+        user_idx = event_types.index("user_transcript")
+        assistant_idx = event_types.index("assistant_text")
+        turn_complete_idx = event_types.index("turn_complete")
+
+        # Correct ordering: user_transcript → assistant_text → turn_complete
+        self.assertLess(user_idx, assistant_idx,
+            f"user_transcript (idx={user_idx}) must come BEFORE assistant_text "
+            f"(idx={assistant_idx}). Events: {event_types}")
+        self.assertLess(assistant_idx, turn_complete_idx,
+            f"assistant_text (idx={assistant_idx}) must come BEFORE turn_complete "
+            f"(idx={turn_complete_idx}). Events: {event_types}")
+
+        # Verify the transcript text is correct
+        user_event = next(e for e in ws.events if e.get("type") == "user_transcript")
+        self.assertEqual(user_event.get("text"), "Hello, can you hear me?")
+
+    async def test_response_done_before_transcript_with_audio(self):
+        """Same as above but with audio deltas — both text and audio must be
+        buffered and flushed after the user transcript."""
+        events = [
+            {"type": "response.created", "response": {"id": "r1"}},
+            {"type": "response.audio.delta", "response_id": "r1",
+             "delta": "AAAA"},  # base64 audio
+            {"type": "response.audio_transcript.delta", "response_id": "r1",
+             "delta": "你好"},
+            {"type": "response.done",
+             "response": {"id": "r1", "status": "completed"}},
+            {"type": "conversation.item.input_audio_transcription.completed",
+             "transcript": "你好", "item_id": "msg_1"},
+        ]
+        ws, dash_ws, memory, tool_session, interruption = self._make_loop_deps(events)
+
+        await self.service._qwen_audio_to_client_loop(
+            ws, dash_ws, memory, "test-voice", tool_session, None, interruption,
+        )
+
+        event_types = [e.get("type") for e in ws.events]
+        user_idx = event_types.index("user_transcript")
+        # Both assistant_text and assistant_audio must come after user_transcript
+        for evt_type in ("assistant_text", "assistant_audio"):
+            if evt_type in event_types:
+                idx = event_types.index(evt_type)
+                self.assertLess(user_idx, idx,
+                    f"user_transcript must come before {evt_type}. Events: {event_types}")
+
+    # ---- 15: tool call ordering when response.done arrives first -------------
+
+    async def test_tool_events_after_user_transcript_when_response_done_first(self):
+        """When a native function_call fires and response.done arrives before the
+        ASR transcript, tool events must still appear AFTER user_transcript.
+
+        Sequence: response.created → function_call → response.done(fc round)
+                  → response.created(r2) → transcript → audio → response.done(r2)
+        """
+        events = [
+            # First response round: function call
+            {"type": "response.created", "response": {"id": "r1"}},
+            {"type": "response.output_item.added",
+             "item": {"type": "function_call", "call_id": "c1", "name": "search_web"}},
+            {"type": "response.function_call_arguments.done",
+             "call_id": "c1", "name": "search_web", "arguments": '{"query":"FIFA World Cup"}'},
+            # FC round response.done (intermediate — must NOT finalize)
+            {"type": "response.done",
+             "response": {"id": "r1", "status": "completed"}},
+            # Second response round: model answers from tool result
+            {"type": "response.created", "response": {"id": "r2"}},
+            # ASR transcript finally arrives
+            {"type": "conversation.item.input_audio_transcription.completed",
+             "transcript": "帮我搜索FIFA世界杯决赛", "item_id": "msg_1"},
+            # Model streams the answer
+            {"type": "response.audio_transcript.delta", "response_id": "r2",
+             "delta": "根据搜索结果"},
+            {"type": "response.done",
+             "response": {"id": "r2", "status": "completed"}},
+        ]
+        ws, dash_ws, memory, tool_session, interruption = self._make_loop_deps(events)
+
+        # Make run_tool emit tool events
+        tool_session.service.run_tool = AsyncMock()
+        async def run_tool_side_effect(request, *, send_event, turn_id):
+            await send_event("tool_call_started",
+                {"tool_name": "search_web", "query": "FIFA World Cup", "turn_id": turn_id})
+            await send_event("tool_call_completed",
+                {"tool_name": "search_web", "query": "FIFA World Cup", "turn_id": turn_id,
+                 "source_count": 3})
+            return {"tool_name": "search_web", "query": "FIFA World Cup", "answer": "ok",
+                    "sources": [], "source_count": 3}
+        tool_session.service.run_tool.side_effect = run_tool_side_effect
+
+        await self.service._qwen_audio_to_client_loop(
+            ws, dash_ws, memory, "test-voice", tool_session, None, interruption,
+        )
+
+        event_types = [e.get("type") for e in ws.events]
+
+        # user_transcript must be present and before tool events
+        self.assertIn("user_transcript", event_types,
+            f"user_transcript must be emitted. Events: {event_types}")
+        self.assertIn("tool_call_started", event_types,
+            f"tool_call_started must be emitted. Events: {event_types}")
+
+        user_idx = event_types.index("user_transcript")
+        tool_idx = event_types.index("tool_call_started")
+
+        self.assertLess(user_idx, tool_idx,
+            f"user_transcript (idx={user_idx}) must come BEFORE tool_call_started "
+            f"(idx={tool_idx}). Events: {event_types}")
+
+        # No premature turn_complete on the FC round
+        # turn_complete should only appear once (after r2)
+        turn_complete_count = event_types.count("turn_complete")
+        self.assertEqual(turn_complete_count, 1,
+            f"Exactly 1 turn_complete expected. Events: {event_types}")
+
+    # ---- 16: timeout safety valve for deferred response.done -----------------
+
+    async def test_transcript_timeout_flushes_deferred_response_done(self):
+        """When the ASR transcript never arrives, the deferred response.done must
+        be processed after TRANSCRIPT_WAIT_TIMEOUT, so the session doesn't hang."""
+        events = [
+            {"type": "response.created", "response": {"id": "r1"}},
+            {"type": "response.audio_transcript.delta", "response_id": "r1",
+             "delta": "你好！"},
+            {"type": "response.done",
+             "response": {"id": "r1", "status": "completed"}},
+            # No transcription.completed event — transcript never arrives!
+        ]
+        ws, dash_ws, memory, tool_session, interruption = self._make_loop_deps(events)
+
+        await self.service._qwen_audio_to_client_loop(
+            ws, dash_ws, memory, "test-voice", tool_session, None, interruption,
+        )
+
+        event_types = [e.get("type") for e in ws.events]
+
+        # Even without a transcript, the AI output and turn_complete must be emitted
+        # (after the timeout)
+        self.assertIn("assistant_text", event_types,
+            f"assistant_text must be emitted even without transcript. Events: {event_types}")
+        self.assertIn("turn_complete", event_types,
+            f"turn_complete must be emitted even without transcript. Events: {event_types}")
+
+    # ---- 17: new speech flushes stale deferred response.done -----------------
+
+    async def test_new_speech_flushes_stale_deferred_response_done(self):
+        """When new speech starts while a response.done is still deferred (transcript
+        never arrived), the stale deferred must be flushed and finalized before
+        processing the new turn."""
+        events = [
+            # First turn: response completes but no transcript
+            {"type": "response.created", "response": {"id": "r1"}},
+            {"type": "response.audio_transcript.delta", "response_id": "r1",
+             "delta": "第一轮回复"},
+            {"type": "response.done",
+             "response": {"id": "r1", "status": "completed"}},
+            # New speech starts — must flush the stale deferred
+            {"type": "input_audio_buffer.speech_started"},
+            # Second turn: normal flow
+            {"type": "response.created", "response": {"id": "r2"}},
+            {"type": "conversation.item.input_audio_transcription.completed",
+             "transcript": "第二轮你好", "item_id": "msg_2"},
+            {"type": "response.audio_transcript.delta", "response_id": "r2",
+             "delta": "第二轮回复"},
+            {"type": "response.done",
+             "response": {"id": "r2", "status": "completed"}},
+        ]
+        ws, dash_ws, memory, tool_session, interruption = self._make_loop_deps(events)
+
+        await self.service._qwen_audio_to_client_loop(
+            ws, dash_ws, memory, "test-voice", tool_session, None, interruption,
+        )
+
+        event_types = [e.get("type") for e in ws.events]
+
+        # Both turns must produce turn_complete
+        turn_complete_count = event_types.count("turn_complete")
+        self.assertEqual(turn_complete_count, 2,
+            f"Both turns must finalize. Events: {event_types}")
+
+        # First turn's assistant_text must be present (flushed by speech_started)
+        self.assertIn("assistant_text", event_types,
+            f"First turn's assistant_text must be emitted. Events: {event_types}")
+
+        # Second turn's user_transcript must be present
+        user_transcripts = [e for e in ws.events if e.get("type") == "user_transcript"]
+        self.assertEqual(len(user_transcripts), 1,
+            f"Exactly 1 user_transcript expected (second turn). Events: {event_types}")
+        self.assertEqual(user_transcripts[0].get("text"), "第二轮你好")
+
+
 if __name__ == "__main__":
     unittest.main()

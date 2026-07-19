@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import socket
 import unittest
 from unittest.mock import patch
 from httpx import Response, Request
@@ -10,6 +11,7 @@ from services.audio_research_service import (
     DuckDuckGoResultParser,
     HtmlContentExtractor,
     ResearchDocument,
+    _is_duckduckgo_ad_url,
     _is_safe_public_url,
     _resolve_public_host,
 )
@@ -144,6 +146,47 @@ class AudioResearchServiceTests(unittest.TestCase):
                     "",
                     ("192.168.1.20", 443),
                 )
+            ]
+
+        with patch("services.audio_research_service.socket.getaddrinfo", fake_getaddrinfo):
+            with self.assertRaises(ValueError):
+                asyncio.run(_resolve_public_host("example.com", 443))
+
+    def test_resolve_public_host_skips_teredo_and_prefers_ipv4(self) -> None:
+        # DNS returns a Teredo IPv6 address (2001::/32, treated as non-public) before a
+        # usable public IPv4; the resolver must skip the Teredo answer and return the
+        # IPv4 instead of aborting the whole lookup.
+        def fake_getaddrinfo(*args, **kwargs):
+            _ = (args, kwargs)
+            return [
+                (socket.AF_INET6, socket.SOCK_STREAM, 6, "", ("2001::6ca0:a5d3", 443, 0, 0)),
+                (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 443)),
+            ]
+
+        with patch("services.audio_research_service.socket.getaddrinfo", fake_getaddrinfo):
+            resolved = asyncio.run(_resolve_public_host("example.com", 443))
+        self.assertEqual(resolved, ["93.184.216.34"])
+
+    def test_resolve_public_host_rejects_when_only_teredo_answers(self) -> None:
+        # If every answer is non-public (only Teredo IPv6), the host is unusable and
+        # the resolver must still raise rather than return a non-public address.
+        def fake_getaddrinfo(*args, **kwargs):
+            _ = (args, kwargs)
+            return [
+                (socket.AF_INET6, socket.SOCK_STREAM, 6, "", ("2001::6ca0:a5d3", 443, 0, 0)),
+            ]
+
+        with patch("services.audio_research_service.socket.getaddrinfo", fake_getaddrinfo):
+            with self.assertRaises(ValueError):
+                asyncio.run(_resolve_public_host("example.com", 443))
+
+    def test_resolve_public_host_rejects_6to4_embedding_private_ipv4(self) -> None:
+        # A 6to4 address (2002::/16) can embed a private IPv4 (here 127.0.0.1) and is not
+        # flagged as private by ipaddress, so it must be rejected explicitly.
+        def fake_getaddrinfo(*args, **kwargs):
+            _ = (args, kwargs)
+            return [
+                (socket.AF_INET6, socket.SOCK_STREAM, 6, "", ("2002:7f00:1::1", 443, 0, 0)),
             ]
 
         with patch("services.audio_research_service.socket.getaddrinfo", fake_getaddrinfo):
@@ -320,7 +363,13 @@ class AudioResearchServiceTests(unittest.TestCase):
         self.assertEqual([item["url"] for item in results], ["https://example.com/a", "https://example.com/b"])
 
     def test_search_handles_socket_failure_as_empty_results(self) -> None:
-        FakeAsyncClient.errors = [OSError("network unavailable"), OSError("network unavailable")]
+        # Two DuckDuckGo endpoints are tried before the Bing fallback, so all
+        # three attempts must fail for the search to return empty.
+        FakeAsyncClient.errors = [
+            OSError("network unavailable"),
+            OSError("network unavailable"),
+            OSError("network unavailable"),
+        ]
         with (
             patch(
                 "services.audio_research_service.AudioResearchService._request_public_url_once",
@@ -332,7 +381,11 @@ class AudioResearchServiceTests(unittest.TestCase):
         self.assertEqual(results, [])
 
     def test_search_fallback_to_bing_on_duckduckgo_failure(self) -> None:
-        FakeAsyncClient.errors = [OSError("network unavailable")]
+        # Both DuckDuckGo endpoints must fail before the Bing fallback is used.
+        FakeAsyncClient.errors = [
+            OSError("network unavailable"),
+            OSError("network unavailable"),
+        ]
         FakeAsyncClient.responses = [
             Response(
                 200,
@@ -361,6 +414,63 @@ class AudioResearchServiceTests(unittest.TestCase):
         self.assertEqual([item["url"] for item in results], ["https://example.com/bing-a", "https://example.com/bing-b"])
         self.assertEqual([item["title"] for item in results], ["Bing Title A", "Bing Title B"])
         self.assertEqual([item["snippet"] for item in results], ["Snippet Bing A", "Snippet Bing B"])
+
+    def test_is_duckduckgo_ad_url_detects_sponsored_and_tracking_links(self) -> None:
+        # Organic results point to external domains; anything still on a
+        # duckduckgo.com host (the y.js ad redirect) is an ad/tracking link.
+        self.assertTrue(_is_duckduckgo_ad_url("https://duckduckgo.com/y.js?ad_domain=fubo.tv&ad_provider=bing"))
+        self.assertTrue(_is_duckduckgo_ad_url("https://www.duckduckgo.com/foo"))
+        self.assertTrue(_is_duckduckgo_ad_url(""))
+        self.assertFalse(_is_duckduckgo_ad_url("https://example.com/article"))
+        self.assertFalse(_is_duckduckgo_ad_url("https://news.site.com/page?q=duckduckgo.com"))
+
+    def test_search_filters_out_duckduckgo_ad_results(self) -> None:
+        FakeAsyncClient.responses = [
+            Response(
+                200,
+                text="""
+                <a class="result__a" href="https://duckduckgo.com/y.js?ad_domain=fubo.tv&ad_provider=bing">Sponsored Stream</a>
+                <a class="result__snippet">Ad snippet</a>
+                <a class="result__a" href="/l/?uddg=https%3A%2F%2Fexample.com%2Forganic">Organic Result</a>
+                <a class="result__snippet">Organic snippet</a>
+                """,
+            )
+        ]
+        with (
+            patch(
+                "services.audio_research_service.AudioResearchService._request_public_url_once",
+                staticmethod(fake_request_public_url_once),
+            ),
+            patch("services.audio_research_service._resolve_public_host", fake_resolve_public_host),
+        ):
+            results = asyncio.run(AudioResearchService().search("world cup final", limit=5))
+        # The sponsored duckduckgo.com/y.js link is dropped; only the organic result remains.
+        self.assertEqual([item["url"] for item in results], ["https://example.com/organic"])
+
+    def test_search_falls_back_to_second_duckduckgo_endpoint(self) -> None:
+        # First DDG endpoint fails (e.g. DNS resolves to a blocked Teredo address);
+        # the canonical html.duckduckgo.com endpoint succeeds.
+        FakeAsyncClient.errors = [OSError("non-public address")]
+        FakeAsyncClient.responses = [
+            Response(
+                200,
+                text="""
+                <a class="result__a" href="/l/?uddg=https%3A%2F%2Fexample.com%2Fa">A</a>
+                <a class="result__snippet">Snippet A</a>
+                """,
+            )
+        ]
+        with (
+            patch(
+                "services.audio_research_service.AudioResearchService._request_public_url_once",
+                staticmethod(fake_request_public_url_once),
+            ),
+            patch("services.audio_research_service._resolve_public_host", fake_resolve_public_host),
+        ):
+            results = asyncio.run(AudioResearchService().search("topic", limit=2))
+        self.assertEqual([item["url"] for item in results], ["https://example.com/a"])
+        # The first (canonical) endpoint was attempted, then the redirecting one succeeded.
+        self.assertEqual(FakeAsyncClient.calls[0], "https://html.duckduckgo.com/html/?q=topic")
 
 
 class AudioRetrievalServiceTests(unittest.TestCase):

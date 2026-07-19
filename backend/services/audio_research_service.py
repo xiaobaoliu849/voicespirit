@@ -19,6 +19,15 @@ USER_AGENT = (
     "VoiceSpiritResearchAgent/1.0 "
     "(local podcast research; contact: voicespirit.local)"
 )
+# DuckDuckGo HTML endpoints, tried in order. The canonical ``html.duckduckgo.com``
+# host is the most reliable: the bare ``duckduckgo.com/html/`` URL is a 302 redirect
+# that frequently resolves to a Teredo/IPv6 address (e.g. 2001::/32) which our
+# public-address guard rejects, silently yielding zero results. Trying the canonical
+# host first avoids that failure mode.
+DUCKDUCKGO_HTML_ENDPOINTS = (
+    "https://html.duckduckgo.com/html/?q={query}",
+    "https://duckduckgo.com/html/?q={query}",
+)
 MAX_SOURCE_CONTENT_CHARS = 5000
 MAX_SEARCH_RESULTS = 5
 REQUEST_TIMEOUT_SECONDS = 10.0
@@ -231,6 +240,23 @@ def _normalize_duckduckgo_url(value: str) -> str:
     return urljoin("https://duckduckgo.com", raw)
 
 
+def _is_duckduckgo_ad_url(value: str) -> bool:
+    """Detect DuckDuckGo sponsored/tracking links.
+
+    Organic DDG results always point to an external domain. Anything that still
+    resolves to a duckduckgo.com host after normalization (e.g. the ``y.js``
+    ad-redirect used for sponsored placements) is an ad or tracking link and
+    would only pollute the grounding context, so it is filtered out.
+    """
+    try:
+        hostname = (urlparse(str(value or "")).hostname or "").strip().lower()
+    except Exception:
+        return True
+    if not hostname:
+        return True
+    return hostname == "duckduckgo.com" or hostname.endswith(".duckduckgo.com")
+
+
 def _looks_like_nonstandard_ipv4(hostname: str) -> bool:
     labels = hostname.split(".")
     return 1 <= len(labels) <= 4 and all(
@@ -278,34 +304,55 @@ async def _resolve_public_host(hostname: str, port: int | None) -> list[str]:
     except socket.gaierror as exc:
         raise ValueError(f"Could not resolve host: {normalized}") from exc
 
-    resolved: list[str] = []
+    resolved: list[tuple[int, str]] = []
     for family, _socktype, _proto, _canonname, sockaddr in addresses:
         if family not in {socket.AF_INET, socket.AF_INET6}:
             continue
         ip_text = str(sockaddr[0])
         try:
             ip = ipaddress.ip_address(ip_text)
-        except ValueError as exc:
-            raise ValueError(f"Resolved host to invalid address: {ip_text}") from exc
+        except ValueError:
+            # Unparseable answer — skip it rather than aborting the whole lookup.
+            continue
         is_clash_fake_ip = False
         try:
             is_clash_fake_ip = ip in ipaddress.ip_network("198.18.0.0/15")
         except Exception:
             pass
+        # 6to4 (2002::/16) can embed an arbitrary IPv4 (including a private one such as
+        # 2002:7f00:1::1 -> 127.0.0.1) and Python's ipaddress does NOT flag it as private,
+        # so reject it explicitly. 6to4 is deprecated (RFC 7526) and never needed to fetch
+        # public search results, so skipping it only tightens the SSRF guard.
+        is_6to4 = False
+        try:
+            is_6to4 = ip in ipaddress.ip_network("2002::/16")
+        except Exception:
+            pass
 
-        if not is_clash_fake_ip and (
-            ip.is_private
-            or ip.is_loopback
-            or ip.is_link_local
-            or ip.is_multicast
-            or ip.is_reserved
-            or ip.is_unspecified
+        if is_6to4 or (
+            not is_clash_fake_ip and (
+                ip.is_private
+                or ip.is_loopback
+                or ip.is_link_local
+                or ip.is_multicast
+                or ip.is_reserved
+                or ip.is_unspecified
+            )
         ):
-            raise ValueError(f"Resolved host to non-public address: {ip_text}")
-        resolved.append(ip_text)
+            # Skip non-public answers (e.g. Teredo 2001::/32, ULA, loopback) instead
+            # of aborting: DNS frequently returns a transitional IPv6 address alongside
+            # a usable IPv4 address, and a single non-public answer must not discard the
+            # valid public ones. Non-public addresses are never used to connect, so the
+            # SSRF guarantee is preserved — a host that resolves ONLY to non-public
+            # addresses still fails below.
+            continue
+        # Sort key 0 = IPv4, 1 = IPv6: prefer IPv4 to avoid Teredo/IPv6-transition
+        # flakiness while keeping every usable public address as a fallback.
+        resolved.append((0 if family == socket.AF_INET else 1, ip_text))
     if not resolved:
         raise ValueError(f"Host did not resolve to a public address: {normalized}")
-    return resolved
+    resolved.sort(key=lambda item: item[0])
+    return [ip_text for _, ip_text in resolved]
 
 
 class AudioResearchService:
@@ -365,32 +412,40 @@ class AudioResearchService:
             self._logger.info("voice_search_skipped reason=empty_query")
             return []
 
-        # 1. Attempt DuckDuckGo search first
-        ddg_url = f"https://duckduckgo.com/html/?q={quote_plus(cleaned)}"
-        try:
-            response = await self._get_public_response(ddg_url)
-            response.raise_for_status()
-            parser = DuckDuckGoResultParser()
-            parser.feed(response.text[:300_000])
-            results: list[dict[str, str]] = []
-            seen: set[str] = set()
-            for item in parser.results:
-                url = item.get("url", "")
-                if not _is_safe_public_url(url) or url in seen:
-                    continue
-                seen.add(url)
-                results.append(item)
-                if len(results) >= max(1, min(limit, MAX_SEARCH_RESULTS)):
-                    break
-            self._logger.info(
-                "voice_search_result engine=duckduckgo query=%r count=%s titles=%s",
-                cleaned[:200], len(results),
-                [r.get("title", "")[:80] for r in results],
-            )
-            if results:
-                return results
-        except (httpx.HTTPError, ValueError) as exc:
-            self._logger.warning("voice_search_duckduckgo_failed query=%r error=%s", cleaned[:200], exc)
+        # 1. Attempt DuckDuckGo search first, trying each HTML endpoint in order.
+        #    The canonical html.duckduckgo.com host is tried before the redirecting
+        #    duckduckgo.com/html/ URL (see DUCKDUCKGO_HTML_ENDPOINTS).
+        encoded_query = quote_plus(cleaned)
+        target_limit = max(1, min(limit, MAX_SEARCH_RESULTS))
+        for endpoint in DUCKDUCKGO_HTML_ENDPOINTS:
+            ddg_url = endpoint.format(query=encoded_query)
+            try:
+                response = await self._get_public_response(ddg_url)
+                response.raise_for_status()
+                parser = DuckDuckGoResultParser()
+                parser.feed(response.text[:300_000])
+                results: list[dict[str, str]] = []
+                seen: set[str] = set()
+                for item in parser.results:
+                    url = item.get("url", "")
+                    if not _is_safe_public_url(url) or _is_duckduckgo_ad_url(url) or url in seen:
+                        continue
+                    seen.add(url)
+                    results.append(item)
+                    if len(results) >= target_limit:
+                        break
+                self._logger.info(
+                    "voice_search_result engine=duckduckgo endpoint=%s query=%r count=%s titles=%s",
+                    ddg_url.split("?")[0], cleaned[:200], len(results),
+                    [r.get("title", "")[:80] for r in results],
+                )
+                if results:
+                    return results
+            except (httpx.HTTPError, ValueError) as exc:
+                self._logger.warning(
+                    "voice_search_duckduckgo_failed endpoint=%s query=%r error=%s",
+                    ddg_url.split("?")[0], cleaned[:200], exc,
+                )
 
         # 2. Fallback to cn.bing.com search (accessible in China)
         bing_url = f"https://cn.bing.com/search?q={quote_plus(cleaned)}"
