@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 import json
 import tempfile
 import unittest
@@ -237,10 +238,17 @@ class RealtimeProviderReplayTests(unittest.IsolatedAsyncioTestCase):
         provider_sent: list[dict] = []
 
         coordinator_factory = lambda: InterruptionDecisionCoordinator(clock=FakeClock())
-        with patch(
-            "services.realtime_voice_service.InterruptionDecisionCoordinator",
-            side_effect=coordinator_factory,
-        ):
+        _provider_modules = (
+            "services.realtime_google_provider",
+            "services.realtime_dashscope_provider",
+            "services.realtime_openai_provider",
+            "services.realtime_qwen_audio_provider",
+        )
+        with contextlib.ExitStack() as stack:
+            for _mod in _provider_modules:
+                stack.enter_context(
+                    patch(f"{_mod}.InterruptionDecisionCoordinator", side_effect=coordinator_factory)
+                )
             if provider == "DashScope":
                 queue: asyncio.Queue[dict] = asyncio.Queue()
                 callback = DashScopeRealtimeCallback(loop=asyncio.get_running_loop(), queue=queue)

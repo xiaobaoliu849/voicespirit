@@ -507,7 +507,7 @@ class TestQwenAudioRealtime(unittest.IsolatedAsyncioTestCase):
                 return False
 
         fake_connect = _FakeConnect()
-        with patch("services.realtime_voice_service.websockets") as ws_module:
+        with patch("services.realtime_qwen_audio_provider.websockets") as ws_module:
             ws_module.connect = fake_connect
             client_ws = CollectingWebSocket()
             await service.stream_dashscope_audio_session(
@@ -566,7 +566,7 @@ class TestQwenAudioRealtime(unittest.IsolatedAsyncioTestCase):
             async def __aexit__(self, *exc):
                 return False
 
-        with patch("services.realtime_voice_service.websockets") as ws_module:
+        with patch("services.realtime_qwen_audio_provider.websockets") as ws_module:
             ws_module.connect = _FakeConnect()
             client_ws = CollectingWebSocket()
             await service.stream_dashscope_audio_session(
@@ -625,8 +625,8 @@ class TestQwenAudioRealtime(unittest.IsolatedAsyncioTestCase):
             monotonic_state["calls"] += 1
             return 0.0 if monotonic_state["calls"] == 1 else 100.0
 
-        with patch("services.realtime_voice_service.websockets") as ws_module, \
-                patch("services.realtime_voice_service.time", wraps=real_time_module) as fake_time:
+        with patch("services.realtime_qwen_audio_provider.websockets") as ws_module, \
+                patch("services.realtime_qwen_audio_provider.time", wraps=real_time_module) as fake_time:
             ws_module.connect = _FakeConnect()
             fake_time.monotonic = fake_monotonic
             client_ws = CollectingWebSocket()
