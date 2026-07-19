@@ -68,3 +68,14 @@ tests/__pycache__/
 
 # Downloaded packages
 *.deb
+
+# Secrets — NEVER commit API keys / credentials
+主账号空间-apiKey-*.csv
+*apiKey*.csv
+*.pem
+*.key
+
+# Local reference docs / tool dirs
+.zcode/
+全模态.txt
+时时语音对话.txt
