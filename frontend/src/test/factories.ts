@@ -41,6 +41,8 @@ export function createChatController(
     onSelectHistory: vi.fn(),
     replaceSession: vi.fn(),
     injectMessage: vi.fn(),
+    onDeleteMessage: vi.fn(),
+    onRegenerateMessage: vi.fn(),
     useMemory: true,
     setUseMemory: vi.fn(),
     deepThinking: false,
@@ -213,6 +215,7 @@ export function createSettingsController(
 ): UseSettingsResult {
   const displayLanguage: UiLanguage = overrides.displayLanguage ?? "zh-CN";
   return {
+    settingsData: null,
     settingsBusy: false,
     settingsSaving: false,
     settingsError: "",
