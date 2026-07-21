@@ -31,6 +31,7 @@ from .realtime_constants import (
     _normalize_dashscope_realtime_voice,
 )
 from .interruption_classifier import InterruptionClassifier, InterruptionDecisionCoordinator, InterruptionIntent
+from .background_tasks import spawn_background_task
 from .realtime_dashscope_client import DashScopeAudioRealtimeConversation, DashScopeRealtimeCallback
 from .realtime_memory_session import RealtimeMemorySession, _merge_memory_text
 from .realtime_session_recorder import VoiceAgentSessionRecorder
@@ -615,7 +616,7 @@ class DashScopeRealtimeMixin:
                                 conversation.create_response()
                             except Exception as exc:
                                 logger.exception("dashscope_retry_create_response_failed")
-                        asyncio.create_task(delayed_retry())
+                        spawn_background_task(delayed_retry())
                     else:
                         logger.warning("DashScope returned error: %s. Max retries exceeded. Ignoring.", error_msg)
                     continue

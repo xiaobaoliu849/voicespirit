@@ -582,7 +582,8 @@ class TTSService:
 
         dashscope.api_key = api_key
         synthesizer = SpeechSynthesizer(model=DEFAULT_QWEN_FLASH_MODEL, voice=voice)
-        audio = synthesizer.call(text)
+        # dashscope SDK 的 call() 是同步阻塞的网络调用，放到线程池里跑，避免卡住事件循环
+        audio = await asyncio.to_thread(synthesizer.call, text)
         path.write_bytes(audio)
 
     async def _generate_minimax_audio(self, text: str, voice: str, path: Path) -> None:
@@ -610,8 +611,8 @@ class TTSService:
             "Content-Type": "application/json",
         }
 
-        with httpx.Client(timeout=120.0) as client:
-            response = client.post(base_url, json=payload, headers=headers)
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            response = await client.post(base_url, json=payload, headers=headers)
         if response.status_code != 200:
             raise RuntimeError(f"MiniMax API error: {response.status_code} - {response.text}")
 

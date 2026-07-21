@@ -8,6 +8,8 @@ from urllib.parse import urlparse, parse_qsl, urlunparse, urlencode
 
 import websockets
 
+from .background_tasks import spawn_background_task
+
 DEFAULT_QWEN_AUDIO_REALTIME_VOICE = "longanqian"
 
 
@@ -203,7 +205,7 @@ class DashScopeAudioRealtimeConversation:
     def _send_event(self, event: dict[str, Any]) -> None:
         if self._closed or self._ws is None:
             raise RuntimeError('Qwen Audio realtime websocket is not connected.')
-        asyncio.create_task(self._ws.send(json.dumps(event, ensure_ascii=False)))
+        spawn_background_task(self._ws.send(json.dumps(event, ensure_ascii=False)))
 
     def update_session(self, **kwargs: Any) -> None:
         if self._session_update_count == 0:
@@ -254,7 +256,7 @@ class DashScopeAudioRealtimeConversation:
             raise TypeError('raw DashScope event payload must be a string.')
         if self._closed or self._ws is None:
             raise RuntimeError('Qwen Audio realtime websocket is not connected.')
-        asyncio.create_task(self._ws.send(payload))
+        spawn_background_task(self._ws.send(payload))
 
     def create_response(self) -> None:
         self._send_event({
@@ -287,4 +289,4 @@ class DashScopeAudioRealtimeConversation:
         if self._receiver_task is not None:
             self._receiver_task.cancel()
         if self._ws is not None:
-            asyncio.create_task(self._ws.close())
+            spawn_background_task(self._ws.close())

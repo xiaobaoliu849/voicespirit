@@ -502,6 +502,15 @@ class QwenAudioRealtimeMixin:
                 call_id = str(event.get("call_id", ""))
                 name = str(event.get("name", ""))
                 arguments_str = str(event.get("arguments", "{}"))
+                # 去重：Qwen 网络抖动/重连可能重发同一个 function_call。已执行过的
+                # call_id 不再重复执行工具；若 provider 同时重发了 output_item.added
+                # 把它重新塞进 pending 集合，这里 discard 掉避免集合泄漏，但不再补发
+                # response.create（原始那一轮已经触发过）。对齐 Google/DashScope 的
+                # has_seen_provider_call / mark_provider_call_seen 逻辑。
+                if tool_session.has_seen_provider_call(call_id):
+                    pending_native_fc_call_ids.discard(call_id)
+                    continue
+                tool_session.mark_provider_call_seen(call_id)
                 # Mark that native FC occurred this turn so the regex path is
                 # skipped when the transcript arrives (prevents double-execution).
                 _native_fc_occurred_this_turn = True
@@ -901,6 +910,8 @@ class QwenAudioRealtimeMixin:
             if recorder is not None:
                 await recorder.complete_turn(memory_result)
             await memory_session.drain()
-            await tool_session.drain()
+            # 与 Google/DashScope/OpenAI 保持一致：会话结束时取消尚在途的工具任务，
+            # 否则断连后这些任务会继续在后台跑。
+            await tool_session.drain(cancel=True)
             if recorder is not None:
                 await recorder.finish()

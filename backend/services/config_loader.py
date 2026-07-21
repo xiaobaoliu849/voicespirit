@@ -79,20 +79,31 @@ class BackendConfig:
     def __init__(self, config_path: Path | None = None):
         self.config_path = config_path or self._default_config_path()
         self._config: dict[str, Any] = {}
+        self._mtime: float | None = None
         self.reload()
 
     @staticmethod
     def _default_config_path() -> Path:
         return get_data_file_path("config.json")
 
-    def reload(self) -> None:
+    def reload(self, force: bool = False) -> None:
+        # 基于 mtime 增量刷新：文件没变就直接用内存缓存，避免每个请求都全量读盘 + deepcopy。
+        # 外部手动修改 config.json 时 mtime 会变，仍然能正确重新加载。
         if not self.config_path.exists():
             self._config = {}
+            self._mtime = None
+            return
+        try:
+            mtime = self.config_path.stat().st_mtime
+        except OSError:
+            mtime = None
+        if not force and mtime is not None and mtime == self._mtime and self._config:
             return
         try:
             self._config = json.loads(self.config_path.read_text(encoding="utf-8"))
         except Exception:
             self._config = {}
+        self._mtime = mtime
 
     def get_all(self) -> dict[str, Any]:
         return copy.deepcopy(self._config)
@@ -117,6 +128,10 @@ class BackendConfig:
             json.dumps(self._config, ensure_ascii=False, indent=4),
             encoding="utf-8",
         )
+        try:
+            self._mtime = self.config_path.stat().st_mtime
+        except OSError:
+            self._mtime = None
         return self.get_all()
 
     def update(self, patch: dict[str, Any], merge: bool = True) -> dict[str, Any]:
