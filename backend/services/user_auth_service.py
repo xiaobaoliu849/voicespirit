@@ -42,6 +42,8 @@ class UserAuthService:
     ) -> None:
         self.db_path = db_path or self._default_db_path()
         self.config = config or BackendConfig()
+        self._has_users_cache: bool | None = None
+        self._has_users_cached_at: float = 0.0
         self._init_db()
 
     @staticmethod
@@ -129,10 +131,23 @@ class UserAuthService:
             "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(created_at)),
         }
 
+    _HAS_USERS_CACHE_TTL = 5.0
+
     def has_users(self) -> bool:
+        # 鉴权中间件每个请求都会调用它，加一个短 TTL 缓存，避免每次都重连 SQLite 查询。
+        # 注册新用户时会主动失效缓存（见 register_user），保证首个用户创建后立即生效。
+        now = time.monotonic()
+        if (
+            self._has_users_cache is not None
+            and now - self._has_users_cached_at < self._HAS_USERS_CACHE_TTL
+        ):
+            return self._has_users_cache
         with self._connect() as conn:
             row = conn.execute("SELECT 1 FROM auth_users LIMIT 1").fetchone()
-        return row is not None
+        result = row is not None
+        self._has_users_cache = result
+        self._has_users_cached_at = now
+        return result
 
     def register_user(self, email: str, password: str) -> dict[str, Any]:
         normalized_email = self._normalize_email(email)
@@ -169,6 +184,8 @@ class UserAuthService:
         user = self._row_to_user(row)
         if user is None:
             raise RuntimeError("Failed to load registered user.")
+        # 新用户创建成功，立即让 has_users 缓存失效，下一次调用会重新查询。
+        self._has_users_cache = None
         return user
 
     def authenticate_user(self, email: str, password: str) -> dict[str, Any] | None:

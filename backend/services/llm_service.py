@@ -25,6 +25,8 @@ except ImportError:
             from config_loader import BackendConfig # type: ignore
             from evermem_config import EverMemConfig # type: ignore
 
+from .background_tasks import spawn_background_task
+
 SUPPORTED_PROVIDERS = {"DeepSeek", "OpenRouter", "SiliconFlow", "Groq", "DashScope", "Ollama", "Google"}
 
 
@@ -394,8 +396,7 @@ class LLMService:
             if evermem_service:
                 last_user_msg = next((m["content"] for m in reversed(normalized_messages) if m["role"] == "user"), None)
                 if last_user_msg:
-                    import asyncio
-                    asyncio.create_task(evermem_service.add_memory(content=last_user_msg, user_id=evermem_config.memory_scope))
+                    spawn_background_task(evermem_service.add_memory(content=last_user_msg, user_id=evermem_config.memory_scope))
                     memory_saved = True
                     if not evermem_service.should_skip_memory(last_user_msg):
                         try:
@@ -405,7 +406,7 @@ class LLMService:
                         except Exception:
                             pass
                     if evermem_service and result["reply"]:
-                        asyncio.create_task(evermem_service.add_memory(content=result["reply"], user_id=evermem_config.memory_scope, sender_name="Assistant"))
+                        spawn_background_task(evermem_service.add_memory(content=result["reply"], user_id=evermem_config.memory_scope, sender_name="Assistant"))
             result["memories_retrieved"] = memory_retrieved_count
             result["memory_saved"] = memory_saved
             return result
@@ -421,8 +422,7 @@ class LLMService:
             last_user_msg = next((m["content"] for m in reversed(normalized_messages) if m["role"] == "user"), None)
             if last_user_msg:
                 # Store user message
-                import asyncio
-                asyncio.create_task(evermem_service.add_memory(content=last_user_msg, user_id=evermem_config.memory_scope))
+                spawn_background_task(evermem_service.add_memory(content=last_user_msg, user_id=evermem_config.memory_scope))
                 memory_saved = True
                 
                 # Retrieve context
@@ -480,8 +480,7 @@ class LLMService:
             
         if evermem_service and reply:
             # Store assistant reply
-             import asyncio
-             asyncio.create_task(evermem_service.add_memory(content=reply, user_id=evermem_config.memory_scope, sender_name="Assistant"))
+             spawn_background_task(evermem_service.add_memory(content=reply, user_id=evermem_config.memory_scope, sender_name="Assistant"))
 
         return {
             "provider": provider,
@@ -522,7 +521,6 @@ class LLMService:
             memories_retrieved = 0
             memory_saved = False
 
-            import asyncio
             if evermem_service:
                 last_user_msg = next(
                     (m["content"] for m in reversed(normalized_messages) if m["role"] == "user"),
@@ -532,7 +530,7 @@ class LLMService:
                     text_parts = [p.get("text", "") for p in last_user_msg if isinstance(p, dict) and p.get("type") == "text"]
                     last_user_msg = " ".join(text_parts).strip()
                 if last_user_msg:
-                    asyncio.create_task(
+                    spawn_background_task(
                         evermem_service.add_memory(
                             content=last_user_msg,
                             user_id=memory_scope,
@@ -592,7 +590,7 @@ class LLMService:
                                 sender_name="Assistant",
                                 group_id=memory_group_id,
                             )
-                        asyncio.create_task(save_refined(evermem_service))
+                        spawn_background_task(save_refined(evermem_service))
                     yield {
                         "type": "done",
                         "provider": "Google",
@@ -616,8 +614,7 @@ class LLMService:
         memories_retrieved = 0
         memory_saved = False
         last_user_msg = None
-        
-        import asyncio
+
         if evermem_service:
             # Extract last user message
             last_user_msg = next(
@@ -631,7 +628,7 @@ class LLMService:
                 
             if last_user_msg:
                 # 1. Store user message (fire-and-forget)
-                asyncio.create_task(
+                spawn_background_task(
                     evermem_service.add_memory(
                         content=last_user_msg,
                         user_id=memory_scope,
@@ -748,7 +745,7 @@ class LLMService:
                     sender_name="Assistant",
                     group_id=memory_group_id,
                 )
-            asyncio.create_task(save_refined(evermem_service))
+            spawn_background_task(save_refined(evermem_service))
             
         yield {
             "type": "done",

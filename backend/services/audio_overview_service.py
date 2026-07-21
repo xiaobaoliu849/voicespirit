@@ -1,4 +1,5 @@
 from __future__ import annotations
+import asyncio
 import logging
 import re
 import shutil
@@ -838,7 +839,10 @@ class AudioOverviewService:
         output_name = self._safe_filename(prefix=f"audio_overview_{podcast_id}")
         output_path = self.output_dir / output_name
         try:
-            merge_meta = self._merge_audio_files(
+            # _merge_audio_files 内部会跑同步的 ffmpeg subprocess / pydub 解码编码，
+            # 放到线程池里执行，避免在 async 合成流程中阻塞事件循环。
+            merge_meta = await asyncio.to_thread(
+                self._merge_audio_files,
                 segment_paths,
                 output_path,
                 gap_ms=resolved_gap_ms,
