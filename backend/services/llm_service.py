@@ -6,25 +6,9 @@ import base64
 
 import httpx # type: ignore
 
-try:
-    # 1. Try absolute import from the project root (most IDEs)
-    from backend.services.config_loader import BackendConfig # type: ignore
-    from backend.services.evermem_config import EverMemConfig # type: ignore
-except ImportError:
-    try:
-        # 2. Try the voicespirit package prefix (alternate IDE resolution)
-        from voicespirit.backend.services.config_loader import BackendConfig # type: ignore
-        from voicespirit.backend.services.evermem_config import EverMemConfig # type: ignore
-    except ImportError:
-        try:
-            # 3. Try standard relative imports (for runtime if started within the directory)
-            from .config_loader import BackendConfig # type: ignore
-            from .evermem_config import EverMemConfig # type: ignore
-        except ImportError:
-            # 4. Last resort for very flat runtimes
-            from config_loader import BackendConfig # type: ignore
-            from evermem_config import EverMemConfig # type: ignore
-
+from .config_loader import BackendConfig
+from .evermem_config import EverMemConfig
+from .evermem_helper import prepare_memory_context, save_assistant_memory
 from .background_tasks import spawn_background_task
 
 SUPPORTED_PROVIDERS = {"DeepSeek", "OpenRouter", "SiliconFlow", "Groq", "DashScope", "Ollama", "Google"}
@@ -380,6 +364,11 @@ class LLMService:
 
         normalized_messages = self._normalize_messages(messages)
 
+        # --- EverMem: prepare memory context before any LLM call ---
+        mem_ctx = await prepare_memory_context(
+            normalized_messages, use_memory=use_memory,
+        )
+
         # Route Google provider to Interactions API
         if provider == "Google":
             result = await self._chat_completion_google(
@@ -388,57 +377,12 @@ class LLMService:
                 temperature=temperature,
                 max_tokens=max_tokens,
             )
-            # EverMem logic for Google
-            evermem_config = EverMemConfig()
-            evermem_service = evermem_config.get_service() if use_memory else None
-            memory_retrieved_count = 0
-            memory_saved = False
-            if evermem_service:
-                last_user_msg = next((m["content"] for m in reversed(normalized_messages) if m["role"] == "user"), None)
-                if last_user_msg:
-                    spawn_background_task(evermem_service.add_memory(content=last_user_msg, user_id=evermem_config.memory_scope))
-                    memory_saved = True
-                    if not evermem_service.should_skip_memory(last_user_msg):
-                        try:
-                            memories = await evermem_service.search_memories(query=last_user_msg, user_id=evermem_config.memory_scope)
-                            if memories:
-                                memory_retrieved_count = len(memories)
-                        except Exception:
-                            pass
-                    if evermem_service and result["reply"]:
-                        spawn_background_task(evermem_service.add_memory(content=result["reply"], user_id=evermem_config.memory_scope, sender_name="Assistant"))
-            result["memories_retrieved"] = memory_retrieved_count
-            result["memory_saved"] = memory_saved
+            save_assistant_memory(mem_ctx, result.get("reply", ""))
+            result["memories_retrieved"] = mem_ctx.memories_retrieved
+            result["memory_saved"] = mem_ctx.memory_saved
             return result
         
-        # EverMem Logic for non-streaming
-        evermem_config = EverMemConfig()
-        
-        evermem_service = evermem_config.get_service() if use_memory else None
-        memory_retrieved_count: int = 0
-        memory_saved = False
-        
-        if evermem_service:
-            last_user_msg = next((m["content"] for m in reversed(normalized_messages) if m["role"] == "user"), None)
-            if last_user_msg:
-                # Store user message
-                spawn_background_task(evermem_service.add_memory(content=last_user_msg, user_id=evermem_config.memory_scope))
-                memory_saved = True
-                
-                # Retrieve context
-                if not evermem_service.should_skip_memory(last_user_msg):
-                    try:
-                        memories = await evermem_service.search_memories(query=last_user_msg, user_id=evermem_config.memory_scope)
-                        if memories:
-                            memory_retrieved_count = len(memories)
-                            context = "\n".join([m["content"] for m in memories])
-                            sys_msg = next((m for m in normalized_messages if m["role"] == "system"), None)
-                            if sys_msg:
-                                sys_msg["content"] += f"\n\n背景记忆：\n{context}"
-                            else:
-                                normalized_messages.insert(0, {"role": "system", "content": f"背景记忆：\n{context}"})
-                    except Exception:
-                        pass
+        # Memory context already prepared above (mem_ctx)
 
         url = f"{settings['base_url']}/chat/completions"
         payload = {
@@ -477,18 +421,16 @@ class LLMService:
         reply = self._extract_reply(data)
         if not reply:
             raise RuntimeError("Provider returned empty response.")
-            
-        if evermem_service and reply:
-            # Store assistant reply
-             spawn_background_task(evermem_service.add_memory(content=reply, user_id=evermem_config.memory_scope, sender_name="Assistant"))
+
+        save_assistant_memory(mem_ctx, reply)
 
         return {
             "provider": provider,
             "model": settings["model"],
             "reply": reply,
             "raw": data,
-            "memories_retrieved": memory_retrieved_count,
-            "memory_saved": memory_saved,
+            "memories_retrieved": mem_ctx.memories_retrieved,
+            "memory_saved": mem_ctx.memory_saved,
         }
 
     async def chat_completion_stream(
@@ -511,65 +453,13 @@ class LLMService:
 
         # Route Google provider to Interactions API
         if provider == "Google":
-            # EverMem integration for Google streaming
-            evermem_config = EverMemConfig()
-            if request_headers:
-                evermem_config.update_from_headers(request_headers)
-            evermem_service = evermem_config.get_service() if use_memory else None
-            memory_scope = evermem_config.memory_scope
-            memory_group_id = evermem_config.group_id or None
-            memories_retrieved = 0
-            memory_saved = False
-
-            if evermem_service:
-                last_user_msg = next(
-                    (m["content"] for m in reversed(normalized_messages) if m["role"] == "user"),
-                    None,
-                )
-                if isinstance(last_user_msg, list):
-                    text_parts = [p.get("text", "") for p in last_user_msg if isinstance(p, dict) and p.get("type") == "text"]
-                    last_user_msg = " ".join(text_parts).strip()
-                if last_user_msg:
-                    spawn_background_task(
-                        evermem_service.add_memory(
-                            content=last_user_msg,
-                            user_id=memory_scope,
-                            sender=memory_scope,
-                            sender_name="User",
-                            group_id=memory_group_id,
-                        )
-                    )
-                    memory_saved = True
-                    if not evermem_service.should_skip_memory(last_user_msg):
-                        try:
-                            memories = []
-                            if memory_group_id:
-                                memories = await evermem_service.search_memories(
-                                    query=last_user_msg,
-                                    user_id=memory_scope,
-                                    group_ids=[memory_group_id],
-                                    min_score=0.3,
-                                )
-                            if not memories:
-                                memories = await evermem_service.search_memories(
-                                    query=last_user_msg,
-                                    user_id=memory_scope,
-                                    min_score=0.3,
-                                )
-                            if isinstance(memories, list):
-                                memories_retrieved = len(memories)
-                                memory_context = "\n".join([m.get("content", "") for m in memories if isinstance(m, dict)])
-                                # Inject into system instruction
-                                sys_msg = next((m for m in normalized_messages if m["role"] == "system"), None)
-                                memory_injection = f"\n\n【相关记忆】\n{memory_context}"
-                                if sys_msg:
-                                    if isinstance(sys_msg["content"], str):
-                                        sys_msg["content"] += memory_injection
-                                else:
-                                    normalized_messages.insert(0, {"role": "system", "content": f"系统提示：请利用以下用户记忆完成对话。{memory_injection}"})
-                        except Exception as e:
-                            import logging
-                            logging.getLogger(__name__).error(f"Failed to retrieve memories: {e}")
+            # EverMem integration (shared helper, two-stage search for streaming)
+            mem_ctx = await prepare_memory_context(
+                normalized_messages,
+                use_memory=use_memory,
+                request_headers=request_headers,
+                use_two_stage=True,
+            )
 
             async for event in self._chat_completion_stream_google(
                 settings=settings,
@@ -579,99 +469,26 @@ class LLMService:
             ):
                 if event.get("type") == "done":
                     reply = event.get("reply", "")
-                    if evermem_service and reply:
-                        async def save_refined(srv: Any):
-                            refined = await self.reason_about_text(reply, mode="memory")
-                            content_to_save = refined if refined else reply
-                            await srv.add_memory(
-                                content=content_to_save,
-                                user_id=memory_scope,
-                                sender=f"{memory_scope}_assistant",
-                                sender_name="Assistant",
-                                group_id=memory_group_id,
-                            )
-                        spawn_background_task(save_refined(evermem_service))
+                    save_assistant_memory(mem_ctx, reply, reasoner=self.reason_about_text)
                     yield {
                         "type": "done",
                         "provider": "Google",
                         "model": settings["model"],
                         "reply": reply,
-                        "memories_retrieved": memories_retrieved,
-                        "memory_saved": memory_saved,
+                        "memories_retrieved": mem_ctx.memories_retrieved,
+                        "memory_saved": mem_ctx.memory_saved,
                     }
                 else:
                     yield event
             return
         
-        # EverMemOS integration
-        evermem_config = EverMemConfig()
-        if request_headers:
-            evermem_config.update_from_headers(request_headers)
-        
-        evermem_service = evermem_config.get_service() if use_memory else None
-        memory_scope = evermem_config.memory_scope
-        memory_group_id = evermem_config.group_id or None
-        memories_retrieved = 0
-        memory_saved = False
-        last_user_msg = None
-
-        if evermem_service:
-            # Extract last user message
-            last_user_msg = next(
-                (m["content"] for m in reversed(normalized_messages) if m["role"] == "user"), 
-                None
-            )
-            if isinstance(last_user_msg, list):
-                # Simple extraction for multimodal
-                text_parts = [p.get("text", "") for p in last_user_msg if isinstance(p, dict) and p.get("type") == "text"]
-                last_user_msg = " ".join(text_parts).strip()
-                
-            if last_user_msg:
-                # 1. Store user message (fire-and-forget)
-                spawn_background_task(
-                    evermem_service.add_memory(
-                        content=last_user_msg,
-                        user_id=memory_scope,
-                        sender=memory_scope,
-                        sender_name="User",
-                        group_id=memory_group_id,
-                    )
-                )
-                memory_saved = True
-                
-                # 2. Retrieve memories
-                if not evermem_service.should_skip_memory(last_user_msg):
-                    try:
-                        memories = []
-                        if memory_group_id:
-                            memories = await evermem_service.search_memories(
-                                query=last_user_msg,
-                                user_id=memory_scope,
-                                group_ids=[memory_group_id],
-                                min_score=0.3,
-                            )
-                        if not memories:
-                            memories = await evermem_service.search_memories(
-                                query=last_user_msg,
-                                user_id=memory_scope,
-                                min_score=0.3,
-                            )
-                        if isinstance(memories, list):
-                            memories_retrieved = len(memories)
-                            memory_context = "\n".join([m.get("content", "") for m in memories if isinstance(m, dict)])
-                            
-                            # Inject into system prompt
-                            sys_msg = next((m for m in normalized_messages if m["role"] == "system"), None)
-                            memory_injection = f"\n\n【相关记忆】\n{memory_context}"
-                            
-                            if sys_msg:
-                                if isinstance(sys_msg["content"], str):
-                                    sys_msg["content"] += memory_injection
-                            else:
-                                normalized_messages.insert(0, {"role": "system", "content": f"系统提示：请利用以下用户记忆完成对话。{memory_injection}"})
-                    except Exception as e:
-                        import logging
-                        logging.getLogger(__name__).error(f"Failed to retrieve memories: {e}")
+        # EverMem integration for non-Google streaming (shared helper)
+        mem_ctx = await prepare_memory_context(
+            normalized_messages,
+            use_memory=use_memory,
+            request_headers=request_headers,
+            use_two_stage=True,
+        )
 
         url = f"{settings['base_url']}/chat/completions"
         payload = {
@@ -731,29 +548,16 @@ class LLMService:
         reply = "".join(chunks).strip()
         if not reply:
             raise RuntimeError("Provider returned empty stream response.")
-            
-        # 3. Store assistant message (fire-and-forget with Deep Thinking)
-        if evermem_service and reply:
-            async def save_refined(srv: Any):
-                # For real-time chat, we refine the reply into a memory essence
-                refined = await self.reason_about_text(reply, mode="memory")
-                content_to_save = refined if refined else reply
-                await srv.add_memory(
-                    content=content_to_save,
-                    user_id=memory_scope,
-                    sender=f"{memory_scope}_assistant",
-                    sender_name="Assistant",
-                    group_id=memory_group_id,
-                )
-            spawn_background_task(save_refined(evermem_service))
-            
+
+        save_assistant_memory(mem_ctx, reply, reasoner=self.reason_about_text)
+
         yield {
             "type": "done",
             "provider": provider,
             "model": settings["model"],
             "reply": reply,
-            "memories_retrieved": memories_retrieved,
-            "memory_saved": memory_saved,
+            "memories_retrieved": mem_ctx.memories_retrieved,
+            "memory_saved": mem_ctx.memory_saved,
         }
 
     async def translate_text(
