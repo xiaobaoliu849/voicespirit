@@ -1,15 +1,17 @@
 import { useEffect, useRef, useState } from "react";
-import { extractPdfText } from "../api";
+import { extractPdfText, fetchSpeakAudio, type TtsEngine } from "../api";
 import ErrorNotice from "../components/ErrorNotice";
 import VoiceCallSettingsPopover from "../components/VoiceCallSettingsPopover";
 import type { UseChatResult } from "../hooks/useChat";
 import type { UseVoiceChatResult } from "../hooks/useVoiceChat";
+import type { UseSettingsResult } from "../hooks/useSettings";
 import { useI18n } from "../i18n";
 import type { ErrorRuntimeContext } from "../types/ui";
 
 type Props = {
   chat: UseChatResult;
   voiceChat: UseVoiceChatResult;
+  settings?: UseSettingsResult;
   errorRuntimeContext: ErrorRuntimeContext;
   onOpenSettings?: () => void;
 };
@@ -36,6 +38,53 @@ const SpinnerIcon = () => (
 const CopyIcon = () => (
   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="14" height="14" x="8" y="8" rx="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg>
 );
+const SpeakerIcon = () => (
+  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path><path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path></svg>
+);
+const StopTtsIcon = () => (
+  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="4" y="4" width="16" height="16" rx="2" ry="2"></rect></svg>
+);
+const TrashIcon = () => (
+  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path></svg>
+);
+const RefreshIcon = () => (
+  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"></path><path d="M16 3h5v5"></path><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"></path><path d="M8 21H3v-5"></path></svg>
+);
+
+function mapProviderToEngine(provider?: string): TtsEngine {
+  if (!provider) return "edge";
+  const p = provider.toLowerCase();
+  if (p.includes("edge")) return "edge";
+  if (p.includes("qwen")) return "qwen_flash";
+  if (p.includes("minimax")) return "minimax";
+  if (p.includes("xiaomi")) return "xiaomi";
+  if (p.includes("openai")) return "openai";
+  if (p.includes("elevenlabs")) return "elevenlabs";
+  if (p.includes("chattts")) return "chattts";
+  if (p.includes("gpt_sovits")) return "gpt_sovits";
+  return "edge"; // Fallback to edge
+}
+
+function cleanMarkdownForTts(text: string): string {
+  if (!text) return "";
+  let clean = text;
+  // Remove code blocks
+  clean = clean.replace(/```[\s\S]*?```/g, "");
+  // Remove inline code
+  clean = clean.replace(/`([^`]+)`/g, "$1");
+  // Remove bold/italic markers
+  clean = clean.replace(/\*\*([^*]+)\*\*/g, "$1");
+  clean = clean.replace(/\*([^*]+)\*/g, "$1");
+  clean = clean.replace(/__([^_]+)__/g, "$1");
+  clean = clean.replace(/_([^_]+)_/g, "$1");
+  // Remove heading marks
+  clean = clean.replace(/^#+\s+/gm, "");
+  // Remove HTML tags
+  clean = clean.replace(/<[^>]*>/g, "");
+  // Trim spaces and newlines
+  clean = clean.trim();
+  return clean;
+}
 
 function isVoiceRealtimeModel(provider: string, model: string): boolean {
   const normalizedProvider = (provider || "").trim().toLowerCase();
@@ -490,17 +539,111 @@ function Composer({
   );
 }
 
-export default function ChatPage({ chat, voiceChat, errorRuntimeContext, onOpenSettings }: Props) {
+export default function ChatPage({ chat, voiceChat, settings, errorRuntimeContext, onOpenSettings }: Props) {
   const { t } = useI18n();
   const combinedMessages = [...chat.chatMessages, ...voiceChat.sessionSummary];
   const isEmpty = !combinedMessages.length;
   const bodyRef = useRef<HTMLDivElement>(null);
   const shouldStickToBottomRef = useRef(true);
   const [copiedMessageKey, setCopiedMessageKey] = useState("");
+  const [playingMessageKey, setPlayingMessageKey] = useState<string | null>(null);
+  const [loadingTtsMessageKey, setLoadingTtsMessageKey] = useState<string | null>(null);
+  const [ttsPlaybackError, setTtsPlaybackError] = useState("");
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const activeBlobUrlRef = useRef<string | null>(null);
   const copyResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const showWelcome = isEmpty && !voiceChat.voiceChatRecording && !voiceChat.voiceChatConnected;
   const isVoiceActive = voiceChat.voiceChatRecording || voiceChat.voiceChatConnected;
+
+  useEffect(() => {
+    return () => {
+      stopTts();
+    };
+  }, []);
+
+  function stopTts() {
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current = null;
+    }
+    if (activeBlobUrlRef.current) {
+      URL.revokeObjectURL(activeBlobUrlRef.current);
+      activeBlobUrlRef.current = null;
+    }
+    setPlayingMessageKey(null);
+    setLoadingTtsMessageKey(null);
+  }
+
+  async function playTts(content: string, key: string) {
+    if (playingMessageKey === key || loadingTtsMessageKey === key) {
+      stopTts();
+      return;
+    }
+    stopTts();
+
+    const cleanText = cleanMarkdownForTts(content);
+    if (!cleanText) return;
+
+    setTtsPlaybackError("");
+    const ttsSettings = settings?.settingsData?.tts_settings;
+    const rawProvider = typeof ttsSettings?.provider === "string" ? ttsSettings.provider : undefined;
+    const engine = mapProviderToEngine(rawProvider);
+    const configuredVoice = typeof ttsSettings?.default_voice === "string" && ttsSettings.default_voice ? ttsSettings.default_voice : undefined;
+
+    let voice = configuredVoice;
+    if (engine === "edge") {
+      const hasCjk = /[\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af]/.test(cleanText);
+      const hasEnglish = /[a-zA-Z]/.test(cleanText);
+      const isZhVoice = configuredVoice ? /zh-cn|zh-tw|zh-hk/i.test(configuredVoice) : false;
+      const isEnVoice = configuredVoice ? /en-us|en-gb|en-au|en-ca/i.test(configuredVoice) : false;
+
+      if (hasEnglish && !hasCjk && (isZhVoice || !configuredVoice)) {
+        voice = "en-US-AvaNeural";
+      } else if (hasCjk && isEnVoice) {
+        voice = "zh-CN-XiaoxiaoNeural";
+      }
+    }
+
+    setLoadingTtsMessageKey(key);
+
+    try {
+      const { blob } = await fetchSpeakAudio({
+        text: cleanText,
+        voice,
+        engine,
+      });
+
+      const objectUrl = URL.createObjectURL(blob);
+      activeBlobUrlRef.current = objectUrl;
+
+      const audio = new Audio(objectUrl);
+      audioRef.current = audio;
+      setLoadingTtsMessageKey(null);
+      setPlayingMessageKey(key);
+
+      audio.onended = () => {
+        if (audioRef.current === audio) {
+          stopTts();
+        }
+      };
+
+      audio.onerror = (err) => {
+        console.error("TTS audio playback error:", err);
+        setTtsPlaybackError(t("浏览器播放音频失败，请重试。", "Failed to play audio in browser. Please retry."));
+        if (audioRef.current === audio) {
+          stopTts();
+        }
+      };
+
+      await audio.play();
+    } catch (err) {
+      console.error("Failed to generate or play TTS audio:", err);
+      const msg = err instanceof Error ? err.message : String(err);
+      setTtsPlaybackError(t(`语音合成朗读失败：${msg}`, `Failed to synthesize speech: ${msg}`));
+      stopTts();
+    }
+  }
 
   useEffect(() => {
     const el = bodyRef.current;
@@ -644,37 +787,97 @@ export default function ChatPage({ chat, voiceChat, errorRuntimeContext, onOpenS
                       : "")}
                 </p>
                 {msg.content ? (
-                  <button
-                    type="button"
-                    className={`vsBubbleCopyBtn${copiedMessageKey === `${idx}-${msg.role}` ? " copied" : ""}`}
-                    aria-label={copiedMessageKey === `${idx}-${msg.role}` ? t("已复制", "Copied") : t("复制消息", "Copy message")}
-                    title={copiedMessageKey === `${idx}-${msg.role}` ? t("已复制", "Copied") : t("复制消息", "Copy message")}
-                    onClick={() => void copyMessage(msg.content, `${idx}-${msg.role}`)}
-                  >
-                    <CopyIcon />
-                    <span>{copiedMessageKey === `${idx}-${msg.role}` ? t("已复制", "Copied") : t("复制", "Copy")}</span>
-                  </button>
+                  <div className="vsBubbleActions">
+                    {/* Copy Button */}
+                    <button
+                      type="button"
+                      className={`vsBubbleActionBtn${copiedMessageKey === `${idx}-${msg.role}` ? " copied" : ""}`}
+                      aria-label={copiedMessageKey === `${idx}-${msg.role}` ? t("已复制", "Copied") : t("复制消息", "Copy message")}
+                      title={copiedMessageKey === `${idx}-${msg.role}` ? t("已复制", "Copied") : t("复制消息", "Copy message")}
+                      onClick={() => void copyMessage(msg.content, `${idx}-${msg.role}`)}
+                    >
+                      <CopyIcon />
+                    </button>
+
+                    {/* Play/Stop TTS Button (only for assistant messages) */}
+                    {msg.role === "assistant" && (
+                      <button
+                        type="button"
+                        className={`vsBubbleActionBtn${playingMessageKey === `${idx}-${msg.role}` ? " active" : ""}`}
+                        disabled={loadingTtsMessageKey === `${idx}-${msg.role}`}
+                        aria-label={
+                          loadingTtsMessageKey === `${idx}-${msg.role}`
+                            ? t("生成中...", "Generating...")
+                            : playingMessageKey === `${idx}-${msg.role}`
+                            ? t("停止播放", "Stop")
+                            : t("朗读回答", "Play response")
+                        }
+                        title={
+                          loadingTtsMessageKey === `${idx}-${msg.role}`
+                            ? t("生成中...", "Generating...")
+                            : playingMessageKey === `${idx}-${msg.role}`
+                            ? t("停止播放", "Stop")
+                            : t("朗读回答", "Play response")
+                        }
+                        onClick={() => void playTts(msg.content, `${idx}-${msg.role}`)}
+                      >
+                        {loadingTtsMessageKey === `${idx}-${msg.role}` ? (
+                          <SpinnerIcon />
+                        ) : playingMessageKey === `${idx}-${msg.role}` ? (
+                          <StopTtsIcon />
+                        ) : (
+                          <SpeakerIcon />
+                        )}
+                      </button>
+                    )}
+
+                    {/* Regenerate Button (only for assistant messages) */}
+                    {msg.role === "assistant" && (
+                      <button
+                        type="button"
+                        className="vsBubbleActionBtn"
+                        disabled={chat.chatBusy}
+                        aria-label={t("重新生成", "Regenerate")}
+                        title={t("重新生成", "Regenerate")}
+                        onClick={() => void chat.onRegenerateMessage?.(idx)}
+                      >
+                        <RefreshIcon />
+                      </button>
+                    )}
+
+                    {/* Delete Button */}
+                    <button
+                      type="button"
+                      className="vsBubbleActionBtn"
+                      aria-label={t("删除消息", "Delete message")}
+                      title={t("删除消息", "Delete message")}
+                      onClick={() => chat.onDeleteMessage?.(idx)}
+                    >
+                      <TrashIcon />
+                    </button>
+                  </div>
                 ) : null}
               </div>
             ))}
 
             {/* ── Live Streaming Bubbles ── */}
             {isVoiceActive && voiceChat.voiceChatTranscript && (
-              <div className="bubble user live hasCopyAction">
+              <div className="bubble user live">
                 <div className="vsBubbleMeta">
                   <span className="vsStreamingIndicator">{voiceChat.voiceChatLiveTranslate ? t("原文实时转写", "Live source transcript") : t("(实时输入)", "(live input)")}</span>
                 </div>
                 <p>{voiceChat.voiceChatTranscript}</p>
-                <button
-                  type="button"
-                  className={`vsBubbleCopyBtn${copiedMessageKey === "live-source" ? " copied" : ""}`}
-                  aria-label={copiedMessageKey === "live-source" ? t("已复制", "Copied") : t("复制实时原文", "Copy live source")}
-                  title={t("复制实时原文", "Copy live source")}
-                  onClick={() => void copyMessage(voiceChat.voiceChatTranscript, "live-source")}
-                >
-                  <CopyIcon />
-                  <span>{copiedMessageKey === "live-source" ? t("已复制", "Copied") : t("复制", "Copy")}</span>
-                </button>
+                <div className="vsBubbleActions">
+                  <button
+                    type="button"
+                    className={`vsBubbleActionBtn${copiedMessageKey === "live-source" ? " copied" : ""}`}
+                    aria-label={copiedMessageKey === "live-source" ? t("已复制", "Copied") : t("复制实时原文", "Copy live source")}
+                    title={t("复制实时原文", "Copy live source")}
+                    onClick={() => void copyMessage(voiceChat.voiceChatTranscript, "live-source")}
+                  >
+                    <CopyIcon />
+                  </button>
+                </div>
               </div>
             )}
             {isVoiceActive && voiceChat.voiceChatAgentToolStatus && (
@@ -702,21 +905,22 @@ export default function ChatPage({ chat, voiceChat, errorRuntimeContext, onOpenS
               </div>
             )}
             {isVoiceActive && voiceChat.voiceChatReply && (
-              <div className="bubble assistant live hasCopyAction">
+              <div className="bubble assistant live">
                 <div className="vsBubbleMeta">
                   <span className="vsStreamingIndicator">{voiceChat.voiceChatLiveTranslate ? t(`译文：${voiceChat.voiceChatTargetLanguageLabel}`, `Translation: ${voiceChat.voiceChatTargetLanguageLabel}`) : t("(正在回复)", "(replying)")}</span>
                 </div>
                 <p>{voiceChat.voiceChatReply}</p>
-                <button
-                  type="button"
-                  className={`vsBubbleCopyBtn${copiedMessageKey === "live-target" ? " copied" : ""}`}
-                  aria-label={copiedMessageKey === "live-target" ? t("已复制", "Copied") : t("复制实时译文", "Copy live translation")}
-                  title={t("复制实时译文", "Copy live translation")}
-                  onClick={() => void copyMessage(voiceChat.voiceChatReply, "live-target")}
-                >
-                  <CopyIcon />
-                  <span>{copiedMessageKey === "live-target" ? t("已复制", "Copied") : t("复制", "Copy")}</span>
-                </button>
+                <div className="vsBubbleActions">
+                  <button
+                    type="button"
+                    className={`vsBubbleActionBtn${copiedMessageKey === "live-target" ? " copied" : ""}`}
+                    aria-label={copiedMessageKey === "live-target" ? t("已复制", "Copied") : t("复制实时译文", "Copy live translation")}
+                    title={t("复制实时译文", "Copy live translation")}
+                    onClick={() => void copyMessage(voiceChat.voiceChatReply, "live-target")}
+                  >
+                    <CopyIcon />
+                  </button>
+                </div>
               </div>
             )}
           </div>
@@ -746,6 +950,15 @@ export default function ChatPage({ chat, voiceChat, errorRuntimeContext, onOpenS
               model: chat.chatModel
             }}
           />
+          {ttsPlaybackError && (
+            <div className="vsTtsErrorSection" style={{ marginTop: 8 }}>
+              <ErrorNotice
+                message={ttsPlaybackError}
+                scope="tts"
+                context={errorRuntimeContext as Record<string, string | number | boolean | null | undefined>}
+              />
+            </div>
+          )}
           {voiceChat.voiceChatError && (
             <div className="vsVoiceChatErrorSection">
               <h4 className="vsVoiceChatErrorTitle">{t("实时语音", "Realtime Voice")}</h4>

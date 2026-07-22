@@ -1,11 +1,9 @@
 from __future__ import annotations
 
-import re
 from typing import Any
 
 from .llm_service import LLMService
-
-SCRIPT_LINE_PATTERN = re.compile(r"^([AB])[：:]\s*(.+)$")
+from .script_parser import parse_script_with_fallback, normalize_script_lines
 
 
 class AudioScriptWriter:
@@ -18,49 +16,6 @@ class AudioScriptWriter:
         if text.startswith("en"):
             return "en"
         return "zh"
-
-    @staticmethod
-    def _parse_script_from_text(text: str) -> list[dict[str, str]]:
-        result: list[dict[str, str]] = []
-        for raw in text.strip().splitlines():
-            line = raw.strip()
-            if not line:
-                continue
-            match = SCRIPT_LINE_PATTERN.match(line)
-            if not match:
-                continue
-            role = match.group(1).strip().upper()
-            content = match.group(2).strip()
-            if content:
-                result.append({"role": role, "text": content})
-        return result
-
-    def _parse_script_with_fallback(self, text: str) -> list[dict[str, str]]:
-        parsed = self._parse_script_from_text(text)
-        if len(parsed) >= 2:
-            return parsed
-
-        candidates = [line.strip() for line in text.splitlines() if line.strip()]
-        fallback: list[dict[str, str]] = []
-        for idx, line in enumerate(candidates):
-            role = "A" if idx % 2 == 0 else "B"
-            fallback.append({"role": role, "text": line})
-        return fallback
-
-    @staticmethod
-    def _normalize_script_lines(script_lines: list[dict[str, Any]]) -> list[dict[str, str]]:
-        normalized: list[dict[str, str]] = []
-        for item in script_lines:
-            if not isinstance(item, dict):
-                continue
-            role = str(item.get("role", "A")).strip().upper()[:1] or "A"
-            if role not in {"A", "B"}:
-                role = "A"
-            text = str(item.get("text", item.get("content", ""))).strip()
-            if not text:
-                continue
-            normalized.append({"role": role, "text": text})
-        return normalized
 
     @staticmethod
     def _build_evidence_summary(sources: list[dict[str, Any]]) -> str:
@@ -211,8 +166,8 @@ class AudioScriptWriter:
             max_tokens=max(1200, max(2, min(int(turn_count), 40)) * 220),
         )
         reply = str(completion.get("reply", "")).strip()
-        parsed = self._parse_script_with_fallback(reply)
-        normalized = self._normalize_script_lines(parsed)
+        parsed = parse_script_with_fallback(reply)
+        normalized = normalize_script_lines(parsed)
         if len(normalized) < 2:
             raise RuntimeError("Generated script is too short or cannot be parsed.")
         return {

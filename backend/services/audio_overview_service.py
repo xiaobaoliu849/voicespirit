@@ -14,6 +14,7 @@ from typing import Any
 from .llm_service import LLMService
 from .evermem_config import EverMemConfig
 from .tts_service import TTSService
+from .script_parser import parse_script_from_text, parse_script_with_fallback, normalize_script_lines
 
 
 PROMPT_TEMPLATE_ZH = """你是一个播客脚本编写专家。请根据以下话题生成一段双人对话脚本。
@@ -61,7 +62,7 @@ B: [Guest's statement in English]
 
 Please output the dialogue content directly in English without additional explanation."""
 
-SCRIPT_LINE_PATTERN = re.compile(r"^([AB])[：:]\s*(.+)$")
+
 SUPPORTED_MERGE_STRATEGIES = {"auto", "pydub", "ffmpeg", "concat"}
 SUPPORTED_INTRO_MUSIC_STYLES = {"warm", "bright", "calm"}
 logger = logging.getLogger(__name__)
@@ -176,37 +177,7 @@ class AudioOverviewService:
             f"语言：中文。关键对话预览：{preview}"
         ).strip()
 
-    @staticmethod
-    def _parse_script_from_text(text: str) -> list[dict[str, str]]:
-        result: list[dict[str, str]] = []
-        for raw in text.strip().splitlines():
-            line = raw.strip()
-            if not line:
-                continue
-            match = SCRIPT_LINE_PATTERN.match(line)
-            if not match:
-                continue
-            role = match.group(1).strip().upper()
-            content = match.group(2).strip()
-            if content:
-                result.append({"role": role, "text": content})
-        return result
 
-    def _parse_script_with_fallback(self, text: str) -> list[dict[str, str]]:
-        parsed = self._parse_script_from_text(text)
-        if len(parsed) >= 2:
-            return parsed
-
-        candidates = [line.strip() for line in text.splitlines() if line.strip()]
-        if len(candidates) < 2:
-            blocks = [part.strip() for part in re.split(r"\n{2,}", text) if part.strip()]
-            candidates = blocks
-
-        fallback: list[dict[str, str]] = []
-        for idx, line in enumerate(candidates):
-            role = "A" if idx % 2 == 0 else "B"
-            fallback.append({"role": role, "text": line})
-        return fallback
 
     @staticmethod
     def _safe_filename(prefix: str = "audio_overview") -> str:
@@ -242,20 +213,7 @@ class AudioOverviewService:
             )
             conn.commit()
 
-    @staticmethod
-    def _normalize_script_lines(script_lines: list[dict[str, Any]]) -> list[dict[str, str]]:
-        normalized: list[dict[str, str]] = []
-        for item in script_lines:
-            if not isinstance(item, dict):
-                continue
-            role = str(item.get("role", "A")).strip().upper()[:1] or "A"
-            if role not in {"A", "B"}:
-                role = "A"
-            text = str(item.get("text", item.get("content", ""))).strip()
-            if not text:
-                continue
-            normalized.append({"role": role, "text": text})
-        return normalized
+
 
     def list_podcasts(self, limit: int = 20) -> list[dict[str, Any]]:
         safe_limit = max(1, min(int(limit), 200))
@@ -356,7 +314,7 @@ class AudioOverviewService:
 
         clean_language = language.strip() or "zh"
         clean_audio_path = (audio_path or "").strip() or None
-        normalized_script = self._normalize_script_lines(script_lines or [])
+        normalized_script = normalize_script_lines(script_lines or [])
 
         with self._connect() as conn:
             cursor = conn.cursor()
@@ -382,7 +340,7 @@ class AudioOverviewService:
         return result
 
     def save_script(self, podcast_id: int, script_lines: list[dict[str, Any]]) -> list[dict[str, str]]:
-        normalized_script = self._normalize_script_lines(script_lines)
+        normalized_script = normalize_script_lines(script_lines)
         with self._connect() as conn:
             cursor = conn.cursor()
             cursor.execute("SELECT id FROM podcasts WHERE id = ?", (podcast_id,))
@@ -532,8 +490,8 @@ class AudioOverviewService:
         )
 
         reply = str(completion.get("reply", "")).strip()
-        script_lines = self._parse_script_with_fallback(reply)
-        normalized = self._normalize_script_lines(script_lines)
+        script_lines = parse_script_with_fallback(reply)
+        normalized = normalize_script_lines(script_lines)
         if len(normalized) < 2:
             raise RuntimeError("Generated script is too short or cannot be parsed.")
 
@@ -774,7 +732,7 @@ class AudioOverviewService:
         if podcast is None:
             raise ValueError(f"podcast not found: {podcast_id}")
 
-        script_lines = self._normalize_script_lines(
+        script_lines = normalize_script_lines(
             list(podcast.get("script_lines", []))
         )
         if len(script_lines) < 2:

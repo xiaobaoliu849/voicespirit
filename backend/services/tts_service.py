@@ -7,7 +7,9 @@ import html
 import json
 import os
 import re
+import sys
 import threading
+from collections.abc import AsyncGenerator
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -15,6 +17,7 @@ from typing import Any
 import httpx
 
 from .config_loader import BackendConfig, get_data_dir
+from .script_parser import parse_script_with_fallback
 
 try:
     import edge_tts
@@ -71,6 +74,7 @@ ELEVENLABS_VOICES = [
 ]
 
 DEFAULT_EDGE_VOICE = "zh-CN-XiaoxiaoNeural"
+DEFAULT_EDGE_EN_VOICE = "en-US-AvaNeural"
 DEFAULT_QWEN_FLASH_MODEL = "qwen3-tts-flash-2025-11-27"
 DEFAULT_MINIMAX_MODEL = "speech-02-turbo"
 DEFAULT_MINIMAX_URL = "https://api.minimax.chat/v1/t2a_v2"
@@ -182,6 +186,38 @@ class TTSService:
         resolved_output = output_dir or (root / "temp_audio")
         self.output_dir = resolved_output
         self.output_dir.mkdir(parents=True, exist_ok=True)
+        self._cleanup_old_cache()
+
+    def _cleanup_old_cache(self, max_files: int = 500, max_age_hours: int = 72) -> None:
+        """Remove stale TTS audio files to prevent unbounded disk usage."""
+        import time
+        try:
+            files = sorted(
+                (f for f in self.output_dir.iterdir() if f.is_file() and f.suffix in {".mp3", ".wav", ".ogg", ".opus"}),
+                key=lambda f: f.stat().st_mtime,
+            )
+        except OSError:
+            return
+        now = time.time()
+        cutoff = now - max_age_hours * 3600
+        # Remove files older than cutoff
+        for f in files:
+            try:
+                if f.stat().st_mtime < cutoff:
+                    f.unlink(missing_ok=True)
+            except OSError:
+                continue
+        # If still over limit, remove oldest first
+        remaining = sorted(
+            (f for f in self.output_dir.iterdir() if f.is_file() and f.suffix in {".mp3", ".wav", ".ogg", ".opus"}),
+            key=lambda f: f.stat().st_mtime,
+        )
+        if len(remaining) > max_files:
+            for f in remaining[:len(remaining) - max_files]:
+                try:
+                    f.unlink(missing_ok=True)
+                except OSError:
+                    continue
 
     def _legacy_gpt_sovits_voices_dir(self) -> Path:
         return Path(__file__).resolve().parents[1] / "data" / "gpt_sovits_voices"
@@ -354,7 +390,25 @@ class TTSService:
             return "ja-JP-NanamiNeural"
         if re.search(r"[\uac00-\ud7af]", text):
             return "ko-KR-SunHiNeural"
+        if re.search(r"[a-zA-Z]", text):
+            return DEFAULT_EDGE_EN_VOICE
         return DEFAULT_EDGE_VOICE
+
+    def _resolve_edge_voice_for_text(self, text: str, voice: str) -> str:
+        has_cjk = bool(re.search(r"[\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af]", text))
+        has_english = bool(re.search(r"[a-zA-Z]", text))
+
+        voice_lower = voice.lower()
+        is_zh_voice = "zh-cn" in voice_lower or "zh-tw" in voice_lower or "zh-hk" in voice_lower
+        is_en_voice = "en-us" in voice_lower or "en-gb" in voice_lower or "en-au" in voice_lower or "en-ca" in voice_lower
+
+        if has_english and not has_cjk and is_zh_voice:
+            return DEFAULT_EDGE_EN_VOICE
+
+        if has_cjk and is_en_voice:
+            return DEFAULT_EDGE_VOICE
+
+        return voice
 
     def _audio_profile_for_engine(self, engine: str) -> tuple[str, str]:
         if engine in {TTS_ENGINE_CHATTTS, TTS_ENGINE_GPT_SOVITS}:
@@ -566,9 +620,12 @@ class TTSService:
 
     async def _generate_edge_audio(self, text: str, voice: str, rate: str, path: Path) -> None:
         if edge_tts is None:
-            raise RuntimeError("edge-tts is not installed on backend.")
-        communicator = edge_tts.Communicate(text, voice, rate=rate)
-        await communicator.save(str(path))
+            raise RuntimeError("edge-tts Python 依赖未安装。")
+        try:
+            communicator = edge_tts.Communicate(text, voice, rate=rate)
+            await communicator.save(str(path))
+        except Exception as exc:
+            raise RuntimeError(f"Edge TTS 朗读生成失败 ({exc})。请检查网络是否能够正常访问微软 Edge 语音服务。") from exc
 
     async def _generate_qwen_flash_audio(self, text: str, voice: str, path: Path) -> None:
         api_key = self._dashscope_key()
@@ -852,7 +909,7 @@ class TTSService:
         normalized_engine = detected_engine
 
         if normalized_engine == TTS_ENGINE_EDGE:
-            selected_voice = voice or self._detect_edge_voice(cleaned)
+            selected_voice = self._resolve_edge_voice_for_text(cleaned, voice) if voice else self._detect_edge_voice(cleaned)
         elif normalized_engine == TTS_ENGINE_QWEN_FLASH:
             selected_voice = voice or QWEN_FLASH_VOICES[0]["name"]
         elif normalized_engine == TTS_ENGINE_MINIMAX:
@@ -921,24 +978,9 @@ class TTSService:
         engine_b: str | None = None,
     ) -> TTSAudioResult:
         import uuid
-        import re
-
+        
         # 1. Parse dialogue text into alternating script lines
-        lines = []
-        SCRIPT_LINE_PATTERN = re.compile(r"^([ABab])[：:]\s*(.+)$")
-        for raw in text.strip().splitlines():
-            line = raw.strip()
-            if not line:
-                continue
-            match = SCRIPT_LINE_PATTERN.match(line)
-            if match:
-                role = match.group(1).strip().upper()
-                content = match.group(2).strip()
-                if content:
-                    lines.append({"role": role, "text": content})
-            else:
-                role = "A" if len(lines) % 2 == 0 else "B"
-                lines.append({"role": role, "text": line})
+        lines = parse_script_with_fallback(text)
 
         if not lines:
             raise ValueError("No valid dialogue lines found.")

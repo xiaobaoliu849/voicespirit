@@ -172,4 +172,44 @@ describe('ChatPage', () => {
         expect(screen.queryByPlaceholderText(/输入聊天内容/)).not.toBeInTheDocument();
         expect(document.querySelector('.vsComposer.liveActive')).toBeInTheDocument();
     });
+
+    it('uses English voice for English assistant messages when default voice is Chinese', async () => {
+        const fetchSpeakAudioMock = vi.spyOn(await import('../api'), 'fetchSpeakAudio').mockResolvedValue({
+            blob: new Blob(['audio'], { type: 'audio/mpeg' }),
+            voice: 'en-US-AvaNeural',
+            engine: 'edge'
+        });
+
+        render(
+            <ChatPage
+                chat={createChatController({
+                    chatMessages: [
+                        { role: 'assistant', content: 'Hello, this is an English response from LLM.' }
+                    ]
+                })}
+                voiceChat={createVoiceChatController()}
+                settings={{
+                    settingsData: {
+                        tts_settings: {
+                            provider: 'edge',
+                            default_voice: 'zh-CN-XiaoxiaoNeural'
+                        }
+                    }
+                } as any}
+                errorRuntimeContext={{}}
+            />
+        );
+
+        const playBtn = screen.getByRole('button', { name: '朗读回答' });
+        fireEvent.click(playBtn);
+
+        await waitFor(() => {
+            expect(fetchSpeakAudioMock).toHaveBeenCalledWith({
+                text: 'Hello, this is an English response from LLM.',
+                voice: 'en-US-AvaNeural',
+                engine: 'edge'
+            });
+        });
+    });
 });
+

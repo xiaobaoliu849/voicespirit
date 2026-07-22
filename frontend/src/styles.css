@@ -3220,8 +3220,10 @@ button.danger:focus-visible {
 
 .bubble {
   position: relative;
-  border-radius: 22px;
-  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  border-radius: 20px;
+  padding: 12px 16px 8px 16px;
   border: 1px solid color-mix(in oklab, var(--accent) 10%, var(--line));
   max-width: min(860px, 100%);
   box-shadow: var(--shadow-sm);
@@ -3230,20 +3232,16 @@ button.danger:focus-visible {
   cursor: text;
 }
 
-.bubble.hasCopyAction {
-  padding-bottom: 38px;
-}
-
 .bubble.user {
   background: var(--user-bg);
-  border-top-right-radius: 8px;
+  border-top-right-radius: 6px;
   border-color: color-mix(in oklab, var(--accent) 18%, var(--line));
   justify-self: end;
 }
 
 .bubble.assistant {
   background: var(--assistant-bg);
-  border-top-left-radius: 8px;
+  border-top-left-radius: 6px;
 }
 
 .bubble strong {
@@ -3261,6 +3259,62 @@ button.danger:focus-visible {
   user-select: text;
   -webkit-user-select: text;
   cursor: text;
+}
+
+.vsBubbleActions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  align-self: flex-end;
+  margin-top: 6px;
+  margin-bottom: -2px;
+  opacity: 0.3;
+  transition: opacity 0.16s ease;
+}
+
+.bubble:hover .vsBubbleActions,
+.vsBubbleActions:focus-within,
+.vsBubbleActions:has(.active),
+.vsBubbleActions:has(.copied) {
+  opacity: 1;
+}
+
+.vsBubbleActionBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid color-mix(in oklab, var(--accent) 14%, var(--line));
+  border-radius: 50%;
+  background: color-mix(in oklab, var(--bg-card) 95%, transparent);
+  color: var(--muted);
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+  transition: color 0.16s ease, border-color 0.16s ease, background 0.16s ease, transform 0.12s ease;
+}
+
+.vsBubbleActionBtn:hover:not(:disabled),
+.vsBubbleActionBtn:focus-visible:not(:disabled) {
+  color: var(--accent-strong);
+  border-color: color-mix(in oklab, var(--accent) 40%, var(--line));
+  background: var(--bg-card);
+  transform: scale(1.06);
+  outline: none;
+}
+
+.vsBubbleActionBtn.active,
+.vsBubbleActionBtn.copied {
+  color: var(--brand-dark);
+  border-color: color-mix(in oklab, var(--brand) 40%, var(--line));
+  background: color-mix(in oklab, var(--brand-soft) 80%, var(--bg-card));
+}
+
+.vsBubbleActionBtn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
 }
 
 .vsBubbleCopyBtn {

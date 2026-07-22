@@ -821,6 +821,7 @@ export default function useSettings({ formatErrorMessage }: Options) {
   }
 
   return {
+    settingsData,
     settingsBusy,
     settingsSaving,
     settingsError,
