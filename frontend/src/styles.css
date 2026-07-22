@@ -2115,6 +2115,135 @@ button:focus-visible {
   color: var(--muted);
 }
 
+/* Translation Redesign Controls */
+.vsVoiceTranslationCard {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.vsTranslationModeSegment {
+  display: flex;
+  background: color-mix(in oklab, var(--line) 40%, transparent);
+  border-radius: 8px;
+  padding: 2px;
+  gap: 2px;
+}
+
+.vsSegmentBtn {
+  flex: 1;
+  padding: 5px 8px;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 6px;
+  border: none;
+  background: transparent;
+  color: var(--text-soft);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.vsSegmentBtn.active {
+  background: var(--bg-card);
+  color: var(--brand);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.vsPresetPairSection {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.vsPresetSubTitle {
+  font-size: 11px;
+  color: var(--text-soft);
+  font-weight: 600;
+}
+
+.vsPresetPillsGroup {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.vsPresetPillBtn {
+  padding: 3px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.vsPresetPillBtn:hover {
+  border-color: var(--brand-soft);
+  background: color-mix(in oklab, var(--brand-soft) 20%, var(--surface));
+}
+
+.vsPresetPillBtn.active {
+  background: var(--brand-soft);
+  color: var(--brand-dark);
+  border-color: var(--brand);
+}
+
+.vsLanguageSelectorBox {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.vsLanguageSelectGroup {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.vsLanguageSelectLabel {
+  font-size: 10px;
+  color: var(--text-soft);
+  font-weight: 600;
+}
+
+.vsLanguageSelectDropdown {
+  width: 100%;
+  padding: 5px 6px;
+  font-size: 12px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: var(--bg-card);
+  color: var(--text);
+}
+
+.vsVoiceSettingsSwapBtn {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: bold;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  margin-top: 14px;
+  flex-shrink: 0;
+  transition: all 0.2s ease;
+}
+
+.vsVoiceSettingsSwapBtn:hover {
+  background: var(--brand-soft);
+  color: var(--brand);
+  transform: rotate(180deg);
+}
+
 .vsLiveTranslateSettings {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;

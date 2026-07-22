@@ -417,6 +417,8 @@ export function buildVoiceChatWebSocketUrl(params: {
   model?: string;
   voice?: string;
   voiceprintAudioUrls?: string[];
+  translationMode?: string;
+  sourceLanguageCode?: string;
   targetLanguageCode?: string;
   echoTargetLanguage?: boolean;
 }): string {
@@ -438,6 +440,12 @@ export function buildVoiceChatWebSocketUrl(params: {
       .filter(Boolean)
       .slice(0, 5)
       .forEach((item) => wsUrl.searchParams.append("voiceprint_audio_urls", item));
+  }
+  if (params.translationMode) {
+    wsUrl.searchParams.set("translation_mode", params.translationMode);
+  }
+  if (params.sourceLanguageCode) {
+    wsUrl.searchParams.set("source_language_code", params.sourceLanguageCode);
   }
   if (params.targetLanguageCode) {
     wsUrl.searchParams.set("target_language_code", params.targetLanguageCode);

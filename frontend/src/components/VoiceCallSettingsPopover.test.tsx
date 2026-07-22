@@ -100,27 +100,42 @@ describe("VoiceCallSettingsPopover", () => {
     expect(screen.queryByText("翻译")).not.toBeInTheDocument();
   });
 
-  it("shows the translation section for live-translate models", () => {
+  it("shows the translation section for live-translate models with mode toggle, preset pills, and swap button", () => {
     const voiceChat = renderPopover({
       voiceChatModel: "gemini-3.5-live-translate-preview",
       voiceChatLiveTranslate: true,
+      voiceChatTranslationMode: "bidirectional",
+      voiceChatSourceLanguageCode: "zh-Hans",
       voiceChatTargetLanguageCode: "en",
       voiceChatTargetLanguageOptions: [
+        { value: "zh-Hans", label: "中文 / Chinese (Simplified) (zh-Hans)" },
         { value: "en", label: "英语 / English (en)" },
         { value: "ja", label: "日语 / Japanese (ja)" },
       ],
       voiceChatEchoTargetLanguage: true,
     });
     openPanel();
-    expect(screen.getByText("翻译")).toBeInTheDocument();
-    fireEvent.click(screen.getByText("日语 / Japanese (ja)"));
-    expect(voiceChat.onTargetLanguageCodeChange).toHaveBeenCalledWith("ja");
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.getByText("翻译配置")).toBeInTheDocument();
+    expect(screen.getByText("双向互翻 ⇄")).toBeInTheDocument();
+    expect(screen.getByText("常用语对")).toBeInTheDocument();
+    
+    // Preset pill click
+    fireEvent.click(screen.getByText("中 ⇄ 日"));
+    expect(voiceChat.onPresetLanguagePairSelect).toHaveBeenCalledWith("zh-Hans", "ja");
+
+    // Swap button click
+    fireEvent.click(screen.getByTitle("一键颠倒语言"));
+    expect(voiceChat.onSwapLanguages).toHaveBeenCalledTimes(1);
+
+    // Mode switch click
+    fireEvent.click(screen.getByText("单向翻译 →"));
+    expect(voiceChat.onTranslationModeChange).toHaveBeenCalledWith("unidirectional");
   });
 
-  it("toggles the echo switch", () => {
+  it("toggles the echo switch in unidirectional mode", () => {
     const voiceChat = renderPopover({
       voiceChatLiveTranslate: true,
+      voiceChatTranslationMode: "unidirectional",
       voiceChatEchoTargetLanguage: true,
     });
     openPanel();

@@ -173,6 +173,8 @@ async def voice_chat_ws(
     model: str | None = None,
     voice: str | None = None,
     voiceprint_audio_urls: list[str] | None = Query(default=None),
+    translation_mode: str = "bidirectional",
+    source_language_code: str = "zh-Hans",
     target_language_code: str = "en",
     echo_target_language: bool = True,
 ) -> None:
@@ -216,6 +218,8 @@ async def voice_chat_ws(
                 websocket,
                 model=model,
                 voice=(voice or DEFAULT_GOOGLE_REALTIME_VOICE).strip(),
+                translation_mode=(translation_mode or "bidirectional").strip(),
+                source_language_code=(source_language_code or "zh-Hans").strip(),
                 target_language_code=(target_language_code or "en").strip(),
                 echo_target_language=bool(echo_target_language),
             )

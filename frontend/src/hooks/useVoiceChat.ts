@@ -47,6 +47,7 @@ import {
   resolveRealtimeProvider,
   shouldCoalesceLiveTranslateSegment,
   type Options,
+  type TranslationMode,
   type VoiceChatInterruptionState,
   type VoiceChatMetrics
 } from "./useVoiceChatHelpers";
@@ -72,6 +73,8 @@ export default function useVoiceChat({
       : initialProvider === OPENAI_PROVIDER ? "alloy"
       : "Puck"
   );
+  const [voiceChatTranslationMode, setVoiceChatTranslationMode] = useState<TranslationMode>("bidirectional");
+  const [voiceChatSourceLanguageCode, setVoiceChatSourceLanguageCode] = useState("zh-Hans");
   const [voiceChatTargetLanguageCode, setVoiceChatTargetLanguageCode] = useState("en");
   const [voiceChatEchoTargetLanguage, setVoiceChatEchoTargetLanguage] = useState(true);
   const [voiceChatBusy, setVoiceChatBusy] = useState(false);
@@ -1312,6 +1315,8 @@ export default function useVoiceChat({
         provider: voiceChatProvider,
         model: voiceChatModel.trim() || undefined,
         voice: voiceChatVoice,
+        translationMode: voiceChatLiveTranslate ? voiceChatTranslationMode : undefined,
+        sourceLanguageCode: voiceChatLiveTranslate ? voiceChatSourceLanguageCode : undefined,
         targetLanguageCode: voiceChatLiveTranslate ? voiceChatTargetLanguageCode : undefined,
         echoTargetLanguage: voiceChatLiveTranslate ? voiceChatEchoTargetLanguage : undefined,
       });
@@ -1640,6 +1645,8 @@ export default function useVoiceChat({
     voiceChatVoiceLabel,
     voiceChatVoiceOptions,
     voiceChatLiveTranslate,
+    voiceChatTranslationMode,
+    voiceChatSourceLanguageCode,
     voiceChatTargetLanguageCode,
     voiceChatTargetLanguageLabel,
     voiceChatTargetLanguageOptions,
@@ -1666,8 +1673,20 @@ export default function useVoiceChat({
     },
     onModelChange: setVoiceChatModel,
     onVoiceChange: setVoiceChatVoice,
+    onTranslationModeChange: setVoiceChatTranslationMode,
+    onSourceLanguageCodeChange: setVoiceChatSourceLanguageCode,
     onTargetLanguageCodeChange: setVoiceChatTargetLanguageCode,
     onEchoTargetLanguageChange: setVoiceChatEchoTargetLanguage,
+    onSwapLanguages: () => {
+      const nextSource = voiceChatTargetLanguageCode;
+      const nextTarget = voiceChatSourceLanguageCode;
+      setVoiceChatSourceLanguageCode(nextSource);
+      setVoiceChatTargetLanguageCode(nextTarget);
+    },
+    onPresetLanguagePairSelect: (source: string, target: string) => {
+      setVoiceChatSourceLanguageCode(source);
+      setVoiceChatTargetLanguageCode(target);
+    },
     onResetSession: () => {
       markNewSessionEpoch();
       stopSessionResources();

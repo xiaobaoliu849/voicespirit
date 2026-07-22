@@ -76,6 +76,17 @@ export const GOOGLE_REALTIME_VOICES = [
   "Sadachbia",
 ].map((name) => ({ value: name, label: name }));
 
+export type TranslationMode = "bidirectional" | "unidirectional";
+
+export const PRESET_LANGUAGE_PAIRS = [
+  { label: "中 ⇄ 英", source: "zh-Hans", target: "en" },
+  { label: "中 ⇄ 日", source: "zh-Hans", target: "ja" },
+  { label: "中 ⇄ 韩", source: "zh-Hans", target: "ko" },
+  { label: "中 ⇄ 法", source: "zh-Hans", target: "fr" },
+  { label: "中 ⇄ 德", source: "zh-Hans", target: "de" },
+  { label: "中 ⇄ 西", source: "zh-Hans", target: "es" },
+];
+
 export const LIVE_TRANSLATE_LANGUAGE_PRIORITY = [
   "zh-Hans",
   "zh-Hant",
@@ -175,6 +186,35 @@ export const LIVE_TRANSLATE_TARGET_LANGUAGES = [
   { value: "vi", label: "Vietnamese" },
   { value: "zu", label: "Zulu" },
 ];
+
+export function getLanguageShortLabel(code: string, fallback: string = ""): string {
+  const item = LIVE_TRANSLATE_TARGET_LANGUAGES.find((lang) => lang.value === code);
+  if (item) {
+    if (code === "zh-Hans") return "中文";
+    if (code === "zh-Hant") return "繁体";
+    if (code === "en") return "English";
+    if (code === "ja") return "日本語";
+    if (code === "ko") return "한국어";
+    if (code === "fr") return "Français";
+    if (code === "de") return "Deutsch";
+    if (code === "es") return "Español";
+    return item.label;
+  }
+  return fallback || code;
+}
+
+export function formatTranslationSummary(
+  mode: TranslationMode,
+  sourceCode: string,
+  targetCode: string
+): string {
+  const src = getLanguageShortLabel(sourceCode);
+  const tgt = getLanguageShortLabel(targetCode);
+  if (mode === "bidirectional") {
+    return `双向互翻 (${src} ⇄ ${tgt})`;
+  }
+  return `单向翻译 (${src} → ${tgt})`;
+}
 
 export const OPENAI_REALTIME_VOICES = [
   { value: "alloy", label: "Alloy (Neutral)" },
