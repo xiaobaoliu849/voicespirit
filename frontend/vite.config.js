@@ -15,6 +15,7 @@ export default defineConfig({
         alias: {
             "@lobehub/ui/icons": resolve(__dirname, "src/test/mockLobeUi.ts"),
             "@lobehub/ui": resolve(__dirname, "src/test/mockLobeUi.ts"),
+            "@lobehub/icons": resolve(__dirname, "src/test/mockLobeUi.ts"),
             "antd": resolve(__dirname, "src/test/mockLobeUi.ts")
         }
     },

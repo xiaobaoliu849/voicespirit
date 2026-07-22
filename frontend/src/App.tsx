@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   clearAuthRuntime,
   fetchCurrentAuthUser,
@@ -113,6 +113,18 @@ function buildConversationHistoryEntry(params: {
 }
 
 function areMessageListsEqual(left: ChatMessage[], right: ChatMessage[]): boolean {
+  if (left === right) return true;
+  if (left.length !== right.length) return false;
+  if (left.length === 0) return true;
+  // Fast path: compare last message (changes most often during streaming)
+  // and first message (cheap identity check) before falling back to full compare.
+  const lastL = left[left.length - 1];
+  const lastR = right[right.length - 1];
+  if (lastL.content !== lastR.content || lastL.role !== lastR.role) return false;
+  if (left.length === 1) return true;
+  const firstL = left[0];
+  const firstR = right[0];
+  if (firstL.content !== firstR.content || firstL.role !== firstR.role) return false;
   return JSON.stringify(left) === JSON.stringify(right);
 }
 
@@ -219,7 +231,10 @@ export default function App() {
 
   const translate = useTranslate({ formatErrorMessage, language: uiLanguage });
   const workspaceClassName = `vsWorkspaceViewportInner is-${activeTab.replace(/_/g, "-")}`;
-  const normalizedConversationHistory = normalizeConversationHistory(conversationHistory);
+  const normalizedConversationHistory = useMemo(
+    () => normalizeConversationHistory(conversationHistory),
+    [conversationHistory],
+  );
   const shouldShowVoiceCenter =
     activeTab === "voice_center" ||
     activeTab === "tts" ||
@@ -303,8 +318,17 @@ export default function App() {
     );
   }
 
+  const archiveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
-    archiveActiveConversation();
+    // Debounce archiving to avoid per-delta localStorage writes during streaming.
+    if (archiveTimerRef.current) clearTimeout(archiveTimerRef.current);
+    archiveTimerRef.current = setTimeout(() => {
+      archiveTimerRef.current = null;
+      archiveActiveConversation();
+    }, 500);
+    return () => {
+      if (archiveTimerRef.current) clearTimeout(archiveTimerRef.current);
+    };
   }, [
     chat.chatMessages,
     voiceChat.voiceChatArchiveMessages,
