@@ -558,6 +558,8 @@ export default function ChatPage({ chat, voiceChat, settings, errorRuntimeContex
   const activeBlobUrlRef = useRef<string | null>(null);
   const copyResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  const isProgrammaticScrollRef = useRef(false);
+
   const prevMsgLengthRef = useRef(combinedMessages.length);
   const prevVoiceActiveRef = useRef(false);
 
@@ -567,13 +569,18 @@ export default function ChatPage({ chat, voiceChat, settings, errorRuntimeContex
   const scrollToBottom = (smooth = true) => {
     shouldStickToBottomRef.current = true;
     setShowScrollBottomBtn(false);
+    isProgrammaticScrollRef.current = true;
     if (messagesEndRef.current) {
       messagesEndRef.current.scrollIntoView({ behavior: smooth ? "smooth" : "auto", block: "end" });
     } else if (bodyRef.current) {
-      bodyRef.current.scrollTo({
-        top: bodyRef.current.scrollHeight,
-        behavior: smooth ? "smooth" : "auto",
-      });
+      if (smooth && typeof bodyRef.current.scrollTo === "function") {
+        bodyRef.current.scrollTo({
+          top: bodyRef.current.scrollHeight,
+          behavior: "smooth",
+        });
+      } else {
+        bodyRef.current.scrollTop = bodyRef.current.scrollHeight;
+      }
     }
   };
 
@@ -667,22 +674,32 @@ export default function ChatPage({ chat, voiceChat, settings, errorRuntimeContex
   }
 
   useEffect(() => {
-    // If new turn is created or voice call starts/ends, re-enable auto stick to bottom
-    if (combinedMessages.length > prevMsgLengthRef.current || isVoiceActive !== prevVoiceActiveRef.current) {
-      shouldStickToBottomRef.current = true;
-      setShowScrollBottomBtn(false);
+    const el = bodyRef.current;
+    if (!el) return;
+
+    // Re-engage auto-stick to bottom on new turn, voice active state change, or live voice streaming text update
+    if (
+      combinedMessages.length > prevMsgLengthRef.current ||
+      isVoiceActive !== prevVoiceActiveRef.current ||
+      (isVoiceActive && (voiceChat.voiceChatTranscript || voiceChat.voiceChatReply || voiceChat.voiceChatAgentToolStatus))
+    ) {
+      const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+      if (
+        distanceFromBottom < 220 ||
+        combinedMessages.length > prevMsgLengthRef.current ||
+        isVoiceActive !== prevVoiceActiveRef.current
+      ) {
+        shouldStickToBottomRef.current = true;
+      }
     }
+
     prevMsgLengthRef.current = combinedMessages.length;
     prevVoiceActiveRef.current = isVoiceActive;
 
-    const el = bodyRef.current;
-    if (el && shouldStickToBottomRef.current) {
-      const animationFrameId = requestAnimationFrame(() => {
-        if (bodyRef.current && shouldStickToBottomRef.current) {
-          bodyRef.current.scrollTop = bodyRef.current.scrollHeight;
-        }
-      });
-      return () => cancelAnimationFrame(animationFrameId);
+    if (shouldStickToBottomRef.current) {
+      isProgrammaticScrollRef.current = true;
+      el.scrollTop = el.scrollHeight;
+      setShowScrollBottomBtn(false);
     }
   }, [
     combinedMessages.length,
@@ -691,6 +708,37 @@ export default function ChatPage({ chat, voiceChat, settings, errorRuntimeContex
     voiceChat.voiceChatAgentToolStatus,
     isVoiceActive,
   ]);
+
+  useEffect(() => {
+    const el = bodyRef.current;
+    if (!el) return;
+
+    const performAutoScroll = () => {
+      if (shouldStickToBottomRef.current && bodyRef.current) {
+        isProgrammaticScrollRef.current = true;
+        bodyRef.current.scrollTop = bodyRef.current.scrollHeight;
+        setShowScrollBottomBtn(false);
+      }
+    };
+
+    let resizeObserver: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== "undefined") {
+      resizeObserver = new ResizeObserver(() => {
+        performAutoScroll();
+      });
+      resizeObserver.observe(el);
+      const messageList = el.querySelector(".vsMessageList");
+      if (messageList) {
+        resizeObserver.observe(messageList);
+      }
+    }
+
+    return () => {
+      if (resizeObserver) {
+        resizeObserver.disconnect();
+      }
+    };
+  }, []);
 
   useEffect(() => () => {
     if (copyResetTimerRef.current !== null) {
@@ -723,8 +771,13 @@ export default function ChatPage({ chat, voiceChat, settings, errorRuntimeContex
     if (!el) {
       return;
     }
+    if (isProgrammaticScrollRef.current) {
+      isProgrammaticScrollRef.current = false;
+      return;
+    }
     const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
-    const isNearBottom = distanceFromBottom < 80;
+    const threshold = isVoiceActive ? 180 : 140;
+    const isNearBottom = distanceFromBottom < threshold;
     shouldStickToBottomRef.current = isNearBottom;
     setShowScrollBottomBtn(!isNearBottom && combinedMessages.length > 0);
   }
