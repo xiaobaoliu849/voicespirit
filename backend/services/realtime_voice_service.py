@@ -488,6 +488,85 @@ class RealtimeVoiceService(
             finally:
                 coordinator.complete_decision(timed_out=timeout_resolution)
 
+    # -- shared client command handling ------------------------------------
+
+    async def _handle_common_client_command(
+        self,
+        command_type: str,
+        payload: dict[str, Any],
+        *,
+        websocket: WebSocket,
+        memory_session: RealtimeMemorySession,
+        tool_session: VoiceAgentToolSession,
+        recorder: VoiceAgentSessionRecorder | None,
+        interruption: InterruptionDecisionCoordinator,
+        provider: str,
+        record_memory: bool = True,
+        finalize_on_timeout: bool = True,
+    ) -> str | None:
+        """Handle client→server commands shared across all providers.
+
+        Returns ``"handled"`` if the command was processed (caller should
+        ``continue``), ``"stop"`` if the session should end (caller should
+        ``break``), or ``None`` if *command_type* is not a common command
+        and the provider should handle it itself.
+        """
+        if command_type == "config":
+            memory_session.configure(payload.get("memory"))
+            await self._send_event(
+                websocket,
+                "memory_config",
+                enabled=bool(memory_session._config.get_service()),
+                scope=memory_session._config.memory_scope,
+                group_id=memory_session._config.group_id,
+            )
+            return "handled"
+
+        if command_type == "ping":
+            await self._send_event(websocket, "pong")
+            return "handled"
+
+        if command_type == "interruption_client_stopped":
+            await self._record_client_interruption_stop(recorder, payload, provider=provider)
+            return "handled"
+
+        if command_type == "interruption_timeout" and interruption.pending is not None:
+            timeout_candidate_id = str(payload.get("candidate_id", ""))
+            if timeout_candidate_id and timeout_candidate_id != interruption.pending.candidate_id:
+                return "handled"
+            should_process_user, _ = await self._decide_interruption(
+                websocket,
+                interruption,
+                "",
+                memory_session=memory_session,
+                tool_session=tool_session,
+                recorder=recorder,
+                record_memory=record_memory,
+                expected_candidate_id=(timeout_candidate_id or interruption.pending.candidate_id),
+                timeout_resolution=True,
+            )
+            if (
+                not should_process_user
+                and interruption.take_deferred_terminal() is not None
+                and finalize_on_timeout
+            ):
+                await self._finalize_realtime_turn(
+                    websocket,
+                    memory_session,
+                    recorder,
+                    gated=tool_session.has_active_task,
+                )
+            return "handled"
+
+        if command_type == "stop":
+            await tool_session.cancel(
+                send_event=self._tool_event_sender(websocket, recorder),
+                reason="session_stopped",
+            )
+            return "stop"
+
+        return None
+
     # -- tool event plumbing -----------------------------------------------
 
     def _tool_event_sender(

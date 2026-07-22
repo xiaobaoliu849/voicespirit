@@ -191,57 +191,13 @@ class DashScopeRealtimeMixin:
                     await self._send_event(websocket, "error", message="无效的实时语音消息。")
                     continue
                 command_type = str(payload.get("type", "")).strip()
-                if command_type == "config":
-                    memory_session.configure(payload.get("memory"))
-                    await self._send_event(
-                        websocket,
-                        "memory_config",
-                        enabled=bool(memory_session._config.get_service()),
-                        scope=memory_session._config.memory_scope,
-                        group_id=memory_session._config.group_id,
-                    )
-                    continue
-                if command_type == "ping":
-                    await self._send_event(websocket, "pong")
-                    continue
-                if command_type == "interruption_client_stopped":
-                    await self._record_client_interruption_stop(recorder, payload, provider="DashScope")
-                    continue
-                if command_type == "interruption_timeout" and interruption.pending is not None:
-                    timeout_candidate_id = str(payload.get("candidate_id", ""))
-                    if timeout_candidate_id and timeout_candidate_id != interruption.pending.candidate_id:
-                        continue
-                    should_process_user, _ = await self._decide_interruption(
-                        websocket,
-                        interruption,
-                        "",
-                        memory_session=memory_session,
-                        tool_session=tool_session,
-                        recorder=recorder,
-                        expected_candidate_id=(timeout_candidate_id or interruption.pending.candidate_id),
-                        timeout_resolution=True,
-                    )
-                    if (
-                        not should_process_user
-                        and interruption.take_deferred_terminal() is not None
-                    ):
-                        await self._finalize_realtime_turn(
-                            websocket,
-                            memory_session,
-                            recorder,
-                            gated=tool_session.has_active_task,
-                        )
-                    continue
-                if command_type == "stop":
-                    async def send_stop_tool_event(event_type: str, payload: dict[str, Any]) -> None:
-                        if recorder is not None:
-                            await recorder.record_tool_event(event_type, payload)
-                        await self._send_event(websocket, event_type, **payload)
-
-                    await tool_session.cancel(
-                        send_event=send_stop_tool_event,
-                        reason="session_stopped",
-                    )
+                result = await self._handle_common_client_command(
+                    command_type, payload,
+                    websocket=websocket, memory_session=memory_session,
+                    tool_session=tool_session, recorder=recorder,
+                    interruption=interruption, provider="DashScope",
+                )
+                if result == "stop":
                     break
                 continue
 
@@ -259,10 +215,7 @@ class DashScopeRealtimeMixin:
         recorder: VoiceAgentSessionRecorder | None = None,
         interruption: InterruptionDecisionCoordinator | None = None,
     ) -> None:
-        async def send_tool_event(event_type: str, payload: dict[str, Any]) -> None:
-            if recorder is not None:
-                await recorder.record_tool_event(event_type, payload)
-            await self._send_event(websocket, event_type, **payload)
+        send_tool_event = self._tool_event_sender(websocket, recorder)
 
         interruption = interruption or InterruptionDecisionCoordinator()
         suppressed_response_ids: set[str] = set()
