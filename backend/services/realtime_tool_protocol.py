@@ -19,7 +19,7 @@ class RealtimeToolCall:
 _TOOL_DECLARATIONS: tuple[dict[str, Any], ...] = (
     {
         "name": "search_web",
-        "description": "Search current public web information. Use only when the user asks to search, verify, look up, or needs current information.",
+        "description": "Search current public web information about news, facts, products, or events. Only invoke when the user explicitly asks you to search the web or needs real-time external information that you cannot answer directly. Do NOT use for translating words or phrases, defining terms, answering general knowledge questions, or any task you can answer directly from your training.",
         "parameters": {
             "type": "object",
             "properties": {"query": {"type": "string", "description": "A concise standalone search query."}},

@@ -30,10 +30,28 @@ class _FakeLiveConnectConfig:
         self.kwargs = kwargs
 
 
+class _FakePrebuiltVoiceConfig:
+    def __init__(self, voice_name: str) -> None:
+        self.voice_name = voice_name
+
+
+class _FakeVoiceConfig:
+    def __init__(self, prebuilt_voice_config=None) -> None:
+        self.prebuilt_voice_config = prebuilt_voice_config
+
+
+class _FakeSpeechConfig:
+    def __init__(self, voice_config=None) -> None:
+        self.voice_config = voice_config
+
+
 class _FakeGoogleTypes:
     AudioTranscriptionConfig = _FakeAudioTranscriptionConfig
     TranslationConfig = _FakeTranslationConfig
     LiveConnectConfig = _FakeLiveConnectConfig
+    SpeechConfig = _FakeSpeechConfig
+    VoiceConfig = _FakeVoiceConfig
+    PrebuiltVoiceConfig = _FakePrebuiltVoiceConfig
 
 
 class _FakeGoogleResponse:
@@ -475,7 +493,9 @@ class RealtimeMemorySessionTests(unittest.IsolatedAsyncioTestCase):
 
     def test_google_live_translate_config_uses_translation_settings_only(self) -> None:
         with patch("services.realtime_google_provider.types", new=_FakeGoogleTypes):
-            config = RealtimeVoiceService._build_live_translate_config("zh-Hans", True)
+            config = RealtimeVoiceService._build_live_translate_config(
+                "zh-Hans", True, translation_mode="target_only"
+            )
 
         self.assertEqual(config.kwargs["response_modalities"], ["AUDIO"])
         self.assertIn("input_audio_transcription", config.kwargs)
