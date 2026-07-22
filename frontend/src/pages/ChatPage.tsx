@@ -589,7 +589,21 @@ export default function ChatPage({ chat, voiceChat, settings, errorRuntimeContex
     const ttsSettings = settings?.settingsData?.tts_settings;
     const rawProvider = typeof ttsSettings?.provider === "string" ? ttsSettings.provider : undefined;
     const engine = mapProviderToEngine(rawProvider);
-    const voice = typeof ttsSettings?.default_voice === "string" && ttsSettings.default_voice ? ttsSettings.default_voice : undefined;
+    const configuredVoice = typeof ttsSettings?.default_voice === "string" && ttsSettings.default_voice ? ttsSettings.default_voice : undefined;
+
+    let voice = configuredVoice;
+    if (engine === "edge") {
+      const hasCjk = /[\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af]/.test(cleanText);
+      const hasEnglish = /[a-zA-Z]/.test(cleanText);
+      const isZhVoice = configuredVoice ? /zh-cn|zh-tw|zh-hk/i.test(configuredVoice) : false;
+      const isEnVoice = configuredVoice ? /en-us|en-gb|en-au|en-ca/i.test(configuredVoice) : false;
+
+      if (hasEnglish && !hasCjk && (isZhVoice || !configuredVoice)) {
+        voice = "en-US-AvaNeural";
+      } else if (hasCjk && isEnVoice) {
+        voice = "zh-CN-XiaoxiaoNeural";
+      }
+    }
 
     setLoadingTtsMessageKey(key);
 

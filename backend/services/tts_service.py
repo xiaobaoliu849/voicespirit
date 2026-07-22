@@ -74,6 +74,7 @@ ELEVENLABS_VOICES = [
 ]
 
 DEFAULT_EDGE_VOICE = "zh-CN-XiaoxiaoNeural"
+DEFAULT_EDGE_EN_VOICE = "en-US-AvaNeural"
 DEFAULT_QWEN_FLASH_MODEL = "qwen3-tts-flash-2025-11-27"
 DEFAULT_MINIMAX_MODEL = "speech-02-turbo"
 DEFAULT_MINIMAX_URL = "https://api.minimax.chat/v1/t2a_v2"
@@ -389,7 +390,25 @@ class TTSService:
             return "ja-JP-NanamiNeural"
         if re.search(r"[\uac00-\ud7af]", text):
             return "ko-KR-SunHiNeural"
+        if re.search(r"[a-zA-Z]", text):
+            return DEFAULT_EDGE_EN_VOICE
         return DEFAULT_EDGE_VOICE
+
+    def _resolve_edge_voice_for_text(self, text: str, voice: str) -> str:
+        has_cjk = bool(re.search(r"[\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af]", text))
+        has_english = bool(re.search(r"[a-zA-Z]", text))
+
+        voice_lower = voice.lower()
+        is_zh_voice = "zh-cn" in voice_lower or "zh-tw" in voice_lower or "zh-hk" in voice_lower
+        is_en_voice = "en-us" in voice_lower or "en-gb" in voice_lower or "en-au" in voice_lower or "en-ca" in voice_lower
+
+        if has_english and not has_cjk and is_zh_voice:
+            return DEFAULT_EDGE_EN_VOICE
+
+        if has_cjk and is_en_voice:
+            return DEFAULT_EDGE_VOICE
+
+        return voice
 
     def _audio_profile_for_engine(self, engine: str) -> tuple[str, str]:
         if engine in {TTS_ENGINE_CHATTTS, TTS_ENGINE_GPT_SOVITS}:
@@ -890,7 +909,7 @@ class TTSService:
         normalized_engine = detected_engine
 
         if normalized_engine == TTS_ENGINE_EDGE:
-            selected_voice = voice or self._detect_edge_voice(cleaned)
+            selected_voice = self._resolve_edge_voice_for_text(cleaned, voice) if voice else self._detect_edge_voice(cleaned)
         elif normalized_engine == TTS_ENGINE_QWEN_FLASH:
             selected_voice = voice or QWEN_FLASH_VOICES[0]["name"]
         elif normalized_engine == TTS_ENGINE_MINIMAX:
