@@ -212,5 +212,76 @@ describe('ChatPage', () => {
             });
         });
     });
+
+    it('toggles web search sources card when search badge is clicked', () => {
+        render(
+            <ChatPage
+                chat={createChatController({
+                    chatMessages: [
+                        {
+                            role: 'assistant',
+                            content: '这是根据搜索回答的内容',
+                            toolCalls: [
+                                {
+                                    tool_name: 'search_web',
+                                    status: 'completed',
+                                    query: 'Python 3.14 特性',
+                                    source_count: 1,
+                                    elapsed_ms: 1200,
+                                    sources: [
+                                        {
+                                            title: 'Python 3.14 Release Notes',
+                                            uri: 'https://docs.python.org/3.14/whatsnew/3.14.html',
+                                            snippet: 'Summary of new features in Python 3.14',
+                                            source_type: 'web_search'
+                                        }
+                                    ]
+                                }
+                            ]
+                        }
+                    ]
+                })}
+                voiceChat={createVoiceChatController()}
+                errorRuntimeContext={{}}
+            />
+        );
+
+        expect(screen.queryByText(/搜索关键词/)).not.toBeInTheDocument();
+        const searchBadge = screen.getByText(/🔍 联网搜索 · 1 来源 · 1.2s/);
+        expect(searchBadge).toHaveClass('clickable');
+
+        fireEvent.click(searchBadge);
+        expect(screen.getByText(/Python 3.14 特性/)).toBeInTheDocument();
+        expect(screen.getByRole('link', { name: /Python 3.14 Release Notes/ })).toHaveAttribute(
+            'href',
+            'https://docs.python.org/3.14/whatsnew/3.14.html'
+        );
+        expect(screen.getByText('Summary of new features in Python 3.14')).toBeInTheDocument();
+    });
+
+    it('renders deep thinking collapsible block when reasoningContent is present', () => {
+        render(
+            <ChatPage
+                chat={createChatController({
+                    chatMessages: [
+                        {
+                            role: 'assistant',
+                            content: '最终回答',
+                            reasoningContent: '第一步：分析用户需求...\n第二步：查找相关信息...'
+                        }
+                    ]
+                })}
+                voiceChat={createVoiceChatController()}
+                errorRuntimeContext={{}}
+            />
+        );
+
+        expect(screen.getByText('🧠')).toBeInTheDocument();
+        expect(screen.getByText('深度思考')).toBeInTheDocument();
+        expect(screen.getByText(/第一步：分析用户需求/)).toBeInTheDocument();
+
+        fireEvent.click(screen.getByText('深度思考'));
+        expect(screen.queryByText(/第一步：分析用户需求/)).not.toBeInTheDocument();
+    });
 });
 

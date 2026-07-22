@@ -160,6 +160,7 @@ class GoogleRealtimeMixin:
                 "tool_call_id": str(item.get("tool_call_id", "")),
                 "route": "native",
                 "source_count": int(result.get("source_count", 0) or 0),
+                "sources": result.get("sources") or [],
                 "elapsed_ms": int(result.get("elapsed_ms", 0) or 0),
                 "status": "completed" if response_payload.get("ok") else "failed",
             }

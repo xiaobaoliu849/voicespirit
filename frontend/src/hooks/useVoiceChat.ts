@@ -1007,6 +1007,7 @@ export default function useVoiceChat({
           query: event.query,
           source_count: event.source_count,
           elapsed_ms: event.elapsed_ms,
+          sources: event.sources || [],
         });
         setVoiceChatAgentToolStatus(
           t(
@@ -1071,6 +1072,7 @@ export default function useVoiceChat({
           query: event.query,
           source_count: event.source_count,
           elapsed_ms: event.elapsed_ms,
+          sources: event.sources || [],
         });
         setVoiceChatAgentToolStatus(
           t(
@@ -1098,6 +1100,7 @@ export default function useVoiceChat({
           query: event.query,
           source_count: event.source_count,
           elapsed_ms: event.elapsed_ms,
+          sources: event.sources || [],
         });
         setVoiceChatAgentToolStatus(
           event.status === "failed"

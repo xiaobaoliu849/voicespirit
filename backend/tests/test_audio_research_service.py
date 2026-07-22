@@ -14,6 +14,7 @@ from services.audio_research_service import (
     _is_duckduckgo_ad_url,
     _is_safe_public_url,
     _resolve_public_host,
+    refine_search_query,
 )
 from services.audio_retrieval_service import AudioRetrievalService
 from services.audio_script_writer import AudioScriptWriter

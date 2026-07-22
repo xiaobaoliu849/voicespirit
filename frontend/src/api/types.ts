@@ -207,6 +207,7 @@ export type VoiceAgentSessionHistoryDetailResponse = VoiceAgentSessionHistory & 
 export type ChatMessage = {
   role: "system" | "user" | "assistant";
   content: string;
+  reasoningContent?: string;
   attachments?: ChatAttachment[];
   memoriesUsed?: number;
   memorySaved?: boolean;
@@ -241,6 +242,7 @@ export type EverMemConversationMetaResponse = {
 
 export type StreamEventHandlers = {
   onDelta: (chunk: string) => void;
+  onReasoning?: (chunk: string) => void;
   onDone?: (meta?: { memoriesRetrieved: number; memorySaved: boolean }) => void;
 };
 
@@ -664,6 +666,7 @@ export type VoiceChatServerEvent =
       turn_id?: string;
       query?: string;
       source_count?: number;
+      sources?: VoiceAgentSource[];
       elapsed_ms?: number;
       tool_call_id?: string;
       provider_call_id?: string;
@@ -698,6 +701,7 @@ export type VoiceChatServerEvent =
       turn_id?: string;
       query?: string;
       source_count?: number;
+      sources?: VoiceAgentSource[];
       elapsed_ms?: number;
     }
   | {
@@ -710,6 +714,7 @@ export type VoiceChatServerEvent =
       route: "native";
       query?: string;
       source_count?: number;
+      sources?: VoiceAgentSource[];
       elapsed_ms?: number;
       status: "completed" | "failed";
     }

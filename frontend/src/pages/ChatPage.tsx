@@ -108,6 +108,15 @@ function isVoiceRealtimeModel(provider: string, model: string): boolean {
   return normalizedModel.includes("realtime");
 }
 
+function getDomainFromUrl(urlStr: string): string {
+  try {
+    const u = new URL(urlStr);
+    return u.hostname.replace(/^www\./, "");
+  } catch {
+    return urlStr || "";
+  }
+}
+
 async function copyTextToClipboard(value: string): Promise<void> {
   if (navigator.clipboard?.writeText) {
     try {
@@ -551,6 +560,8 @@ export default function ChatPage({ chat, voiceChat, settings, errorRuntimeContex
   const shouldStickToBottomRef = useRef(true);
   const [showScrollBottomBtn, setShowScrollBottomBtn] = useState(false);
   const [copiedMessageKey, setCopiedMessageKey] = useState("");
+  const [expandedSourcesKey, setExpandedSourcesKey] = useState<string | null>(null);
+  const [collapsedReasoningKeys, setCollapsedReasoningKeys] = useState<Record<string, boolean>>({});
   const [playingMessageKey, setPlayingMessageKey] = useState<string | null>(null);
   const [loadingTtsMessageKey, setLoadingTtsMessageKey] = useState<string | null>(null);
   const [ttsPlaybackError, setTtsPlaybackError] = useState("");
@@ -875,14 +886,94 @@ export default function ChatPage({ chat, voiceChat, settings, errorRuntimeContex
                       const meta: string[] = [];
                       if (last.source_count != null && last.source_count > 0) meta.push(t(`${last.source_count} 来源`, `${last.source_count} sources`));
                       if (last.elapsed_ms != null) meta.push(`${(last.elapsed_ms / 1000).toFixed(1)}s`);
+                      const messageKey = `${idx}-${msg.role}`;
+                      const isSourcesOpen = expandedSourcesKey === messageKey;
+                      const sourcesList = last.sources || [];
+                      const isClickable = sourcesList.length > 0;
                       return (
-                        <span className="vsBubbleMemoryTag tool" title={last.query || ""}>
+                        <span
+                          className={`vsBubbleMemoryTag tool${isClickable ? " clickable" : ""}${isSourcesOpen ? " active" : ""}`}
+                          title={last.query || ""}
+                          onClick={isClickable ? () => setExpandedSourcesKey(isSourcesOpen ? null : messageKey) : undefined}
+                        >
                           {toolLabel}{meta.length > 0 ? ` · ${meta.join(" · ")}` : ""}
+                          {isClickable ? (isSourcesOpen ? " ▴" : " ▾") : ""}
                         </span>
                       );
                     })()}
                   </div>
                 ) : null}
+                {msg.toolCalls && msg.toolCalls.length > 0 && (() => {
+                  const last = [...msg.toolCalls].reverse().find(
+                    (r) => r.status === "result" || r.status === "completed" || r.status === "context_injected" || r.status === "result_delivered"
+                  ) ?? msg.toolCalls[msg.toolCalls.length - 1];
+                  const messageKey = `${idx}-${msg.role}`;
+                  const isSourcesOpen = expandedSourcesKey === messageKey;
+                  const sourcesList = last.sources || [];
+
+                  if (!isSourcesOpen || !sourcesList.length) {
+                    return null;
+                  }
+
+                  return (
+                    <div className="vsSearchSourcesCard">
+                      {last.query ? (
+                        <div className="vsSearchQueryText">
+                          🔍 {t("搜索关键词", "Search Query")}: "{last.query}"
+                        </div>
+                      ) : null}
+                      <div className="vsSearchSourcesList">
+                        {sourcesList.map((src, sIdx) => {
+                          const domain = getDomainFromUrl(src.uri);
+                          return (
+                            <div key={sIdx} className="vsSearchSourceItem">
+                              <div className="vsSearchSourceHeader">
+                                <span className="vsSearchSourceDomain">{domain || "Web"}</span>
+                                <a
+                                  href={src.uri}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="vsSearchSourceLink"
+                                  title={src.uri}
+                                >
+                                  {src.title || src.uri} ↗
+                                </a>
+                              </div>
+                              {src.snippet ? (
+                                <p className="vsSearchSourceSnippet">{src.snippet}</p>
+                              ) : null}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })()}
+                {msg.role === "assistant" && msg.reasoningContent ? (() => {
+                  const reasoningKey = `${idx}-${msg.role}`;
+                  const isReasoningCollapsed = Boolean(collapsedReasoningKeys[reasoningKey]);
+                  const isThinkingActive = chat.chatBusy && idx === combinedMessages.length - 1 && !msg.content;
+                  return (
+                    <div className="vsDeepThinkingBlock">
+                      <button
+                        type="button"
+                        className="vsDeepThinkingHeader"
+                        onClick={() => setCollapsedReasoningKeys((prev) => ({ ...prev, [reasoningKey]: !prev[reasoningKey] }))}
+                      >
+                        <span className="vsDeepThinkingIcon">🧠</span>
+                        <span className="vsDeepThinkingTitle">
+                          {isThinkingActive ? t("深度思考中...", "Thinking...") : t("深度思考", "Deep Thinking")}
+                        </span>
+                        <span className="vsDeepThinkingChevron">{isReasoningCollapsed ? "▸" : "▾"}</span>
+                      </button>
+                      {!isReasoningCollapsed && (
+                        <div className="vsDeepThinkingContent">
+                          {msg.reasoningContent}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })() : null}
                 {msg.role === "user" && msg.attachments && msg.attachments.length > 0 && (
                   <div className="vsMessageAttachments">
                     {msg.attachments.map((att, aIdx) => (

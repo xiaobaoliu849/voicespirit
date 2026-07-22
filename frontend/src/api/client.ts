@@ -806,6 +806,13 @@ function handleSseChunk(chunk: string, handlers: StreamEventHandlers): boolean {
     }
     return false;
   }
+  if (parsed.event === "reasoning") {
+    const content = payload.content;
+    if (typeof content === "string" && content.length > 0) {
+      handlers.onReasoning?.(content);
+    }
+    return false;
+  }
   if (parsed.event === "done") {
     const meta = {
       memoriesRetrieved: typeof payload.memories_retrieved === "number" ? payload.memories_retrieved : 0,

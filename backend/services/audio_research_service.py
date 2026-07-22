@@ -222,6 +222,20 @@ class BingResultParser(HTMLParser):
                 self._current_snippet_parts.append(data)
 
 
+_CONVERSATIONAL_PREFIXES = re.compile(
+    r"^(?:请问|请|帮我|帮我查一下|帮我搜索|我想知道|我想了解|搜索一下|查一下|查找|查找关于|检索|search for|please search|please query|tell me about|can you search|can you find)\s*",
+    re.IGNORECASE,
+)
+
+
+def refine_search_query(query: str) -> str:
+    cleaned = _normalize_whitespace(query)
+    if not cleaned:
+        return ""
+    refined = _CONVERSATIONAL_PREFIXES.sub("", cleaned).strip()
+    return refined or cleaned
+
+
 def _normalize_whitespace(value: str) -> str:
     return re.sub(r"\s+", " ", html.unescape(str(value or ""))).strip()
 
@@ -407,7 +421,7 @@ class AudioResearchService:
         )
 
     async def search(self, query: str, *, limit: int = MAX_SEARCH_RESULTS) -> list[dict[str, str]]:
-        cleaned = _normalize_whitespace(query)
+        cleaned = refine_search_query(query)
         if not cleaned:
             self._logger.info("voice_search_skipped reason=empty_query")
             return []

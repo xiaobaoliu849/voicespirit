@@ -54,4 +54,36 @@ describe("chat stream parsing", () => {
     expect(output).toBe("Hello there");
     expect(meta).toEqual({ memoriesRetrieved: 1, memorySaved: true });
   });
+
+  it("handles reasoning SSE events correctly", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      createStreamResponse([
+        'event: reasoning\ndata: {"content":"Analyzing..."}\n\n',
+        'event: delta\ndata: {"content":"Final answer"}\n\n',
+        'event: done\ndata: {"memories_retrieved":0,"memory_saved":false}\n\n',
+      ])
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    let reasoningText = "";
+    let deltaText = "";
+    await streamChatCompletion(
+      {
+        provider: "DashScope",
+        model: "qwen-max",
+        messages: [{ role: "user", content: "test" }],
+      },
+      {
+        onDelta: (chunk) => {
+          deltaText += chunk;
+        },
+        onReasoning: (chunk) => {
+          reasoningText += chunk;
+        },
+      }
+    );
+
+    expect(reasoningText).toBe("Analyzing...");
+    expect(deltaText).toBe("Final answer");
+  });
 });

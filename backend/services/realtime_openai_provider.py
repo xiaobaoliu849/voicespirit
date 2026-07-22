@@ -54,6 +54,7 @@ class OpenAIRealtimeMixin:
             "query": str(result.get("query", "")),
             "turn_id": str(result.get("turn_id", "")),
             "source_count": int(result.get("source_count", 0) or 0),
+            "sources": result.get("sources") or [],
             "elapsed_ms": int(result.get("elapsed_ms", 0) or 0),
         }
         if recorder is not None:

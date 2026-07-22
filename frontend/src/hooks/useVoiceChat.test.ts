@@ -1152,6 +1152,14 @@ describe("useVoiceChat", () => {
         source_count: 1,
         elapsed_ms: 320,
         status: "completed",
+        sources: [
+          {
+            title: "Research source",
+            uri: "https://example.com/research",
+            snippet: "Fetched research content",
+            source_type: "web_search",
+          },
+        ],
       });
     });
 
@@ -1196,6 +1204,12 @@ describe("useVoiceChat", () => {
           status: "result_delivered",
           provider: "DashScope",
           tool_name: "search_web",
+          sources: [
+            expect.objectContaining({
+              title: "Research source",
+              uri: "https://example.com/research",
+            }),
+          ],
         }),
       ]),
     });

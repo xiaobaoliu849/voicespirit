@@ -404,6 +404,7 @@ class VoiceAgentToolService:
                 "query": clean_query,
                 "turn_id": turn_id,
                 "source_count": len(sources),
+                "sources": sources,
                 "elapsed_ms": int((time.perf_counter() - started_at) * 1000),
             },
         )

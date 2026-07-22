@@ -313,6 +313,7 @@ export default function useChat({
       }
 
       let streamedReply = "";
+      let streamedReasoning = "";
       await streamChatCompletion(
         {
           provider: chatProvider,
@@ -337,6 +338,22 @@ export default function useChat({
                 return prev;
               }
               next[lastIdx] = { ...last, content: streamedReply };
+              return next;
+            });
+          },
+          onReasoning: (chunk) => {
+            streamedReasoning += chunk;
+            setChatMessages((prev) => {
+              if (!prev.length) {
+                return prev;
+              }
+              const next = [...prev];
+              const lastIdx = next.length - 1;
+              const last = next[lastIdx];
+              if (last.role !== "assistant") {
+                return prev;
+              }
+              next[lastIdx] = { ...last, reasoningContent: streamedReasoning };
               return next;
             });
           },
@@ -458,6 +475,7 @@ export default function useChat({
       }
 
       let streamedReply = "";
+      let streamedReasoning = "";
       await streamChatCompletion(
         {
           provider: chatProvider,
@@ -482,6 +500,22 @@ export default function useChat({
                 return prev;
               }
               next[lastIdx] = { ...last, content: streamedReply };
+              return next;
+            });
+          },
+          onReasoning: (chunk) => {
+            streamedReasoning += chunk;
+            setChatMessages((prev) => {
+              if (!prev.length) {
+                return prev;
+              }
+              const next = [...prev];
+              const lastIdx = next.length - 1;
+              const last = next[lastIdx];
+              if (last.role !== "assistant") {
+                return prev;
+              }
+              next[lastIdx] = { ...last, reasoningContent: streamedReasoning };
               return next;
             });
           },

@@ -90,38 +90,49 @@ class LLMService:
         return ""
 
     @staticmethod
-    def _extract_delta(data: dict[str, Any]) -> str:
+    def _extract_delta_parts(data: dict[str, Any]) -> tuple[str, str]:
         choices = data.get("choices")
         if not isinstance(choices, list) or not choices:
-            return ""
+            return "", ""
         first = choices[0]
         if not isinstance(first, dict):
-            return ""
+            return "", ""
+
+        content_str = ""
+        reasoning_str = ""
 
         delta = first.get("delta")
         if isinstance(delta, dict):
-            content = delta.get("content")
-            if isinstance(content, str):
-                return content
-            if isinstance(content, list):
-                text_parts: list[str] = []
-                for part in content:
-                    if isinstance(part, dict) and isinstance(part.get("text"), str):
-                        text_parts.append(part["text"])
-                return "".join(text_parts)
+            r_val = delta.get("reasoning_content") or delta.get("reasoning") or delta.get("thinking")
+            if isinstance(r_val, str):
+                reasoning_str = r_val
+
+            c_val = delta.get("content")
+            if isinstance(c_val, str):
+                content_str = c_val
+            elif isinstance(c_val, list):
+                parts = [p.get("text", "") for p in c_val if isinstance(p, dict) and isinstance(p.get("text"), str)]
+                content_str = "".join(parts)
 
         message = first.get("message")
-        if isinstance(message, dict):
-            content = message.get("content")
-            if isinstance(content, str):
-                return content
-            if isinstance(content, list):
-                text_parts = []
-                for part in content:
-                    if isinstance(part, dict) and isinstance(part.get("text"), str):
-                        text_parts.append(part["text"])
-                return "".join(text_parts)
-        return ""
+        if isinstance(message, dict) and not content_str and not reasoning_str:
+            r_val = message.get("reasoning_content") or message.get("reasoning") or message.get("thinking")
+            if isinstance(r_val, str):
+                reasoning_str = r_val
+
+            c_val = message.get("content")
+            if isinstance(c_val, str):
+                content_str = c_val
+            elif isinstance(c_val, list):
+                parts = [p.get("text", "") for p in c_val if isinstance(p, dict) and isinstance(p.get("text"), str)]
+                content_str = "".join(parts)
+
+        return content_str, reasoning_str
+
+    @staticmethod
+    def _extract_delta(data: dict[str, Any]) -> str:
+        content, _ = LLMService._extract_delta_parts(data)
+        return content
 
     def _resolve_settings(self, provider: str, model: str | None) -> dict[str, str]:
         self.config.reload()
@@ -561,7 +572,9 @@ class LLMService:
                         except json.JSONDecodeError:
                             continue
 
-                        delta = self._extract_delta(chunk)
+                        delta, reasoning_delta = self._extract_delta_parts(chunk)
+                        if reasoning_delta:
+                            yield {"type": "reasoning", "content": reasoning_delta}
                         if delta:
                             chunks.append(delta)
                             yield {"type": "delta", "content": delta}
