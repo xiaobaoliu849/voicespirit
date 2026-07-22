@@ -39,7 +39,33 @@ class LLMService:
                 normalized.append({"role": role, "content": parts})
         if not normalized:
             raise ValueError("messages is empty.")
-        return normalized
+
+        import datetime
+        now = datetime.datetime.now().astimezone()
+        weekdays = ["一", "二", "三", "四", "五", "六", "日"]
+        time_tag = f"【系统当前实时时间】：{now.strftime('%Y-%m-%d %H:%M:%S')} {now.tzname()} (星期{weekdays[now.weekday()]})\n"
+
+        result: list[dict[str, Any]] = []
+        has_system = False
+
+        for msg in normalized:
+            if msg.get("role") == "system":
+                has_system = True
+                content = msg.get("content", "")
+                if isinstance(content, str) and "【系统当前实时时间】" not in content:
+                    result.append({**msg, "content": f"{time_tag}{content}"})
+                else:
+                    result.append(msg)
+            else:
+                result.append(msg)
+
+        if not has_system:
+            result.insert(0, {
+                "role": "system",
+                "content": f"{time_tag}你是一个智能语音与文本助手。请依据【系统当前实时时间】解答用户涉及日期与时间的疑问。",
+            })
+
+        return result
 
     @staticmethod
     def _extract_reply(data: dict[str, Any]) -> str:
