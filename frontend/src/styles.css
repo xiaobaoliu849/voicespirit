@@ -8202,5 +8202,16 @@ button.danger:focus-visible {
   font-weight: 600;
 }
 
+.vsPodcastMergedScriptArea {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  margin-top: 20px;
+  padding-top: 20px;
+  border-top: 1px dashed rgba(98, 76, 54, 0.12);
+  animation: vsModalSlideUp 0.3s ease;
+}
+
+
 
 

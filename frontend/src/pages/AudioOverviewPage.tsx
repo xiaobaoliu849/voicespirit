@@ -132,20 +132,25 @@ export default function AudioOverviewPage({
             />
           ) : null}
 
-          {/* Stepper Tabs */}
+          {/* Stepper Anchors */}
           <div className="vsPodcastStepperTabs">
             <button
               type="button"
               className={activeStage === 1 ? "vsBtnPrimary vsStepperBtn" : "vsBtnSecondary vsStepperBtn"}
-              onClick={() => setStageOverride(1)}
+              onClick={() => {
+                setStageOverride(1);
+                document.getElementById("podcast-topic-section")?.scrollIntoView?.({ behavior: "smooth" });
+              }}
             >
               1. {t("主题与资料", "Topic & Sources")}
             </button>
             <button
               type="button"
               className={activeStage === 2 ? "vsBtnPrimary vsStepperBtn" : "vsBtnSecondary vsStepperBtn"}
-              onClick={() => hasScript && setStageOverride(2)}
-              disabled={!hasScript}
+              onClick={() => {
+                setStageOverride(2);
+                document.getElementById("podcast-script-section")?.scrollIntoView?.({ behavior: "smooth" });
+              }}
             >
               2. {t("剧本与配音", "Script & Voice")}
             </button>
@@ -156,12 +161,14 @@ export default function AudioOverviewPage({
         <div className="vsPodcastContentArea custom-scrollbar">
           <div className="vsPodcastContentInner">
             
-            {activeStage === 1 && (
+            {/* Stage 1: Topic Prompt Section */}
+            <div id="podcast-topic-section">
               <PodcastTopicStep audioOverview={audioOverview} />
-            )}
+            </div>
 
-            {activeStage === 2 && (
-              <>
+            {/* Stage 2: Script & Voice Synthesis Section */}
+            {(hasScript || activeStage === 2 || audioOverview.audioOverviewBusy) && (
+              <div id="podcast-script-section" className="vsPodcastMergedScriptArea">
                 {/* Audio Player (if exists) */}
                 {audioOverview.audioOverviewAudioUrl && (
                   <div className="vsAudioPlayerCard">
@@ -173,7 +180,7 @@ export default function AudioOverviewPage({
                 <AgentSourcesPanel sources={audioOverview.audioAgentSources} />
                 <PodcastScriptEditor audioOverview={audioOverview} />
                 <PodcastSynthBar audioOverview={audioOverview} />
-              </>
+              </div>
             )}
 
           </div>
