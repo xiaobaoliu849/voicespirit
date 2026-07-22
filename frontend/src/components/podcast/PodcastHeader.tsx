@@ -3,17 +3,75 @@ import { useI18n } from "../../i18n";
 
 type Props = {
   audioOverview: UseAudioOverviewResult;
+  onBackToLibrary?: () => void;
+  onSaveScript?: () => void;
+  onExportScript?: () => void;
+  hasScript?: boolean;
 };
 
-export default function PodcastHeader({ audioOverview }: Props) {
+export default function PodcastHeader({
+  audioOverview,
+  onBackToLibrary,
+  onSaveScript,
+  onExportScript,
+  hasScript = false
+}: Props) {
   const { t } = useI18n();
+  const isWorkspaceView = Boolean(onBackToLibrary);
+
+  const titleText = isWorkspaceView
+    ? audioOverview.audioOverviewPodcastId
+      ? t(
+          `播客 #${audioOverview.audioOverviewPodcastId}: ${audioOverview.audioOverviewTopic || "未命名"}`,
+          `Podcast #${audioOverview.audioOverviewPodcastId}: ${audioOverview.audioOverviewTopic || "Unnamed"}`
+        )
+      : t("新建播客草稿", "New Podcast Draft")
+    : t("播客工作台", "Podcast Studio");
+
+  const subtitleText = isWorkspaceView
+    ? t("播客工作台 · 从主题到剧本与合成", "Podcast Studio · Topic to script and voice synthesis")
+    : t("从一个主题开始，逐步生成脚本并合成双人播客。", "Start from one topic, generate a script, then synthesize a two-host podcast.");
+
   return (
-    <div className="vsPodcastHeader">
-      <div className="vsPodcastHeaderCopy">
-        <h2>{t("播客工作台", "Podcast Studio")}</h2>
-        <p>{t("从一个主题开始，逐步生成脚本并合成双人播客。", "Start from one topic, generate a script, then synthesize a two-host podcast.")}</p>
+    <div className={`vsPodcastHeader ${isWorkspaceView ? "is-workspace" : ""}`}>
+      <div className="vsPodcastHeaderMain">
+        {onBackToLibrary && (
+          <button
+            type="button"
+            className="vsTranscribeBackBtn"
+            onClick={onBackToLibrary}
+            title={t("返回列表", "Back to list")}
+          >
+            ←
+          </button>
+        )}
+        <div className="vsPodcastHeaderCopy">
+          <h2>{titleText}</h2>
+          <p>{subtitleText}</p>
+        </div>
       </div>
+
       <div className="vsPodcastHeaderActions">
+        {onSaveScript && (
+          <button
+            type="button"
+            onClick={onSaveScript}
+            disabled={audioOverview.audioOverviewSaving || audioOverview.audioOverviewBusy}
+            className="vsBtnSecondary vsBtnSmall"
+          >
+            {audioOverview.audioOverviewSaving ? t("保存中...", "Saving...") : t("保存草稿", "Save Draft")}
+          </button>
+        )}
+        {onExportScript && (
+          <button
+            type="button"
+            onClick={onExportScript}
+            disabled={!hasScript}
+            className="vsBtnSecondary vsBtnSmall"
+          >
+            {t("导出 TXT", "Export TXT")}
+          </button>
+        )}
         <span className="vsPodcastStatusChip">{audioOverview.currentAudioOverviewLabel}</span>
         {audioOverview.audioAgentRunId !== null ? (
           <span className="vsPodcastStatusChip">
@@ -69,3 +127,4 @@ export default function PodcastHeader({ audioOverview }: Props) {
     </div>
   );
 }
+

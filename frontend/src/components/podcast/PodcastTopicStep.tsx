@@ -9,6 +9,7 @@ type Props = {
 
 export default function PodcastTopicStep({ audioOverview }: Props) {
   const { t } = useI18n();
+
   const handleGenerateClick = (event: MouseEvent<HTMLButtonElement>) => {
     void audioOverview.onGenerateScript(
       event as unknown as Parameters<typeof audioOverview.onGenerateScript>[0]
@@ -16,61 +17,82 @@ export default function PodcastTopicStep({ audioOverview }: Props) {
   };
 
   return (
-    <form className="vsPodcastStepCard" onSubmit={audioOverview.onGenerateScript}>
-      <div className="vsPodcastStepHeader">
-        <div className="vsPodcastStepTitle">
-          <span className="vsStepNum">1</span>
-          <h3>{t("确定播客主题", "Choose the podcast topic")}</h3>
+    <form className="vsPodcastPromptCard" onSubmit={audioOverview.onGenerateScript}>
+      <div className="vsPodcastPromptHeader">
+        <div className="vsPodcastPromptBadge">Step 1</div>
+        <div>
+          <h3 className="vsPodcastPromptTitle">{t("确定播客主题", "Choose the podcast topic")}</h3>
+          <p className="vsPodcastPromptDesc">
+            {t("输入你想讨论的话题，AI 将为你自动生成对话剧本并匹配双人语音。", "Enter a topic and AI will draft a dual-host dialogue script and assign natural voices.")}
+          </p>
         </div>
       </div>
-      <div className="vsPodcastStepContent">
-        <label className="vsPodcastField">
-          <span className="vsPodcastFieldLabel">{t("话题", "Topic")}</span>
+
+      <div className="vsPodcastPromptBody">
+        <div className="vsTopicInputWrap">
           <textarea
             className="vsTopicInput"
-            rows={5}
+            rows={4}
             value={audioOverview.audioOverviewTopic}
             onChange={(e) => audioOverview.onTopicChange(e.target.value)}
-            placeholder={t("输入你想讨论的话题，例如：AI 如何改变个人学习习惯？", "Enter the topic you want to discuss, for example: How is AI changing personal learning habits?")}
+            placeholder={t(
+              "输入你想讨论的话题，例如：AI 如何改变个人学习习惯？",
+              "Enter the topic you want to discuss, for example: How is AI changing personal learning habits?"
+            )}
           />
-        </label>
 
-        <div className="vsPodcastStepActions">
-          <button
-            className="vsGenerateBtn"
-            type="button"
-            onClick={handleGenerateClick}
-            disabled={audioOverview.audioOverviewBusy}
-          >
-            {audioOverview.audioOverviewBusy ? t("生成中...", "Generating...") : t("生成脚本", "Generate script")}
-          </button>
-          <button
-            type="button"
-            className="vsPodcastAdvancedToggle"
-            onClick={audioOverview.onToggleAdvanced}
-          >
-            {audioOverview.audioOverviewAdvancedOpen ? t("收起高级设置", "Hide advanced settings") : t("⚙️ 高级设置", "⚙️ Advanced settings")}
-          </button>
+          <div className="vsTopicActionBar">
+            <button
+              type="button"
+              className={`vsBtnGhost vsBtnSmall vsAdvancedBtn ${audioOverview.audioOverviewAdvancedOpen ? "is-open" : ""}`}
+              onClick={audioOverview.onToggleAdvanced}
+            >
+              {audioOverview.audioOverviewAdvancedOpen
+                ? t("收起高级设置 ▴", "Hide advanced ▴")
+                : t("⚙️ 高级设置 ▾", "⚙️ Advanced settings ▾")}
+            </button>
+
+            <button
+              type="button"
+              className="vsBtnPrimary vsGenerateBtn"
+              onClick={handleGenerateClick}
+              disabled={audioOverview.audioOverviewBusy || !audioOverview.audioOverviewTopic.trim()}
+            >
+              {audioOverview.audioOverviewBusy ? (
+                <>
+                  <span className="spinner vsLoadingSpinnerInline" />
+                  {t("生成中...", "Generating...")}
+                </>
+              ) : (
+                t("生成脚本", "Generate script")
+              )}
+            </button>
+          </div>
         </div>
 
-        {audioOverview.audioOverviewAdvancedOpen ? (
-          <div className="vsPodcastAdvancedPanel">
-            <div className="rowOverview">
-              <label>
-                {t("语言", "Language")}
+        {audioOverview.audioOverviewAdvancedOpen && (
+          <div className="vsPodcastAdvancedDrawer">
+            <div className="vsAdvancedSectionTitle">{t("⚙️ 模型与参数配置", "⚙️ Model & Parameter Settings")}</div>
+            
+            <div className="vsAdvancedGrid">
+              <label className="vsPodcastField">
+                <span className="vsPodcastFieldLabel">{t("语言", "Language")}</span>
                 <select
                   value={audioOverview.audioOverviewLanguage}
                   onChange={(e) => audioOverview.onLanguageChange(e.target.value)}
+                  className="vsInputSelect"
                 >
                   <option value="zh">{t("中文", "Chinese")}</option>
                   <option value="en">{t("英文", "English")}</option>
                 </select>
               </label>
-              <label>
-                {t("LLM 供应商", "LLM provider")}
+
+              <label className="vsPodcastField">
+                <span className="vsPodcastFieldLabel">{t("LLM 供应商", "LLM Provider")}</span>
                 <select
                   value={audioOverview.audioOverviewProvider}
                   onChange={(e) => audioOverview.onProviderChange(e.target.value)}
+                  className="vsInputSelect"
                 >
                   {PROVIDERS.map((item) => (
                     <option key={item} value={item}>
@@ -79,94 +101,101 @@ export default function PodcastTopicStep({ audioOverview }: Props) {
                   ))}
                 </select>
               </label>
-              <label>
-                {t("模型", "Model")}
+
+              <label className="vsPodcastField">
+                <span className="vsPodcastFieldLabel">{t("模型", "Model")}</span>
                 <input
+                  type="text"
                   value={audioOverview.audioOverviewModel}
                   onChange={(e) => audioOverview.onModelChange(e.target.value)}
-                  placeholder={t("留空则使用默认模型", "Leave blank to use the default model")}
+                  placeholder={t("留空则使用默认模型", "Leave blank for default model")}
+                  className="vsInputText"
                 />
               </label>
-              <label>
-                {t("对话轮数", "Turn count")}
+
+              <label className="vsPodcastField">
+                <span className="vsPodcastFieldLabel">{t("对话轮数", "Turn Count")}</span>
                 <input
                   type="number"
                   min={2}
                   max={40}
                   value={audioOverview.audioOverviewTurnCount}
                   onChange={(e) => audioOverview.onTurnCountChange(e.target.value)}
+                  className="vsInputText"
                 />
               </label>
             </div>
 
-            <label className="vsPodcastMemoryToggle">
+            <div className="vsAdvancedSectionTitle">{t("🧠 长期记忆联动 (EverMem)", "🧠 Long-term Memory (EverMem)")}</div>
+            
+            <label className="vsPodcastMemoryCard">
               <input
                 type="checkbox"
-              checked={audioOverview.audioOverviewUseMemory}
-              onChange={(e) => audioOverview.onUseMemoryChange(e.target.checked)}
-            />
-            <div>
+                checked={audioOverview.audioOverviewUseMemory}
+                onChange={(e) => audioOverview.onUseMemoryChange(e.target.checked)}
+              />
+              <div className="vsMemoryCardContent">
                 <strong>{t("使用 EverMem 长期记忆辅助脚本生成", "Use EverMem long-term memory to assist script generation")}</strong>
                 <p>
                   {audioOverview.audioOverviewMemoryConfigured
-                    ? t("生成播客脚本时会尝试召回相关历史记忆，并把本次草稿写回 EverMem。", "Podcast generation will try to recall relevant memories and write this draft back to EverMem.")
-                    : t("请先在设置页启用 EverMem。未接入时这里不会注入长期记忆。", "Enable EverMem in Settings first. No long-term memory will be injected until then.")}
+                    ? t("系统会自动检索与主题相关的对话记忆，并将本次播客剧本归档至长期记忆库。", "Retrieves related memories and archives this podcast draft into EverMem.")
+                    : t("尚未启用 EverMem 模块，可在系统设置中开启。", "EverMem module is not enabled yet. Turn it on in Settings.")}
                 </p>
               </div>
             </label>
 
             {audioOverview.audioOverviewMemoriesRetrieved > 0 || audioOverview.audioOverviewMemorySaved ? (
-              <p className="vsPodcastMemoryResult">
+              <div className="vsPodcastMemoryNotice">
                 {audioOverview.audioOverviewMemoriesRetrieved > 0
                   ? t(
-                    `本次生成已引用 ${audioOverview.audioOverviewMemoriesRetrieved} 条长期记忆。`,
-                    `This draft referenced ${audioOverview.audioOverviewMemoriesRetrieved} long-term memories.`
-                  )
-                  : t("本次生成未召回历史记忆。", "This draft did not recall any previous memories.")}
-                {audioOverview.audioOverviewMemorySaved ? t(" 已写入本次播客草稿。", " Saved back into this podcast draft.") : ""}
-              </p>
+                      `💡 本次生成已自动融合 ${audioOverview.audioOverviewMemoriesRetrieved} 条长期记忆。`,
+                      `💡 Successfully integrated ${audioOverview.audioOverviewMemoriesRetrieved} long-term memories.`
+                    )
+                  : t("💡 本次生成未搜索到匹配的记忆片段。", "💡 No matching memory fragments found.")}
+                {audioOverview.audioOverviewMemorySaved ? t(" 草稿已同步至记忆库。", " Draft synced to memory bank.") : ""}
+              </div>
             ) : null}
 
-            <label className="vsPodcastField">
-              <span className="vsPodcastFieldLabel">{t("手动资料", "Manual source text")}</span>
-              <textarea
-                rows={4}
-                value={audioOverview.audioAgentSourceText}
-                onChange={(e) => audioOverview.onSourceTextChange(e.target.value)}
-                placeholder={t(
-                  "补充你已经掌握的背景资料、采访提纲、会议纪要或重点观点。",
-                  "Add background notes, interview outlines, meeting notes, or key points you already have."
-                )}
-              />
-            </label>
+            <div className="vsAdvancedSectionTitle">{t("📚 参考资料与约束", "📚 Reference Materials & Constraints")}</div>
 
-            <label className="vsPodcastField">
-              <span className="vsPodcastFieldLabel">{t("来源 URL 列表", "Source URL list")}</span>
-              <textarea
-                rows={4}
-                value={audioOverview.audioAgentSourceUrlsText}
-                onChange={(e) => audioOverview.onSourceUrlsTextChange(e.target.value)}
-                placeholder={t(
-                  "每行一个 URL。Agent 会尝试抓取网页正文；如果没有手动资料，也会尝试自动搜索公开网页。",
-                  "One URL per line. The agent will try to fetch page text; without manual sources it will also try public web search."
-                )}
-              />
-            </label>
+            <div className="vsAdvancedGridTwo">
+              <label className="vsPodcastField">
+                <span className="vsPodcastFieldLabel">{t("手动资料", "Manual source text")}</span>
+                <textarea
+                  rows={3}
+                  value={audioOverview.audioAgentSourceText}
+                  onChange={(e) => audioOverview.onSourceTextChange(e.target.value)}
+                  placeholder={t("补充已掌握的背景资料、采访提纲或重点笔记...", "Paste background notes, article summaries, or outline...")}
+                  className="vsTextareaField"
+                />
+              </label>
 
-            <label className="vsPodcastField">
+              <label className="vsPodcastField">
+                <span className="vsPodcastFieldLabel">{t("来源 URL 列表", "Source URL list")}</span>
+                <textarea
+                  rows={3}
+                  value={audioOverview.audioAgentSourceUrlsText}
+                  onChange={(e) => audioOverview.onSourceUrlsTextChange(e.target.value)}
+                  placeholder={t("每行填写一个网页链接 (https://...)", "One web URL per line (https://...)")}
+                  className="vsTextareaField"
+                />
+              </label>
+            </div>
+
+            <label className="vsPodcastField" style={{ marginTop: "12px" }}>
               <span className="vsPodcastFieldLabel">{t("生成约束", "Generation constraints")}</span>
               <textarea
-                rows={4}
+                rows={2}
                 value={audioOverview.audioAgentGenerationConstraints}
                 onChange={(e) => audioOverview.onGenerationConstraintsChange(e.target.value)}
                 placeholder={t(
-                  "例如：更像 NotebookLM 风格、避免夸张表述、口语化、控制在 6 分钟内、面向普通用户。",
-                  "For example: more like NotebookLM, avoid exaggerated claims, conversational tone, under 6 minutes, for mainstream users."
+                  "例如：对谈口语化、通俗易懂、控制在 5 分钟内、类似 NotebookLM 的自然交流风格。",
+                  "E.g.: Conversational tone, beginner-friendly, under 5 minutes, NotebookLM style."
                 )}
               />
             </label>
           </div>
-        ) : null}
+        )}
       </div>
     </form>
   );

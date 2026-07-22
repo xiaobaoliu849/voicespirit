@@ -92,41 +92,13 @@ export default function AudioOverviewPage({
   if (viewMode === "workspace") {
     return (
       <section className="vsTranscribeDetail">
-        <PodcastHeader audioOverview={headerAudioOverview} />
-
-        {/* Header */}
-        <div className="vsTranscribeDetailHeader">
-          <button
-            className="vsTranscribeBackBtn"
-            onClick={handleBackToLibrary}
-            title={t("返回列表", "Back to list")}
-          >
-            ←
-          </button>
-          <div className="vsTranscribeDetailInfo">
-            <h2 className="vsTranscribeDetailFileName">
-              {audioOverview.audioOverviewPodcastId
-                ? t(`播客 #${audioOverview.audioOverviewPodcastId}: ${audioOverview.audioOverviewTopic || "未命名"}`, `Podcast #${audioOverview.audioOverviewPodcastId}: ${audioOverview.audioOverviewTopic || "Unnamed"}`)
-                : t("新建播客草稿", "New Podcast Draft")}
-            </h2>
-          </div>
-          <div className="vsTranscribeDetailActions">
-            <button
-              onClick={audioOverview.onSaveScript}
-              disabled={audioOverview.audioOverviewSaving || audioOverview.audioOverviewBusy}
-              className="vsBtnSecondary vsBtnSmall"
-            >
-              {audioOverview.audioOverviewSaving ? t("保存中...", "Saving...") : t("保存草稿", "Save Draft")}
-            </button>
-            <button
-              onClick={audioOverview.onExportScript}
-              disabled={!hasScript}
-              className="vsBtnSecondary vsBtnSmall"
-            >
-              {t("导出 TXT", "Export TXT")}
-            </button>
-          </div>
-        </div>
+        <PodcastHeader
+          audioOverview={headerAudioOverview}
+          onBackToLibrary={handleBackToLibrary}
+          onSaveScript={audioOverview.onSaveScript}
+          onExportScript={audioOverview.onExportScript}
+          hasScript={hasScript}
+        />
 
         {/* Status / Errors */}
         <div className="vsPodcastStatusArea">
@@ -215,8 +187,25 @@ export default function AudioOverviewPage({
   // ═══════════════════════════════════════════════════
   return (
     <section className="vsTranscribeLibrary">
-      {/* Toolbar */}
-      <div className="vsTranscribeToolbar">
+      {/* Studio Header & Toolbar */}
+      <div className="vsPodcastStudioToolbar">
+        <div className="vsStudioSegmentGroup">
+          <button
+            type="button"
+            className={`vsStudioSegmentBtn ${libraryTab === "podcasts" ? "is-active" : ""}`}
+            onClick={() => setLibraryTab("podcasts")}
+          >
+            🎙️ {t("播客记录", "Podcasts")}
+          </button>
+          <button
+            type="button"
+            className={`vsStudioSegmentBtn ${libraryTab === "agent_runs" ? "is-active" : ""}`}
+            onClick={() => setLibraryTab("agent_runs")}
+          >
+            ⚡ {t("Agent 运行记录", "Agent Runs")}
+          </button>
+        </div>
+
         <div className="vsTranscribeSearchBox">
           <span className="vsTranscribeSearchIcon">🔍</span>
           <input
@@ -229,36 +218,22 @@ export default function AudioOverviewPage({
 
         <div className="vsTranscribeToolbarActions">
           <button
+            type="button"
             onClick={() => void audioOverview.onRefreshList()}
             className="vsBtnGhost vsBtnSmall"
-            title={t("刷新", "Refresh")}
+            title={t("刷新列表", "Refresh list")}
             disabled={audioOverview.audioOverviewListBusy}
           >
             ↻ {audioOverview.audioOverviewListBusy ? t("刷新中...", "Refreshing...") : t("刷新", "Refresh")}
           </button>
           <button
+            type="button"
             onClick={handleNewPodcast}
             className="vsBtnPrimary vsBtnNewPodcast"
           >
             ✨ {t("新建播客", "New Podcast")}
           </button>
         </div>
-      </div>
-
-      {/* Library Tabs */}
-      <div className="vsLibraryTabs">
-        <button
-          className={libraryTab === "podcasts" ? "vsBtnPrimary vsStepperBtn" : "vsBtnSecondary vsStepperBtn"}
-          onClick={() => setLibraryTab("podcasts")}
-        >
-          {t("播客记录", "Podcasts")}
-        </button>
-        <button
-          className={libraryTab === "agent_runs" ? "vsBtnPrimary vsStepperBtn" : "vsBtnSecondary vsStepperBtn"}
-          onClick={() => setLibraryTab("agent_runs")}
-        >
-          {t("Agent 运行记录", "Agent Runs")}
-        </button>
       </div>
 
       {/* Card Grid / Agent History */}
@@ -286,7 +261,7 @@ export default function AudioOverviewPage({
             </p>
           </div>
         ) : filteredPodcasts.length === 0 ? (
-          <div className="vsTranscribeEmpty">
+          <div className="vsTranscribeEmptyCard">
             <div className="vsTranscribeEmptyIcon">🎙️</div>
             <h3 className="vsTranscribeEmptyTitle">
               {searchQuery
@@ -295,17 +270,9 @@ export default function AudioOverviewPage({
             </h3>
             <p className="vsTranscribeEmptyDesc">
               {searchQuery
-                ? t("尝试调整搜索条件。", "Try adjusting your search criteria.")
-                : t("点击「新建播客」开始创作你的第一个播客节目。", "Click 'New Podcast' to create your first podcast.")}
+                ? t("尝试调整搜索关键词或重置筛选条件。", "Try adjusting your search query.")
+                : t("点击右上角「新建播客」开启你的第一个 AI 播客创作体验。", "Click 'New Podcast' at top right to start creating.")}
             </p>
-            {!searchQuery && (
-              <button
-                onClick={handleNewPodcast}
-                className="vsBtnPrimary vsBtnNewPodcast"
-              >
-                ✨ {t("新建播客", "New Podcast")}
-              </button>
-            )}
           </div>
         ) : (
           <div className="vsTranscribeGrid">
@@ -318,14 +285,10 @@ export default function AudioOverviewPage({
                 onDelete={(e) => {
                   e.stopPropagation();
                   if (confirm(t("确定要删除这条播客记录吗？", "Are you sure you want to delete this podcast?"))) {
-                    // Quick way to delete since onDeleteCurrent only deletes active podcast.
-                    // Oh wait, audioOverview.onDeleteCurrent deletes the currently active one.
-                    // Let's set it active first, then delete. Or just use a hook method if available.
                     const hook = audioOverview as any;
                     if (hook.onDeletePodcastById) {
                        hook.onDeletePodcastById(item.id);
                     } else {
-                       // Workaround: Load it then delete.
                        handleOpenPodcast(item.id);
                        setTimeout(() => audioOverview.onDeleteCurrent(), 500);
                     }
