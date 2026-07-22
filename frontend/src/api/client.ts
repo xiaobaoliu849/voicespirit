@@ -738,7 +738,9 @@ export async function fetchSpeakAudio(params: {
   }
   return {
     blob: await response.blob(),
-    memorySaved: response.headers.get("X-EverMem-Saved") === "true"
+    memorySaved: response.headers.get("X-EverMem-Saved") === "true",
+    voice: response.headers.get("X-TTS-Voice") || undefined,
+    engine: response.headers.get("X-TTS-Engine") || undefined,
   };
 }
 

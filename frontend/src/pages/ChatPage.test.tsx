@@ -177,7 +177,8 @@ describe('ChatPage', () => {
         const fetchSpeakAudioMock = vi.spyOn(await import('../api'), 'fetchSpeakAudio').mockResolvedValue({
             blob: new Blob(['audio'], { type: 'audio/mpeg' }),
             voice: 'en-US-AvaNeural',
-            engine: 'edge'
+            engine: 'edge',
+            memorySaved: false
         });
 
         render(
