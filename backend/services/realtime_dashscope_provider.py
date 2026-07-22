@@ -634,7 +634,7 @@ class DashScopeRealtimeMixin:
         settings = self._resolve_dashscope_settings(model)
         voice = _normalize_dashscope_realtime_voice(settings["model"], voice)
         memory_session = RealtimeMemorySession()
-        tool_session = VoiceAgentToolSession()
+        tool_session = VoiceAgentToolSession(default_provider="DashScope")
         resolved_voice = (voice or DEFAULT_QWEN_OMNI_REALTIME_VOICE).strip()
         if "qwen3.5-omni" in settings["model"].lower() and resolved_voice not in QWEN_OMNI_REALTIME_VOICES:
             logger.warning(

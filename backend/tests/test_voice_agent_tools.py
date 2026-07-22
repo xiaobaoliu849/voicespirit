@@ -722,5 +722,48 @@ class VoiceAgentToolServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(terminal_events[0]["reason"], "provider_cancelled")
 
 
+class VoiceAgentToolProviderResolutionTests(unittest.TestCase):
+    def test_provider_resolution_with_mock_llm(self) -> None:
+        fake_llm = FakeLLMService()
+        service = VoiceAgentToolService(
+            research_service=FakeResearchService(),  # type: ignore[arg-type]
+            audio_agent_service=FakeAudioAgentService(),  # type: ignore[arg-type]
+            llm_service=fake_llm,  # type: ignore[arg-type]
+            default_provider="Google",
+        )
+        provider, model = service._get_llm_provider_and_model()
+        self.assertEqual(provider, "Google")
+        self.assertIsNone(model)
+
+    def test_provider_resolution_with_configured_provider(self) -> None:
+        from services.llm_service import LLMService
+
+        class MockConfig:
+            def reload(self) -> None:
+                pass
+            def get_all(self) -> dict:
+                return {}
+            def get_provider_settings(self, provider: str, model: str | None = None) -> dict:
+                if provider == "Google":
+                    return {"api_key": "fake-google-key", "base_url": "http://google", "model": "gemini-model"}
+                return {"api_key": "", "base_url": "", "model": ""}
+
+        mock_config = MockConfig()
+        llm = LLMService()
+        llm.config = mock_config  # type: ignore[assignment]
+
+        service = VoiceAgentToolService(llm_service=llm, default_provider="Google")
+        provider, model = service._get_llm_provider_and_model()
+        self.assertEqual(provider, "Google")
+
+        service = VoiceAgentToolService(llm_service=llm, default_provider="OpenAI")
+        provider, model = service._get_llm_provider_and_model()
+        self.assertEqual(provider, "Google")
+
+        service = VoiceAgentToolService(llm_service=llm, default_provider=None)
+        provider, model = service._get_llm_provider_and_model()
+        self.assertEqual(provider, "Google")
+
+
 if __name__ == "__main__":
     unittest.main()

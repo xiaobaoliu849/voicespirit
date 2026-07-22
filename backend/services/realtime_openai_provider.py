@@ -450,7 +450,7 @@ class OpenAIRealtimeMixin:
     ) -> None:
         settings = self._resolve_openai_settings(model)
         memory_session = RealtimeMemorySession()
-        tool_session = VoiceAgentToolSession()
+        tool_session = VoiceAgentToolSession(default_provider="OpenAI")
         recorder = await self._create_voice_session_recorder(
             provider="OpenAI",
             model=settings["model"],

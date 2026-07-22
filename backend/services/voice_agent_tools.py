@@ -110,11 +110,46 @@ class VoiceAgentToolService:
         audio_agent_service: AudioAgentService | None = None,
         llm_service: LLMService | None = None,
         tts_service: TTSService | None = None,
+        default_provider: str | None = None,
     ) -> None:
         self.research_service = research_service or AudioResearchService()
         self.audio_agent_service = audio_agent_service or AudioAgentService()
         self.llm_service = llm_service or LLMService()
         self.tts_service = tts_service or TTSService()
+        self.default_provider = default_provider
+
+    def _get_llm_provider_and_model(self) -> tuple[str, str | None]:
+        if not hasattr(self.llm_service, "config"):
+            return self.default_provider or "DashScope", None
+            
+        from .llm_service import SUPPORTED_PROVIDERS
+        
+        # Check if custom provider
+        custom_providers = self.llm_service.config.get_all().get("custom_providers", [])
+        is_custom = lambda prov: any(p.get("id") == prov for p in custom_providers if isinstance(p, dict))
+        
+        def is_configured(prov: str) -> bool:
+            if prov not in SUPPORTED_PROVIDERS and not is_custom(prov):
+                return False
+            try:
+                settings = self.llm_service._resolve_settings(prov, model=None)
+                return bool(settings.get("api_key"))
+            except Exception:
+                return False
+
+        if self.default_provider and is_configured(self.default_provider):
+            return self.default_provider, None
+
+        preferred_order = ["Google", "DashScope", "DeepSeek", "SiliconFlow", "Groq", "OpenRouter", "Ollama"]
+        for prov in preferred_order:
+            if is_configured(prov):
+                return prov, None
+
+        for p in custom_providers:
+            if isinstance(p, dict) and p.get("id") and is_configured(p["id"]):
+                return p["id"], None
+
+        return "DashScope", None
 
     @classmethod
     def extract_search_query(cls, text: str) -> str:
@@ -415,10 +450,12 @@ class VoiceAgentToolService:
                 "message": "正在创建音频 Agent 草稿任务...",
             },
         )
+        provider, model = self._get_llm_provider_and_model()
         run = self.audio_agent_service.create_run(
             topic=clean_topic,
             language="zh",
-            provider="DashScope",
+            provider=provider,
+            model=model,
             use_memory=True,
             auto_execute=False,
         )
@@ -499,17 +536,18 @@ class VoiceAgentToolService:
                 "message": f"正在翻译成{clean_target}...",
             },
         )
+        provider, model = self._get_llm_provider_and_model()
         translated = await self.llm_service.translate_text(
             text=clean_text,
             source_language="auto",
             target_language=clean_target,
-            provider="DashScope",
-            model=None,
+            provider=provider,
+            model=model,
         )
         elapsed_ms = int((time.perf_counter() - started_at) * 1000)
         translated_text = str(translated.get("translated_text", "")).strip()
-        provider = str(translated.get("provider", "DashScope"))
-        model = str(translated.get("model", ""))
+        provider = str(translated.get("provider", provider))
+        model = str(translated.get("model", model or ""))
         answer = f"翻译完成：{translated_text}"
         await send_event(
             "tool_call_completed",
@@ -580,9 +618,10 @@ class VoiceAgentToolService:
                 "message": "正在总结转录文本...",
             },
         )
+        provider, model = self._get_llm_provider_and_model()
         result = await self.llm_service.chat_completion(
-            provider="DashScope",
-            model=None,
+            provider=provider,
+            model=model,
             messages=[
                 {
                     "role": "system",
@@ -602,8 +641,8 @@ class VoiceAgentToolService:
         )
         elapsed_ms = int((time.perf_counter() - started_at) * 1000)
         summary = str(result.get("reply", "")).strip()
-        provider = str(result.get("provider", "DashScope"))
-        model = str(result.get("model", ""))
+        provider = str(result.get("provider", provider))
+        model = str(result.get("model", model or ""))
         answer = f"总结完成：\n{summary}"
         await send_event(
             "tool_call_completed",
@@ -769,7 +808,8 @@ class VoiceAgentToolService:
                 "function": {
                     "name": "translate_text",
                     "description": (
-                        "将文本翻译成其他语言。当用户明确要求翻译某段内容时调用此工具。"
+                        "将长文本或正式内容翻译成其他语言并生成翻译卡片。"
+                        "对于对话中的快速口语翻译、随口询问意思或日常问答（如'这句话中文怎么说'），请直接用语音口译回答，切勿调用此工具。"
                     ),
                     "parameters": {
                         "type": "object",
@@ -792,7 +832,8 @@ class VoiceAgentToolService:
                 "function": {
                     "name": "summarize_transcript",
                     "description": (
-                        "对一段文本进行摘要总结。当用户要求总结、归纳、概括某段内容时调用此工具。"
+                        "对长文本或完整转录文本进行摘要总结并生成总结卡片。"
+                        "对于口头询问对话内容或简短的口头总结回顾，请直接用语音回答，切勿调用此工具。"
                     ),
                     "parameters": {
                         "type": "object",
@@ -1026,8 +1067,13 @@ class VoiceAgentToolService:
 
 
 class VoiceAgentToolSession:
-    def __init__(self, service: VoiceAgentToolService | None = None) -> None:
-        self.service = service or VoiceAgentToolService()
+    def __init__(
+        self,
+        service: VoiceAgentToolService | None = None,
+        *,
+        default_provider: str | None = None,
+    ) -> None:
+        self.service = service or VoiceAgentToolService(default_provider=default_provider)
         self._current_task: asyncio.Task[None] | None = None
         self._native_tasks: dict[str, asyncio.Task[None]] = {}
         self._native_turn_ids: dict[str, str] = {}

@@ -1014,7 +1014,7 @@ class GoogleRealtimeMixin:
     ) -> None:
         settings = self._resolve_google_settings(model)
         memory_session = RealtimeMemorySession()
-        tool_session = VoiceAgentToolSession()
+        tool_session = VoiceAgentToolSession(default_provider="Google")
         recorder = await self._create_voice_session_recorder(
             provider="Google",
             model=settings["model"],

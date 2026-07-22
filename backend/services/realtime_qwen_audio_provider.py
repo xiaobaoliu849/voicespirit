@@ -773,7 +773,7 @@ class QwenAudioRealtimeMixin:
         """
         settings = self._resolve_dashscope_settings(model)
         memory_session = RealtimeMemorySession()
-        tool_session = VoiceAgentToolSession()
+        tool_session = VoiceAgentToolSession(default_provider="DashScope")
         resolved_voice = (voice or DEFAULT_QWEN_AUDIO_REALTIME_VOICE).strip()
         if resolved_voice not in QWEN_AUDIO_REALTIME_VOICES:
             logger.warning(
