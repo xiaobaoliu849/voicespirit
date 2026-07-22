@@ -27,35 +27,6 @@ _TOOL_DECLARATIONS: tuple[dict[str, Any], ...] = (
             "additionalProperties": False,
         },
     },
-    {
-        "name": "translate_text",
-        "description": (
-            "Translate long text, formal content, or requested passages into a target language and produce a structured translation card. "
-            "For quick spoken translations, inline meaning inquiries, or casual conversation translation, respond directly in spoken audio without invoking this tool."
-        ),
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "text": {"type": "string", "description": "The exact source text to translate."},
-                "target_language": {"type": "string", "description": "The requested target language."},
-            },
-            "required": ["text", "target_language"],
-            "additionalProperties": False,
-        },
-    },
-    {
-        "name": "summarize_transcript",
-        "description": (
-            "Summarize a full transcript or long text document into a structured summary card. "
-            "For brief spoken questions about conversation history or quick spoken recaps, answer directly in spoken audio without invoking this tool."
-        ),
-        "parameters": {
-            "type": "object",
-            "properties": {"text": {"type": "string", "description": "The transcript or text to summarize."}},
-            "required": ["text"],
-            "additionalProperties": False,
-        },
-    },
 )
 
 
