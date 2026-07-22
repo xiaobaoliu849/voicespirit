@@ -223,7 +223,12 @@ class BingResultParser(HTMLParser):
 
 
 _CONVERSATIONAL_PREFIXES = re.compile(
-    r"^(?:请问|请|帮我|帮我查一下|帮我搜索|我想知道|我想了解|搜索一下|查一下|查找|查找关于|检索|search for|please search|please query|tell me about|can you search|can you find)\s*",
+    r"^(?:hey\s*,?\s*|hello\s*,?\s*|please\s*|can you search about the\s*|can you search for\s*|can you search\s*|search about the\s*|search for the\s*|search about\s*|search for\s*|请问|请|帮我|帮我查一下|帮我搜索|我想知道|我想了解|搜索一下|查一下|查找|查找关于|检索|search for|please search|please query|tell me about|can you search|can you find)\s*",
+    re.IGNORECASE,
+)
+
+_CONVERSATIONAL_SUFFIXES = re.compile(
+    r"\s*(?:for me\s*\.?|thank you\s*\.?|thanks\s*\.?|please\s*\.?|谢谢\s*\.?|非常感谢\s*\.?)$",
     re.IGNORECASE,
 )
 
@@ -233,6 +238,7 @@ def refine_search_query(query: str) -> str:
     if not cleaned:
         return ""
     refined = _CONVERSATIONAL_PREFIXES.sub("", cleaned).strip()
+    refined = _CONVERSATIONAL_SUFFIXES.sub("", refined).strip()
     return refined or cleaned
 
 

@@ -199,12 +199,17 @@ class GoogleRealtimeMixin:
             for declaration in native_tool_declarations()
         ]
         system_inst = instructions or cls._build_realtime_instructions()
+        tools_list = []
+        if hasattr(types, "GoogleSearch"):
+            tools_list.append(types.Tool(google_search=types.GoogleSearch(), function_declarations=declarations))
+        else:
+            tools_list.append(types.Tool(function_declarations=declarations))
         return types.LiveConnectConfig(
             response_modalities=["AUDIO"],
             system_instruction=system_inst,
             input_audio_transcription=types.AudioTranscriptionConfig(),
             output_audio_transcription=types.AudioTranscriptionConfig(),
-            tools=[types.Tool(function_declarations=declarations)],
+            tools=tools_list,
             speech_config=types.SpeechConfig(
                 voice_config=types.VoiceConfig(
                     prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name=voice)
