@@ -13,6 +13,8 @@ export type VoicesResponse = {
 export type TtsAudioResponse = {
   blob: Blob;
   memorySaved: boolean;
+  voice?: string;
+  engine?: string;
 };
 
 export type TtsEngine = "edge" | "qwen_flash" | "minimax" | "xiaomi" | "openai" | "elevenlabs" | "chattts" | "gpt_sovits";
