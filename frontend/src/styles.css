@@ -7500,6 +7500,24 @@ button.danger:focus-visible {
   border-radius: 50%;
 }
 
+.vsPageLoading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 240px;
+}
+
+.vsPageLoading::after {
+  content: "";
+  width: 32px;
+  height: 32px;
+  border: 3px solid var(--line);
+  border-top-color: var(--brand);
+  border-radius: 50%;
+  animation: vsSpin 0.8s linear infinite;
+}
+
 .vsPodcastGlobalError {
   padding: 0 24px 12px;
 }

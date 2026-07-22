@@ -10,6 +10,7 @@ import {
 } from "../api";
 import { createInlineTranslator, type UiLanguage } from "../i18n";
 import type { FormatErrorMessage } from "../utils/errorFormatting";
+import { createMessageId, ensureMessageIds } from "../utils/messageId";
 
 type Options = {
   formatErrorMessage: FormatErrorMessage;
@@ -174,6 +175,14 @@ export default function useChat({
   const [deepThinking, setDeepThinking] = useState(false);
   const [chatAttachments, setChatAttachments] = useState<ChatAttachment[]>([]);
   const lastPreferredProviderRef = useRef(preferredProvider);
+  const streamAbortRef = useRef<AbortController | null>(null);
+
+  function abortActiveStream() {
+    if (streamAbortRef.current) {
+      streamAbortRef.current.abort();
+      streamAbortRef.current = null;
+    }
+  }
 
   function addChatAttachment(name: string, content: string) {
     setChatAttachments((prev) => [...prev, { name, content }]);
@@ -187,9 +196,18 @@ export default function useChat({
     setChatAttachments([]);
   }
 
-  const chatProviderOptions = providerOptions.length > 0 ? providerOptions : ["Google"];
-  const chatModelOptions = resolveModelOptions(chatProvider, providerModelCatalog);
-  const chatModelChoices = resolveAllModelChoices(chatProviderOptions, providerModelCatalog);
+  const chatProviderOptions = useMemo(
+    () => (providerOptions.length > 0 ? providerOptions : ["Google"]),
+    [providerOptions],
+  );
+  const chatModelOptions = useMemo(
+    () => resolveModelOptions(chatProvider, providerModelCatalog),
+    [chatProvider, providerModelCatalog],
+  );
+  const chatModelChoices = useMemo(
+    () => resolveAllModelChoices(chatProviderOptions, providerModelCatalog),
+    [chatProviderOptions, providerModelCatalog],
+  );
   const chatModelChoiceValue = chatModel.trim()
     ? buildModelChoiceValue(chatProvider, chatModel.trim())
     : "";
@@ -243,25 +261,6 @@ export default function useChat({
     setChatModel(choice.model);
   }
 
-  const chatHistoryItems = useMemo(() => {
-    const items: Array<{ id: string; content: string }> = [];
-    chatMessages.forEach((msg, idx) => {
-      if (msg.role !== "user") {
-        return;
-      }
-      const clean = msg.content.trim();
-      if (!clean) {
-        return;
-      }
-      const short = clean.length > 26 ? `${clean.slice(0, 26)}...` : clean;
-      items.push({
-        id: `${idx}-${msg.role}`,
-        content: short
-      });
-    });
-    return items.slice(-40).reverse();
-  }, [chatMessages]);
-
   async function onSubmit(event: FormEvent) {
     event.preventDefault();
     const userText = chatInput.trim();
@@ -288,7 +287,7 @@ export default function useChat({
 
     const nextHistory: ChatMessage[] = [
       ...chatMessages,
-      { role: "user", content: userText, attachments: [...chatAttachments] }
+      { role: "user", content: userText, attachments: [...chatAttachments], id: createMessageId() }
     ];
 
     const apiHistory: ChatMessage[] = [
@@ -296,10 +295,13 @@ export default function useChat({
       { role: "user", content: finalContent }
     ];
 
-    setChatMessages([...nextHistory, { role: "assistant", content: "" }]);
+    setChatMessages([...nextHistory, { role: "assistant", content: "", id: createMessageId() }]);
     setChatInput("");
     setChatAttachments([]);
 
+    abortActiveStream();
+    const controller = new AbortController();
+    streamAbortRef.current = controller;
     try {
       let memoryGroupId = "";
       try {
@@ -377,9 +379,13 @@ export default function useChat({
         },
         {
           memoryGroupId: memoryGroupId || undefined,
+          signal: controller.signal,
         }
       );
     } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") {
+        return;
+      }
       setChatMessages((prev) => {
         if (!prev.length) {
           return prev;
@@ -392,22 +398,28 @@ export default function useChat({
       });
       setChatError(formatErrorMessage(err, t("聊天请求失败。", "Chat request failed.")));
     } finally {
-      setChatBusy(false);
+      if (streamAbortRef.current === controller) {
+        streamAbortRef.current = null;
+        setChatBusy(false);
+      }
     }
   }
 
   function onNewSession() {
+    abortActiveStream();
     setChatMessages([]);
     setChatInput("");
     setChatError("");
+    setChatBusy(false);
     setChatAttachments([]);
     clearPersistedEverMemConversationGroupId("chat");
     setChatMemoryGroupId("");
   }
 
   function replaceSession(messages: ChatMessage[], memoryGroupId = "") {
+    abortActiveStream();
     const normalizedGroupId = (memoryGroupId || "").trim();
-    setChatMessages(Array.isArray(messages) ? messages : []);
+    setChatMessages(Array.isArray(messages) ? ensureMessageIds(messages) : []);
     setChatInput("");
     setChatError("");
     setChatBusy(false);
@@ -422,7 +434,7 @@ export default function useChat({
 
   function injectMessage(role: "user" | "assistant", content: string) {
     if (!content.trim()) return;
-    setChatMessages((prev) => [...prev, { role, content }]);
+    setChatMessages((prev) => [...prev, { role, content, id: createMessageId() }]);
   }
 
   function deleteMessage(index: number) {
@@ -458,10 +470,13 @@ export default function useChat({
       { role: "user" as const, content: finalContent }
     ];
 
-    setChatMessages([...nextHistory, { role: "assistant", content: "" }]);
+    setChatMessages([...nextHistory, { role: "assistant", content: "", id: createMessageId() }]);
     setChatInput("");
     setChatAttachments([]);
 
+    abortActiveStream();
+    const controller = new AbortController();
+    streamAbortRef.current = controller;
     try {
       let memoryGroupId = "";
       try {
@@ -539,9 +554,13 @@ export default function useChat({
         },
         {
           memoryGroupId: memoryGroupId || undefined,
+          signal: controller.signal,
         }
       );
     } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") {
+        return;
+      }
       setChatMessages((prev) => {
         if (!prev.length) {
           return prev;
@@ -554,7 +573,10 @@ export default function useChat({
       });
       setChatError(formatErrorMessage(err, t("聊天请求失败。", "Chat request failed.")));
     } finally {
-      setChatBusy(false);
+      if (streamAbortRef.current === controller) {
+        streamAbortRef.current = null;
+        setChatBusy(false);
+      }
     }
   }
 
@@ -579,7 +601,6 @@ export default function useChat({
     chatBusy,
     chatError,
     chatMemoryGroupId,
-    chatHistoryItems,
     onSubmit,
     onProviderChange,
     onModelChange: setChatModel,

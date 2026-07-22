@@ -18,6 +18,7 @@ import {
   type VoiceAgentToolRecord,
 } from "../api";
 import { createInlineTranslator } from "../i18n";
+import { createMessageId, ensureMessageIds } from "../utils/messageId";
 import {
   DASHSCOPE_PROVIDER,
   DEFAULT_DASHSCOPE_MODEL,
@@ -61,7 +62,10 @@ export default function useVoiceChat({
   language = "zh-CN",
 }: Options) {
   const t = createInlineTranslator(language);
-  const resolvedProviders = [GOOGLE_PROVIDER, DASHSCOPE_PROVIDER, OPENAI_PROVIDER].filter(p => providerOptions.includes(p));
+  const resolvedProviders = useMemo(
+    () => [GOOGLE_PROVIDER, DASHSCOPE_PROVIDER, OPENAI_PROVIDER].filter(p => providerOptions.includes(p)),
+    [providerOptions],
+  );
 
   const initialProvider = resolveRealtimeProvider(preferredProvider, resolvedProviders);
   const initialModel = resolveDefaultModel(initialProvider, providerModelCatalog);
@@ -400,13 +404,14 @@ export default function useVoiceChat({
     const turnId = currentTurnIdRef.current || undefined;
     setVoiceChatMessages((previous) => [
       ...previous,
-      { role: "user", content: source, memorySaved: false, ...(turnId ? { turnId } : {}) },
+      { role: "user", content: source, memorySaved: false, id: createMessageId(), ...(turnId ? { turnId } : {}) },
       {
         role: "assistant",
         content: target,
         memoriesUsed: undefined,
         memorySourceSummary: undefined,
         memoryRetrievalAttempted: false,
+        id: createMessageId(),
         ...(turnId ? { turnId } : {}),
       },
     ]);
@@ -503,7 +508,7 @@ export default function useVoiceChat({
     setVoiceChatMessages((prev) => {
       const next = [...prev];
       if (userText) {
-        next.push({ role: "user", content: userText, memorySaved, turnId });
+        next.push({ role: "user", content: userText, memorySaved, turnId, id: createMessageId() });
       }
       if (assistantText || toolCalls.length > 0) {
         const fallbackToolMessage = toolCalls.at(-1)?.message || t("工具调用已记录", "Tool call recorded");
@@ -516,6 +521,7 @@ export default function useVoiceChat({
           toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
           turnId,
           interrupted: assistantInterrupted || undefined,
+          id: createMessageId(),
         });
       }
       return next;
@@ -1612,7 +1618,7 @@ export default function useVoiceChat({
     currentLocalPendingCountRef.current = 0;
     currentCloudCountRef.current = 0;
     resetCurrentToolRecords();
-    setVoiceChatMessages(Array.isArray(messages) ? messages : []);
+    setVoiceChatMessages(Array.isArray(messages) ? ensureMessageIds(messages) : []);
     setVoiceChatTranscript("");
     setVoiceChatReply("");
     setVoiceChatMemoriesRetrieved(0);

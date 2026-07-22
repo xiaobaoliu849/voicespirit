@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
   createAudioAgentRun,
   type AudioAgentEvent,
@@ -29,6 +29,16 @@ import {
 import { createInlineTranslator, type UiLanguage } from "../i18n";
 import type { FormatErrorMessage } from "../utils/errorFormatting";
 
+// Thrown inside the agent-run polling loop when a newer generation/retry (or an
+// unmount) supersedes the in-flight run, so the stale loop exits without
+// touching state. Caught and ignored by the callers.
+class AgentRunSupersededError extends Error {
+  constructor() {
+    super("Agent run superseded");
+    this.name = "AgentRunSupersededError";
+  }
+}
+
 type MergeStrategy = "auto" | "pydub" | "ffmpeg" | "concat";
 type IntroMusicStyle = "warm" | "bright" | "calm";
 export type AudioOverviewWorkspaceMode = "podcast" | "multi_dialogue";
@@ -42,6 +52,13 @@ type Options = {
 export default function useAudioOverview(options: Options) {
   const { formatErrorMessage, language = "zh-CN" } = options;
   const t = createInlineTranslator(language);
+  const agentRunEpochRef = useRef(0);
+  useEffect(() => {
+    // Invalidate any in-flight agent-run polling loop on unmount.
+    return () => {
+      agentRunEpochRef.current += 1;
+    };
+  }, []);
   const [audioOverviewWorkspaceMode, setAudioOverviewWorkspaceMode] =
     useState<AudioOverviewWorkspaceMode>("podcast");
   const [audioOverviewTopic, setAudioOverviewTopic] = useState(
@@ -293,13 +310,19 @@ export default function useAudioOverview(options: Options) {
     return stepLabels[run.current_step] || t("Agent 执行中...", "Agent is running...");
   }
 
-  async function waitForAudioAgentRunCompletion(runId: number) {
+  async function waitForAudioAgentRunCompletion(runId: number, epoch: number) {
     const maxAttempts = 120;
     for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+      if (agentRunEpochRef.current !== epoch) {
+        throw new AgentRunSupersededError();
+      }
       const [current, eventData] = await Promise.all([
         getAudioAgentRun(runId),
         listAudioAgentRunEvents(runId, 50)
       ]);
+      if (agentRunEpochRef.current !== epoch) {
+        throw new AgentRunSupersededError();
+      }
       applyAudioAgentRun(current);
       applyAudioAgentEvents(eventData.events);
       setAudioOverviewInfo(buildAgentStepInfo(current));
@@ -417,6 +440,7 @@ export default function useAudioOverview(options: Options) {
     setAudioOverviewMemoriesRetrieved(0);
     setAudioOverviewMemorySaved(false);
     resetAudioAgentState();
+    const epoch = (agentRunEpochRef.current += 1);
     try {
       const runtimeMemory = getEverMemRuntimeConfig();
       const memoryConfigured = runtimeMemory.enabled;
@@ -443,7 +467,7 @@ export default function useAudioOverview(options: Options) {
       });
       applyAudioAgentRun(run);
       const completedRun =
-        run.status === "draft_ready" ? run : await waitForAudioAgentRunCompletion(run.id);
+        run.status === "draft_ready" ? run : await waitForAudioAgentRunCompletion(run.id, epoch);
       clearAudioOverviewAudio();
       const nextPodcastId = await syncRunBackToPodcast(completedRun);
       setAudioOverviewInfo(
@@ -455,9 +479,14 @@ export default function useAudioOverview(options: Options) {
 
       await loadAudioOverviewPodcasts();
     } catch (err) {
+      if (err instanceof AgentRunSupersededError) {
+        return;
+      }
       setAudioOverviewError(formatErrorMessage(err, "生成脚本失败。"));
     } finally {
-      setAudioOverviewBusy(false);
+      if (agentRunEpochRef.current === epoch) {
+        setAudioOverviewBusy(false);
+      }
     }
   }
 
@@ -469,13 +498,14 @@ export default function useAudioOverview(options: Options) {
     setAudioOverviewError("");
     setAudioOverviewInfo(t("正在重试 Agent 任务...", "Retrying the agent run..."));
     setAudioOverviewBusy(true);
+    const epoch = (agentRunEpochRef.current += 1);
     try {
       const scheduled = await executeAudioAgentRun(audioAgentRunId);
       applyAudioAgentRun(scheduled);
       const completedRun =
         scheduled.status === "draft_ready" || scheduled.status === "completed"
           ? scheduled
-          : await waitForAudioAgentRunCompletion(audioAgentRunId);
+          : await waitForAudioAgentRunCompletion(audioAgentRunId, epoch);
       const nextPodcastId = await syncRunBackToPodcast(completedRun);
       clearAudioOverviewAudio();
       await loadAudioOverviewPodcasts();
@@ -486,9 +516,14 @@ export default function useAudioOverview(options: Options) {
         )
       );
     } catch (err) {
+      if (err instanceof AgentRunSupersededError) {
+        return;
+      }
       setAudioOverviewError(formatErrorMessage(err, t("重试 Agent 任务失败。", "Failed to retry the agent run.")));
     } finally {
-      setAudioOverviewBusy(false);
+      if (agentRunEpochRef.current === epoch) {
+        setAudioOverviewBusy(false);
+      }
     }
   }
 

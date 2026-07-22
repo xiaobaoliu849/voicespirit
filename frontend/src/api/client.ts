@@ -412,6 +412,38 @@ function apiFetch(
   return fetch(input, { ...init, headers });
 }
 
+// Deduplicates concurrent identical idempotent GETs and caches the parsed JSON
+// for a short TTL, so voice catalogs / static lists are not re-fetched on every
+// hook mount or engine switch within a session.
+const GET_CACHE_TTL_MS = 60_000;
+const idempotentGetCache = new Map<string, { promise: Promise<unknown>; expires: number }>();
+
+function cachedGetJson<T>(
+  url: string,
+  init: RequestInit = {},
+  options: { useAdminToken?: boolean } = {}
+): Promise<T> {
+  const now = Date.now();
+  const cached = idempotentGetCache.get(url);
+  if (cached && cached.expires > now) {
+    return cached.promise as Promise<T>;
+  }
+  const promise = apiFetch(url, init, options)
+    .then(async (response) => {
+      if (!response.ok) {
+        idempotentGetCache.delete(url);
+        await throwApiError(response);
+      }
+      return response.json();
+    })
+    .catch((err) => {
+      idempotentGetCache.delete(url);
+      throw err;
+    });
+  idempotentGetCache.set(url, { promise, expires: now + GET_CACHE_TTL_MS });
+  return promise as Promise<T>;
+}
+
 export function buildVoiceChatWebSocketUrl(params: {
   provider?: string;
   model?: string;
@@ -586,11 +618,7 @@ export async function fetchVoices(locale?: string, engine?: TtsEngine): Promise<
     params.set("engine", engine);
   }
   const query = params.toString();
-  const response = await apiFetch(`${API_BASE_URL}/api/tts/voices${query ? `?${query}` : ""}`);
-  if (!response.ok) {
-    await throwApiError(response);
-  }
-  return response.json();
+  return cachedGetJson<VoicesResponse>(`${API_BASE_URL}/api/tts/voices${query ? `?${query}` : ""}`);
 }
 
 export type ExtractPdfResponse = {
@@ -832,7 +860,7 @@ function handleSseChunk(chunk: string, handlers: StreamEventHandlers): boolean {
 export async function streamChatCompletion(
   payload: ChatRequest,
   handlers: StreamEventHandlers,
-  options: { memoryGroupId?: string } = {}
+  options: { memoryGroupId?: string; signal?: AbortSignal } = {}
 ): Promise<void> {
   const response = await apiFetch(`${API_BASE_URL}/api/chat/completions/stream`, {
     method: "POST",
@@ -845,7 +873,8 @@ export async function streamChatCompletion(
         options.memoryGroupId ? { groupId: options.memoryGroupId } : {}
       )
     },
-    body: JSON.stringify(payload)
+    body: JSON.stringify(payload),
+    signal: options.signal
   });
   if (!response.ok) {
     await throwApiError(response);
@@ -930,11 +959,7 @@ export async function listCustomVoices(
   if (provider) {
     url += `&provider=${encodeURIComponent(provider)}`;
   }
-  const response = await apiFetch(url);
-  if (!response.ok) {
-    await throwApiError(response);
-  }
-  return response.json();
+  return cachedGetJson<CustomVoiceListResponse>(url);
 }
 
 export async function createVoiceDesign(

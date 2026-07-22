@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useRef } from "react";
+import { lazy, Suspense, useCallback, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import type { UseSettingsResult } from "../hooks/useSettings";
-import SettingsPage from "../pages/SettingsPage";
+const SettingsPage = lazy(() => import("../pages/SettingsPage"));
 import type { ErrorRuntimeContext } from "../types/ui";
 import { useI18n } from "../i18n";
 
@@ -183,7 +183,9 @@ export default function SettingsModal({ open, onClose, settings, errorRuntimeCon
             </button>
           </div>
         </div>
-        <SettingsPage settings={settings} errorRuntimeContext={errorRuntimeContext} onClose={onClose} />
+        <Suspense fallback={<div className="vsPageLoading" />}>
+          <SettingsPage settings={settings} errorRuntimeContext={errorRuntimeContext} onClose={onClose} />
+        </Suspense>
       </div>
     </div>,
     document.body

@@ -29,7 +29,6 @@ export function createChatController(
     chatBusy: false,
     chatError: "",
     chatMemoryGroupId: "",
-    chatHistoryItems: [],
     onSubmit: vi.fn(),
     onProviderChange: vi.fn(),
     onModelChange: vi.fn(),

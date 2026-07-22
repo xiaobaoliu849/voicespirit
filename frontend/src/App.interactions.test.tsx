@@ -439,7 +439,7 @@ describe("App interactions", () => {
 
     const ttsBtn = screen.getByTestId("nav-tts");
     fireEvent.click(ttsBtn);
-    fireEvent.click(screen.getByRole("button", { name: "生成音频" }));
+    fireEvent.click(await screen.findByRole("button", { name: "生成音频" }));
 
     await waitFor(() => {
       expect(mockedFetchSpeakAudio).toHaveBeenCalledWith(
@@ -459,7 +459,7 @@ describe("App interactions", () => {
 
     const translateBtn = screen.getByTestId("nav-translate");
     fireEvent.click(translateBtn);
-    fireEvent.change(screen.getByLabelText("目标语言"), {
+    fireEvent.change(await screen.findByLabelText("目标语言"), {
       target: { value: "日本語" }
     });
     fireEvent.click(screen.getByRole("button", { name: "开始翻译" }));
@@ -504,7 +504,7 @@ describe("App interactions", () => {
 
     const settingsBtn = screen.getByTestId("nav-settings");
     fireEvent.click(settingsBtn);
-    fireEvent.click(screen.getByRole("button", { name: /^系统$/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /^系统$/ }));
     fireEvent.click(screen.getByRole("button", { name: "显示系统运行时日志" }));
 
     await waitFor(() => {

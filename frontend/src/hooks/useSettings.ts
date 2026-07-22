@@ -29,6 +29,8 @@ const PROVIDER_API_KEY_FIELD: Record<string, string> = {
   "GPT-SoVITS": "gpt_sovits_api_key"
 };
 
+const ALL_PROVIDER_KEYS = Object.keys(PROVIDER_API_KEY_FIELD);
+
 function parseModelValue(
   value: SettingsModelValue | undefined
 ): { defaultModel: string; availableModels: string[]; enabledModels: string[] } {
@@ -873,9 +875,7 @@ export default function useSettings({ formatErrorMessage }: Options) {
     memorySection,
     transcriptionSection,
     desktopSection,
-    providerOptions: settingsProviders.length
-      ? settingsProviders
-      : Object.keys(PROVIDER_API_KEY_FIELD),
+    providerOptions: settingsProviders.length ? settingsProviders : ALL_PROVIDER_KEYS,
     customProviders,
     settingsProviderUseMaxCompletionTokens,
     settingsProviderHeadersJson,

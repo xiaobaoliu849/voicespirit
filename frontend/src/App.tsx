@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   clearAuthRuntime,
   fetchCurrentAuthUser,
@@ -14,7 +14,7 @@ import {
 } from "./appConfig";
 import AuthDialog from "./components/AuthDialog";
 import AppSidebar from "./components/AppSidebar";
-import SettingsModal from "./components/SettingsModal";
+const SettingsModal = lazy(() => import("./components/SettingsModal"));
 import useChat from "./hooks/useChat";
 import useAudioOverview from "./hooks/useAudioOverview";
 import useSettings from "./hooks/useSettings";
@@ -22,10 +22,10 @@ import useTts from "./hooks/useTts";
 import useTranslate from "./hooks/useTranslate";
 import useVoiceChat from "./hooks/useVoiceChat";
 import useVoiceManagement from "./hooks/useVoiceManagement";
-import AudioOverviewPage from "./pages/AudioOverviewPage";
-import ChatPage from "./pages/ChatPage";
-import TranslatePage from "./pages/TranslatePage";
-import VoiceCenterPage from "./pages/VoiceCenterPage";
+const AudioOverviewPage = lazy(() => import("./pages/AudioOverviewPage"));
+const ChatPage = lazy(() => import("./pages/ChatPage"));
+const TranslatePage = lazy(() => import("./pages/TranslatePage"));
+const VoiceCenterPage = lazy(() => import("./pages/VoiceCenterPage"));
 import { I18nProvider, createInlineTranslator, localizeText, type UiLanguage } from "./i18n";
 import { formatErrorMessage } from "./utils/errorFormatting";
 
@@ -391,6 +391,21 @@ export default function App() {
     setAuthRuntime(clearAuthRuntime());
   }
 
+  /* Stable callbacks for memoized AppSidebar */
+  const sidebarHandlersRef = useRef({ handleNewChatSession, handleHistorySelect, handleDeleteConversationHistoryItem, handleRenameConversationHistoryItem });
+  sidebarHandlersRef.current = { handleNewChatSession, handleHistorySelect, handleDeleteConversationHistoryItem, handleRenameConversationHistoryItem };
+  const stableNewChatSession = useCallback(() => sidebarHandlersRef.current.handleNewChatSession(), []);
+  const stableHistorySelect = useCallback((id: string) => sidebarHandlersRef.current.handleHistorySelect(id), []);
+  const stableDeleteHistoryItem = useCallback((id: string) => sidebarHandlersRef.current.handleDeleteConversationHistoryItem(id), []);
+  const stableRenameHistoryItem = useCallback((id: string, newName: string) => sidebarHandlersRef.current.handleRenameConversationHistoryItem(id, newName), []);
+  const stableAuthClick = useCallback(() => setAuthDialogOpen(true), []);
+  const stableOpenSettings = useCallback(() => setIsSettingsOpen(true), []);
+
+  const sidebarHistoryItems = useMemo(
+    () => normalizedConversationHistory.map((item) => ({ id: item.id, content: item.content })),
+    [normalizedConversationHistory],
+  );
+
   return (
     <I18nProvider language={uiLanguage}>
       <main className={isDesktopEmbedded ? "vsApp desktopEmbedded" : "vsApp"}>
@@ -398,17 +413,14 @@ export default function App() {
           activeTab={activeTab}
           authLabel={authLabel}
           authReady={authReady}
-          chatHistoryItems={normalizedConversationHistory.map((item) => ({
-            id: item.id,
-            content: item.content,
-          }))}
-          onAuthClick={() => setAuthDialogOpen(true)}
+          chatHistoryItems={sidebarHistoryItems}
+          onAuthClick={stableAuthClick}
           onTabChange={setActiveTab}
-          onNewChatSession={handleNewChatSession}
-          onHistorySelect={handleHistorySelect}
-          onDeleteHistoryItem={handleDeleteConversationHistoryItem}
-          onRenameHistoryItem={handleRenameConversationHistoryItem}
-          onOpenSettings={() => setIsSettingsOpen(true)}
+          onNewChatSession={stableNewChatSession}
+          onHistorySelect={stableHistorySelect}
+          onDeleteHistoryItem={stableDeleteHistoryItem}
+          onRenameHistoryItem={stableRenameHistoryItem}
+          onOpenSettings={stableOpenSettings}
           isSettingsOpen={isSettingsOpen}
         />
 
@@ -416,6 +428,7 @@ export default function App() {
           <div className="vsContentMaxContainer">
             <div className="vsWorkspaceViewport">
               <div className={workspaceClassName}>
+                <Suspense fallback={<div className="vsPageLoading" />}>
                 {activeTab === "chat" ? (
                   <ChatPage
                     chat={chat}
@@ -449,17 +462,20 @@ export default function App() {
                 {activeTab === "audio_overview" ? (
                   <AudioOverviewPage audioOverview={audioOverview} errorRuntimeContext={errorRuntimeContext} />
                 ) : null}
+                </Suspense>
               </div>
             </div>
           </div>
         </section>
       </main>
-      <SettingsModal
-        open={isSettingsOpen}
-        onClose={() => setIsSettingsOpen(false)}
-        settings={settings}
-        errorRuntimeContext={errorRuntimeContext}
-      />
+      <Suspense fallback={null}>
+        <SettingsModal
+          open={isSettingsOpen}
+          onClose={() => setIsSettingsOpen(false)}
+          settings={settings}
+          errorRuntimeContext={errorRuntimeContext}
+        />
+      </Suspense>
       <AuthDialog
         open={authDialogOpen}
         auth={authRuntime}

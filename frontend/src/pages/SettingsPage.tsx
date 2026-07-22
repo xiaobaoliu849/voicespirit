@@ -1,6 +1,5 @@
 import { useState, ReactNode, useMemo } from "react";
 import { Terminal, Globe, Cpu, Brain, Mic, Monitor } from "lucide-react";
-import { ProviderIcon } from "@lobehub/icons";
 import EvermindBadge from "../components/EvermindBadge";
 import ErrorNotice from "../components/ErrorNotice";
 import type { UseSettingsResult } from "../hooks/useSettings";
@@ -51,6 +50,24 @@ const getLobeProviderKey = (name: string): string => {
   return lower;
 };
 
+const PROVIDER_COLORS: Record<string, string> = {
+  qwen: "#6366f1", deepseek: "#4f46e5", google: "#4285f4", openai: "#10a37f",
+  groq: "#f55036", openrouter: "#8b5cf6", siliconcloud: "#7c3aed",
+  xiaomimimo: "#ff6900", anthropic: "#d4a574", nvidia: "#76b900",
+  ollama: "#6b7280", deepgram: "#13ef93", zenmux: "#a855f7",
+};
+
+const LocalProviderIcon = ({ provider, size = 18 }: { provider: string; size?: number }) => (
+  <span style={{
+    display: "inline-flex", alignItems: "center", justifyContent: "center",
+    width: size, height: size, borderRadius: "50%", flexShrink: 0,
+    backgroundColor: PROVIDER_COLORS[provider] || "#6b7280", color: "#fff",
+    fontSize: size * 0.55, fontWeight: 700, lineHeight: 1,
+  }}>
+    {provider.charAt(0).toUpperCase()}
+  </span>
+);
+
 const renderProviderIcon = (providerName: string): ReactNode => {
   if (providerName.includes("(ACP)")) {
     return <Terminal size={18} />;
@@ -59,7 +76,7 @@ const renderProviderIcon = (providerName: string): ReactNode => {
     return <Brain size={18} />;
   }
   const key = getLobeProviderKey(providerName);
-  return <ProviderIcon provider={key} size={18} type="color" />;
+  return <LocalProviderIcon provider={key} size={18} />;
 };
 
 

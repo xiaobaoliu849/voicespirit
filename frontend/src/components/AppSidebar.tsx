@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { memo, useState, useEffect, useRef, useCallback } from "react";
 import { createPortal } from "react-dom";
 import {
   getSidebarItems,
@@ -49,7 +49,7 @@ type Props = {
   isSettingsOpen?: boolean;
 };
 
-export default function AppSidebar({
+function AppSidebar({
   activeTab,
   authLabel,
   authReady,
@@ -424,3 +424,5 @@ export default function AppSidebar({
     </div>
   );
 }
+
+export default memo(AppSidebar);

@@ -244,9 +244,9 @@ describe('useChat', () => {
             ['chat', 'group-chat-001'],
             ['chat', ''],
         ]);
-        expect(streamChatCompletionMock.mock.calls[0][2]).toEqual({ memoryGroupId: 'group-chat-001' });
-        expect(streamChatCompletionMock.mock.calls[1][2]).toEqual({ memoryGroupId: 'group-chat-001' });
-        expect(streamChatCompletionMock.mock.calls[2][2]).toEqual({ memoryGroupId: 'group-chat-002' });
+        expect(streamChatCompletionMock.mock.calls[0][2]).toMatchObject({ memoryGroupId: 'group-chat-001' });
+        expect(streamChatCompletionMock.mock.calls[1][2]).toMatchObject({ memoryGroupId: 'group-chat-001' });
+        expect(streamChatCompletionMock.mock.calls[2][2]).toMatchObject({ memoryGroupId: 'group-chat-002' });
     });
 
     it('restores a persisted EverMem group id on a fresh hook mount', async () => {
@@ -280,6 +280,6 @@ describe('useChat', () => {
         });
 
         expect(ensureEverMemConversationGroupIdMock).toHaveBeenCalledWith('chat', 'group-chat-restore');
-        expect(streamChatCompletionMock.mock.calls[0][2]).toEqual({ memoryGroupId: 'group-chat-restore' });
+        expect(streamChatCompletionMock.mock.calls[0][2]).toMatchObject({ memoryGroupId: 'group-chat-restore' });
     });
 });

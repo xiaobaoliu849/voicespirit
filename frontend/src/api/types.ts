@@ -216,6 +216,8 @@ export type ChatMessage = {
   toolCalls?: VoiceAgentToolRecord[];
   turnId?: string;
   interrupted?: boolean;
+  /** Stable client-side identity used for React keys and per-message UI state. */
+  id?: string;
 };
 
 export type ChatRequest = {

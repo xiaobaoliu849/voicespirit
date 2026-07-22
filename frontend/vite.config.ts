@@ -15,12 +15,19 @@ export default defineConfig({
   define: {
     __APP_VERSION__: JSON.stringify(appVersion)
   },
-  resolve: {
-    alias: {
-      "@lobehub/ui/icons": resolve(__dirname, "src/test/mockLobeUi.ts"),
-      "@lobehub/ui": resolve(__dirname, "src/test/mockLobeUi.ts"),
-      "@lobehub/icons": resolve(__dirname, "src/test/mockLobeUi.ts"),
-      "antd": resolve(__dirname, "src/test/mockLobeUi.ts")
+  build: {
+    target: "es2022",
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes("node_modules/react-dom") || id.includes("node_modules/react/") || id.includes("node_modules/scheduler")) {
+            return "framework";
+          }
+          if (id.includes("node_modules/lucide-react")) {
+            return "icons";
+          }
+        }
+      }
     }
   },
   server: {

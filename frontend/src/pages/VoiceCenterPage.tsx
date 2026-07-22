@@ -1,9 +1,9 @@
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { useI18n } from "../i18n";
-import TtsPage from "./TtsPage";
-import VoiceDesignPage from "./VoiceDesignPage";
-import VoiceClonePage from "./VoiceClonePage";
-import { TranscriptionPage } from "./TranscriptionPage";
+const TtsPage = lazy(() => import("./TtsPage"));
+const VoiceDesignPage = lazy(() => import("./VoiceDesignPage"));
+const VoiceClonePage = lazy(() => import("./VoiceClonePage"));
+const TranscriptionPage = lazy(() => import("./TranscriptionPage").then(m => ({ default: m.TranscriptionPage })));
 import type { ErrorRuntimeContext } from "../types/ui";
 import type { UseTtsResult } from "../hooks/useTts";
 import type { VoiceCloneController, VoiceDesignController } from "../hooks/useVoiceManagement";
@@ -65,6 +65,7 @@ export default function VoiceCenterPage({
 
       <div className="vsVoiceCenterContent">
         <div className="vsVoiceCenterScroll">
+          <Suspense fallback={<div className="vsPageLoading" />}>
           {activeTab === "tts" && (
              <div className="vsVoiceSubContent"><TtsPage tts={tts} errorRuntimeContext={errorRuntimeContext} /></div>
           )}
@@ -77,6 +78,7 @@ export default function VoiceCenterPage({
           {activeTab === "transcribe" && (
              <div className="vsVoiceSubContent"><TranscriptionPage onSendToChat={onSendToChat} /></div>
           )}
+          </Suspense>
         </div>
       </div>
     </div>

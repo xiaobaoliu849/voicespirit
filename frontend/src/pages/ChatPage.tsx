@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from "react";
-import { extractPdfText, fetchSpeakAudio, type TtsEngine } from "../api";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { extractPdfText, fetchSpeakAudio, type ChatMessage, type TtsEngine } from "../api";
 import ErrorNotice from "../components/ErrorNotice";
 import VoiceCallSettingsPopover from "../components/VoiceCallSettingsPopover";
 import type { UseChatResult } from "../hooks/useChat";
@@ -551,9 +551,228 @@ function Composer({
   );
 }
 
+type TranslateFn = (zh: string, en: string) => string;
+
+type MessageBubbleProps = {
+  msg: ChatMessage;
+  messageKey: string;
+  index: number;
+  chatBusy: boolean;
+  isStreamingPlaceholder: boolean;
+  isThinkingActive: boolean;
+  copied: boolean;
+  playing: boolean;
+  loadingTts: boolean;
+  sourcesOpen: boolean;
+  reasoningCollapsed: boolean;
+  t: TranslateFn;
+  onCopy: (content: string, key: string) => void;
+  onPlayTts: (content: string, key: string) => void;
+  onRegenerate: (index: number) => void;
+  onDelete: (index: number) => void;
+  onToggleSources: (key: string) => void;
+  onToggleReasoning: (key: string) => void;
+};
+
+const TOOL_RESULT_STATUSES = new Set(["result", "completed", "context_injected", "result_delivered"]);
+
+function MessageBubbleImpl({
+  msg,
+  messageKey,
+  index,
+  chatBusy,
+  isStreamingPlaceholder,
+  isThinkingActive,
+  copied,
+  playing,
+  loadingTts,
+  sourcesOpen,
+  reasoningCollapsed,
+  t,
+  onCopy,
+  onPlayTts,
+  onRegenerate,
+  onDelete,
+  onToggleSources,
+  onToggleReasoning,
+}: MessageBubbleProps) {
+  const toolCalls = msg.toolCalls;
+  const lastTool =
+    toolCalls && toolCalls.length > 0
+      ? ([...toolCalls].reverse().find((r) => TOOL_RESULT_STATUSES.has(r.status)) ?? toolCalls[toolCalls.length - 1])
+      : null;
+  const sourcesList = lastTool?.sources || [];
+  const hasMeta =
+    msg.memorySaved || msg.memoriesUsed || msg.memorySourceSummary || msg.interrupted || (toolCalls && toolCalls.length > 0);
+
+  let toolLabel = "";
+  const toolMeta: string[] = [];
+  if (lastTool) {
+    toolLabel =
+      lastTool.tool_name === "search_web"
+        ? t("🔍 联网搜索", "🔍 Web Search")
+        : lastTool.tool_name === "translate_text"
+        ? t("🌐 翻译", "🌐 Translate")
+        : lastTool.tool_name === "summarize_transcript"
+        ? t("📝 摘要", "📝 Summary")
+        : `🔧 ${lastTool.tool_name || t("工具", "Tool")}`;
+    if (lastTool.source_count != null && lastTool.source_count > 0) toolMeta.push(t(`${lastTool.source_count} 来源`, `${lastTool.source_count} sources`));
+    if (lastTool.elapsed_ms != null) toolMeta.push(`${(lastTool.elapsed_ms / 1000).toFixed(1)}s`);
+  }
+  const isSourcesClickable = sourcesList.length > 0;
+
+  return (
+    <div className={msg.role === "user" ? "bubble user hasCopyAction" : "bubble assistant hasCopyAction"}>
+      {hasMeta ? (
+        <div className="vsBubbleMeta">
+          {msg.memorySaved ? <span className="vsBubbleMemoryTag saved">{t("✓ 已记忆", "✓ Saved")}</span> : null}
+          {msg.memoriesUsed ? (
+            <span className="vsBubbleMemoryTag used">
+              {t(`🧠 回忆了 ${msg.memoriesUsed} 条`, `🧠 Recalled ${msg.memoriesUsed}`)}
+            </span>
+          ) : null}
+          {msg.memorySourceSummary ? <span className="vsBubbleMemoryTag used">{msg.memorySourceSummary}</span> : null}
+          {msg.interrupted ? <span className="vsBubbleMemoryTag used">{t("已打断", "Interrupted")}</span> : null}
+          {lastTool ? (
+            <span
+              className={`vsBubbleMemoryTag tool${isSourcesClickable ? " clickable" : ""}${sourcesOpen ? " active" : ""}`}
+              title={lastTool.query || ""}
+              onClick={isSourcesClickable ? () => onToggleSources(messageKey) : undefined}
+            >
+              {toolLabel}{toolMeta.length > 0 ? ` · ${toolMeta.join(" · ")}` : ""}
+              {isSourcesClickable ? (sourcesOpen ? " ▴" : " ▾") : ""}
+            </span>
+          ) : null}
+        </div>
+      ) : null}
+
+      {lastTool && sourcesOpen && sourcesList.length > 0 ? (
+        <div className="vsSearchSourcesCard">
+          {lastTool.query ? (
+            <div className="vsSearchQueryText">
+              🔍 {t("搜索关键词", "Search Query")}: "{lastTool.query}"
+            </div>
+          ) : null}
+          <div className="vsSearchSourcesList">
+            {sourcesList.map((src, sIdx) => {
+              const domain = getDomainFromUrl(src.uri);
+              return (
+                <div key={sIdx} className="vsSearchSourceItem">
+                  <div className="vsSearchSourceHeader">
+                    <span className="vsSearchSourceDomain">{domain || "Web"}</span>
+                    <a
+                      href={src.uri}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="vsSearchSourceLink"
+                      title={src.uri}
+                    >
+                      {src.title || src.uri} ↗
+                    </a>
+                  </div>
+                  {src.snippet ? <p className="vsSearchSourceSnippet">{src.snippet}</p> : null}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
+
+      {msg.role === "assistant" && msg.reasoningContent ? (
+        <div className="vsDeepThinkingBlock">
+          <button
+            type="button"
+            className="vsDeepThinkingHeader"
+            onClick={() => onToggleReasoning(messageKey)}
+          >
+            <span className="vsDeepThinkingIcon">🧠</span>
+            <span className="vsDeepThinkingTitle">
+              {isThinkingActive ? t("深度思考中...", "Thinking...") : t("深度思考", "Deep Thinking")}
+            </span>
+            <span className="vsDeepThinkingChevron">{reasoningCollapsed ? "▸" : "▾"}</span>
+          </button>
+          {!reasoningCollapsed && <div className="vsDeepThinkingContent">{msg.reasoningContent}</div>}
+        </div>
+      ) : null}
+
+      {msg.role === "user" && msg.attachments && msg.attachments.length > 0 && (
+        <div className="vsMessageAttachments">
+          {msg.attachments.map((att, aIdx) => (
+            <div key={aIdx} className="vsMessageAttachmentPill">
+              <span className="vsAttachmentIcon">📄</span>
+              <span className="vsAttachmentName" title={att.name}>{att.name}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <p>{msg.content || (isStreamingPlaceholder ? "..." : "")}</p>
+
+      {msg.content ? (
+        <div className="vsBubbleActions">
+          <button
+            type="button"
+            className={`vsBubbleActionBtn${copied ? " copied" : ""}`}
+            aria-label={copied ? t("已复制", "Copied") : t("复制消息", "Copy message")}
+            title={copied ? t("已复制", "Copied") : t("复制消息", "Copy message")}
+            onClick={() => onCopy(msg.content, messageKey)}
+          >
+            <CopyIcon />
+          </button>
+
+          {msg.role === "assistant" && (
+            <button
+              type="button"
+              className={`vsBubbleActionBtn${playing ? " active" : ""}`}
+              disabled={loadingTts}
+              aria-label={
+                loadingTts ? t("生成中...", "Generating...") : playing ? t("停止播放", "Stop") : t("朗读回答", "Play response")
+              }
+              title={
+                loadingTts ? t("生成中...", "Generating...") : playing ? t("停止播放", "Stop") : t("朗读回答", "Play response")
+              }
+              onClick={() => onPlayTts(msg.content, messageKey)}
+            >
+              {loadingTts ? <SpinnerIcon /> : playing ? <StopTtsIcon /> : <SpeakerIcon />}
+            </button>
+          )}
+
+          {msg.role === "assistant" && (
+            <button
+              type="button"
+              className="vsBubbleActionBtn"
+              disabled={chatBusy}
+              aria-label={t("重新生成", "Regenerate")}
+              title={t("重新生成", "Regenerate")}
+              onClick={() => onRegenerate(index)}
+            >
+              <RefreshIcon />
+            </button>
+          )}
+
+          <button
+            type="button"
+            className="vsBubbleActionBtn"
+            aria-label={t("删除消息", "Delete message")}
+            title={t("删除消息", "Delete message")}
+            onClick={() => onDelete(index)}
+          >
+            <TrashIcon />
+          </button>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+const MessageBubble = memo(MessageBubbleImpl);
+
 export default function ChatPage({ chat, voiceChat, settings, errorRuntimeContext, onOpenSettings }: Props) {
   const { t } = useI18n();
-  const combinedMessages = [...chat.chatMessages, ...voiceChat.sessionSummary];
+  const combinedMessages = useMemo(
+    () => [...chat.chatMessages, ...voiceChat.sessionSummary],
+    [chat.chatMessages, voiceChat.sessionSummary],
+  );
   const isEmpty = !combinedMessages.length;
   const bodyRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -777,6 +996,33 @@ export default function ChatPage({ chat, voiceChat, settings, errorRuntimeContex
     }
   }
 
+  // Stable per-bubble callbacks (latest-ref pattern) so MessageBubble can be
+  // memoized and only the streaming bubble re-renders per token.
+  const playTtsRef = useRef(playTts);
+  playTtsRef.current = playTts;
+  const stablePlayTts = useCallback((content: string, key: string) => {
+    void playTtsRef.current(content, key);
+  }, []);
+  const copyMessageRef = useRef(copyMessage);
+  copyMessageRef.current = copyMessage;
+  const stableCopyMessage = useCallback((content: string, key: string) => {
+    void copyMessageRef.current(content, key);
+  }, []);
+  const chatRef = useRef(chat);
+  chatRef.current = chat;
+  const stableDeleteMessage = useCallback((index: number) => {
+    chatRef.current.onDeleteMessage?.(index);
+  }, []);
+  const stableRegenerateMessage = useCallback((index: number) => {
+    void chatRef.current.onRegenerateMessage?.(index);
+  }, []);
+  const stableToggleSources = useCallback((key: string) => {
+    setExpandedSourcesKey((prev) => (prev === key ? null : key));
+  }, []);
+  const stableToggleReasoning = useCallback((key: string) => {
+    setCollapsedReasoningKeys((prev) => ({ ...prev, [key]: !prev[key] }));
+  }, []);
+
   function handleBodyScroll() {
     const el = bodyRef.current;
     if (!el) {
@@ -851,220 +1097,36 @@ export default function ChatPage({ chat, voiceChat, settings, errorRuntimeContex
         ) : (
           /* ═══ MESSAGE LIST ═══ */
           <div className="vsMessageList">
-            {combinedMessages.map((msg, idx) => (
-              <div
-                key={`${idx}-${msg.role}`}
-                className={msg.role === "user" ? "bubble user hasCopyAction" : "bubble assistant hasCopyAction"}
-              >
-                {msg.memorySaved || msg.memoriesUsed || msg.memorySourceSummary || msg.interrupted || (msg.toolCalls && msg.toolCalls.length > 0) ? (
-                  <div className="vsBubbleMeta">
-                    {msg.memorySaved ? (
-                      <span className="vsBubbleMemoryTag saved">{t("✓ 已记忆", "✓ Saved")}</span>
-                    ) : null}
-                    {msg.memoriesUsed ? (
-                      <span className="vsBubbleMemoryTag used">
-                        {t(`🧠 回忆了 ${msg.memoriesUsed} 条`, `🧠 Recalled ${msg.memoriesUsed}`)}
-                      </span>
-                    ) : null}
-                    {msg.memorySourceSummary ? (
-                      <span className="vsBubbleMemoryTag used">{msg.memorySourceSummary}</span>
-                    ) : null}
-                    {msg.interrupted ? (
-                      <span className="vsBubbleMemoryTag used">{t("已打断", "Interrupted")}</span>
-                    ) : null}
-                    {msg.toolCalls && msg.toolCalls.length > 0 && (() => {
-                      const last = [...msg.toolCalls].reverse().find(
-                        (r) => r.status === "result" || r.status === "completed" || r.status === "context_injected" || r.status === "result_delivered"
-                      ) ?? msg.toolCalls[msg.toolCalls.length - 1];
-                      const toolLabel = last.tool_name === "search_web"
-                        ? t("🔍 联网搜索", "🔍 Web Search")
-                        : last.tool_name === "translate_text"
-                        ? t("🌐 翻译", "🌐 Translate")
-                        : last.tool_name === "summarize_transcript"
-                        ? t("📝 摘要", "📝 Summary")
-                        : `🔧 ${last.tool_name || t("工具", "Tool")}`;
-                      const meta: string[] = [];
-                      if (last.source_count != null && last.source_count > 0) meta.push(t(`${last.source_count} 来源`, `${last.source_count} sources`));
-                      if (last.elapsed_ms != null) meta.push(`${(last.elapsed_ms / 1000).toFixed(1)}s`);
-                      const messageKey = `${idx}-${msg.role}`;
-                      const isSourcesOpen = expandedSourcesKey === messageKey;
-                      const sourcesList = last.sources || [];
-                      const isClickable = sourcesList.length > 0;
-                      return (
-                        <span
-                          className={`vsBubbleMemoryTag tool${isClickable ? " clickable" : ""}${isSourcesOpen ? " active" : ""}`}
-                          title={last.query || ""}
-                          onClick={isClickable ? () => setExpandedSourcesKey(isSourcesOpen ? null : messageKey) : undefined}
-                        >
-                          {toolLabel}{meta.length > 0 ? ` · ${meta.join(" · ")}` : ""}
-                          {isClickable ? (isSourcesOpen ? " ▴" : " ▾") : ""}
-                        </span>
-                      );
-                    })()}
-                  </div>
-                ) : null}
-                {msg.toolCalls && msg.toolCalls.length > 0 && (() => {
-                  const last = [...msg.toolCalls].reverse().find(
-                    (r) => r.status === "result" || r.status === "completed" || r.status === "context_injected" || r.status === "result_delivered"
-                  ) ?? msg.toolCalls[msg.toolCalls.length - 1];
-                  const messageKey = `${idx}-${msg.role}`;
-                  const isSourcesOpen = expandedSourcesKey === messageKey;
-                  const sourcesList = last.sources || [];
-
-                  if (!isSourcesOpen || !sourcesList.length) {
-                    return null;
+            {combinedMessages.map((msg, idx) => {
+              const messageKey = msg.id ?? `${idx}-${msg.role}`;
+              return (
+                <MessageBubble
+                  key={messageKey}
+                  msg={msg}
+                  messageKey={messageKey}
+                  index={idx}
+                  chatBusy={chat.chatBusy}
+                  isStreamingPlaceholder={
+                    chat.chatBusy && idx === chat.chatMessages.length - 1 && msg.role === "assistant"
                   }
-
-                  return (
-                    <div className="vsSearchSourcesCard">
-                      {last.query ? (
-                        <div className="vsSearchQueryText">
-                          🔍 {t("搜索关键词", "Search Query")}: "{last.query}"
-                        </div>
-                      ) : null}
-                      <div className="vsSearchSourcesList">
-                        {sourcesList.map((src, sIdx) => {
-                          const domain = getDomainFromUrl(src.uri);
-                          return (
-                            <div key={sIdx} className="vsSearchSourceItem">
-                              <div className="vsSearchSourceHeader">
-                                <span className="vsSearchSourceDomain">{domain || "Web"}</span>
-                                <a
-                                  href={src.uri}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="vsSearchSourceLink"
-                                  title={src.uri}
-                                >
-                                  {src.title || src.uri} ↗
-                                </a>
-                              </div>
-                              {src.snippet ? (
-                                <p className="vsSearchSourceSnippet">{src.snippet}</p>
-                              ) : null}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  );
-                })()}
-                {msg.role === "assistant" && msg.reasoningContent ? (() => {
-                  const reasoningKey = `${idx}-${msg.role}`;
-                  const isReasoningCollapsed = Boolean(collapsedReasoningKeys[reasoningKey]);
-                  const isThinkingActive = chat.chatBusy && idx === combinedMessages.length - 1 && !msg.content;
-                  return (
-                    <div className="vsDeepThinkingBlock">
-                      <button
-                        type="button"
-                        className="vsDeepThinkingHeader"
-                        onClick={() => setCollapsedReasoningKeys((prev) => ({ ...prev, [reasoningKey]: !prev[reasoningKey] }))}
-                      >
-                        <span className="vsDeepThinkingIcon">🧠</span>
-                        <span className="vsDeepThinkingTitle">
-                          {isThinkingActive ? t("深度思考中...", "Thinking...") : t("深度思考", "Deep Thinking")}
-                        </span>
-                        <span className="vsDeepThinkingChevron">{isReasoningCollapsed ? "▸" : "▾"}</span>
-                      </button>
-                      {!isReasoningCollapsed && (
-                        <div className="vsDeepThinkingContent">
-                          {msg.reasoningContent}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })() : null}
-                {msg.role === "user" && msg.attachments && msg.attachments.length > 0 && (
-                  <div className="vsMessageAttachments">
-                    {msg.attachments.map((att, aIdx) => (
-                      <div key={aIdx} className="vsMessageAttachmentPill">
-                        <span className="vsAttachmentIcon">📄</span>
-                        <span className="vsAttachmentName" title={att.name}>{att.name}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-                <p>
-                  {msg.content ||
-                    (chat.chatBusy &&
-                      idx === chat.chatMessages.length - 1 &&
-                      msg.role === "assistant"
-                      ? "..."
-                      : "")}
-                </p>
-                {msg.content ? (
-                  <div className="vsBubbleActions">
-                    {/* Copy Button */}
-                    <button
-                      type="button"
-                      className={`vsBubbleActionBtn${copiedMessageKey === `${idx}-${msg.role}` ? " copied" : ""}`}
-                      aria-label={copiedMessageKey === `${idx}-${msg.role}` ? t("已复制", "Copied") : t("复制消息", "Copy message")}
-                      title={copiedMessageKey === `${idx}-${msg.role}` ? t("已复制", "Copied") : t("复制消息", "Copy message")}
-                      onClick={() => void copyMessage(msg.content, `${idx}-${msg.role}`)}
-                    >
-                      <CopyIcon />
-                    </button>
-
-                    {/* Play/Stop TTS Button (only for assistant messages) */}
-                    {msg.role === "assistant" && (
-                      <button
-                        type="button"
-                        className={`vsBubbleActionBtn${playingMessageKey === `${idx}-${msg.role}` ? " active" : ""}`}
-                        disabled={loadingTtsMessageKey === `${idx}-${msg.role}`}
-                        aria-label={
-                          loadingTtsMessageKey === `${idx}-${msg.role}`
-                            ? t("生成中...", "Generating...")
-                            : playingMessageKey === `${idx}-${msg.role}`
-                            ? t("停止播放", "Stop")
-                            : t("朗读回答", "Play response")
-                        }
-                        title={
-                          loadingTtsMessageKey === `${idx}-${msg.role}`
-                            ? t("生成中...", "Generating...")
-                            : playingMessageKey === `${idx}-${msg.role}`
-                            ? t("停止播放", "Stop")
-                            : t("朗读回答", "Play response")
-                        }
-                        onClick={() => void playTts(msg.content, `${idx}-${msg.role}`)}
-                      >
-                        {loadingTtsMessageKey === `${idx}-${msg.role}` ? (
-                          <SpinnerIcon />
-                        ) : playingMessageKey === `${idx}-${msg.role}` ? (
-                          <StopTtsIcon />
-                        ) : (
-                          <SpeakerIcon />
-                        )}
-                      </button>
-                    )}
-
-                    {/* Regenerate Button (only for assistant messages) */}
-                    {msg.role === "assistant" && (
-                      <button
-                        type="button"
-                        className="vsBubbleActionBtn"
-                        disabled={chat.chatBusy}
-                        aria-label={t("重新生成", "Regenerate")}
-                        title={t("重新生成", "Regenerate")}
-                        onClick={() => void chat.onRegenerateMessage?.(idx)}
-                      >
-                        <RefreshIcon />
-                      </button>
-                    )}
-
-                    {/* Delete Button */}
-                    <button
-                      type="button"
-                      className="vsBubbleActionBtn"
-                      aria-label={t("删除消息", "Delete message")}
-                      title={t("删除消息", "Delete message")}
-                      onClick={() => chat.onDeleteMessage?.(idx)}
-                    >
-                      <TrashIcon />
-                    </button>
-                  </div>
-                ) : null}
-              </div>
-            ))}
+                  isThinkingActive={
+                    chat.chatBusy && idx === combinedMessages.length - 1 && !msg.content
+                  }
+                  copied={copiedMessageKey === messageKey}
+                  playing={playingMessageKey === messageKey}
+                  loadingTts={loadingTtsMessageKey === messageKey}
+                  sourcesOpen={expandedSourcesKey === messageKey}
+                  reasoningCollapsed={Boolean(collapsedReasoningKeys[messageKey])}
+                  t={t}
+                  onCopy={stableCopyMessage}
+                  onPlayTts={stablePlayTts}
+                  onRegenerate={stableRegenerateMessage}
+                  onDelete={stableDeleteMessage}
+                  onToggleSources={stableToggleSources}
+                  onToggleReasoning={stableToggleReasoning}
+                />
+              );
+            })}
 
             {/* ── Live Streaming Bubbles ── */}
             {isVoiceActive && voiceChat.voiceChatTranscript && (

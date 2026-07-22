@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   listTranscriptionJobs,
   retryTranscriptionJob,
@@ -115,13 +115,13 @@ export function useTranscriptionHistory() {
     void refreshHistory(activeFilter);
   }, [activeFilter]);
 
-  const addOrUpdateJob = (job: TranscriptionJobResponse) => {
+  const addOrUpdateJob = useCallback((job: TranscriptionJobResponse) => {
     setHistory((prev) => {
       const next = mergeHistory([job], prev);
       safeSaveHistory(next);
       return next;
     });
-  };
+  }, []);
 
   const retryJob = async (jobId: string) => {
     const retried = await retryTranscriptionJob(jobId);

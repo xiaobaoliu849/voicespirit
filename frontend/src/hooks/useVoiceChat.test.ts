@@ -646,13 +646,14 @@ describe("useVoiceChat", () => {
     });
 
     expect(result.current.sessionSummary).toEqual([
-      { role: "user", content: "あ、もしもし。", memorySaved: false },
+      { role: "user", content: "あ、もしもし。", memorySaved: false, id: expect.any(String) },
       {
         role: "assistant",
         content: "喂，你好。",
         memoriesUsed: undefined,
         memorySourceSummary: undefined,
         memoryRetrievalAttempted: false,
+        id: expect.any(String),
       },
     ]);
     expect(result.current.voiceChatTranscript).toBe("今何時ですか？");
@@ -699,7 +700,7 @@ describe("useVoiceChat", () => {
     });
 
     expect(result.current.voiceChatMessages).toEqual([
-      { role: "user", content: "How are you?", memorySaved: false, turnId: "turn-1" },
+      { role: "user", content: "How are you?", memorySaved: false, turnId: "turn-1", id: expect.any(String) },
       {
         role: "assistant",
         content: "你好吗？",
@@ -709,6 +710,7 @@ describe("useVoiceChat", () => {
         turnId: "turn-1",
         interrupted: undefined,
         toolCalls: undefined,
+        id: expect.any(String),
       },
     ]);
     expect(result.current.voiceChatTranscript).toBe("Nice to meet you.");
