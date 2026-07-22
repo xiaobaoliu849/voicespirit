@@ -50,6 +50,9 @@ const TrashIcon = () => (
 const RefreshIcon = () => (
   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"></path><path d="M16 3h5v5"></path><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"></path><path d="M8 21H3v-5"></path></svg>
 );
+const ChevronDownIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6"></path></svg>
+);
 
 function mapProviderToEngine(provider?: string): TtsEngine {
   if (!provider) return "edge";
@@ -544,7 +547,9 @@ export default function ChatPage({ chat, voiceChat, settings, errorRuntimeContex
   const combinedMessages = [...chat.chatMessages, ...voiceChat.sessionSummary];
   const isEmpty = !combinedMessages.length;
   const bodyRef = useRef<HTMLDivElement>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
   const shouldStickToBottomRef = useRef(true);
+  const [showScrollBottomBtn, setShowScrollBottomBtn] = useState(false);
   const [copiedMessageKey, setCopiedMessageKey] = useState("");
   const [playingMessageKey, setPlayingMessageKey] = useState<string | null>(null);
   const [loadingTtsMessageKey, setLoadingTtsMessageKey] = useState<string | null>(null);
@@ -553,8 +558,24 @@ export default function ChatPage({ chat, voiceChat, settings, errorRuntimeContex
   const activeBlobUrlRef = useRef<string | null>(null);
   const copyResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  const prevMsgLengthRef = useRef(combinedMessages.length);
+  const prevVoiceActiveRef = useRef(false);
+
   const showWelcome = isEmpty && !voiceChat.voiceChatRecording && !voiceChat.voiceChatConnected;
   const isVoiceActive = voiceChat.voiceChatRecording || voiceChat.voiceChatConnected;
+
+  const scrollToBottom = (smooth = true) => {
+    shouldStickToBottomRef.current = true;
+    setShowScrollBottomBtn(false);
+    if (messagesEndRef.current) {
+      messagesEndRef.current.scrollIntoView({ behavior: smooth ? "smooth" : "auto", block: "end" });
+    } else if (bodyRef.current) {
+      bodyRef.current.scrollTo({
+        top: bodyRef.current.scrollHeight,
+        behavior: smooth ? "smooth" : "auto",
+      });
+    }
+  };
 
   useEffect(() => {
     return () => {
@@ -646,11 +667,30 @@ export default function ChatPage({ chat, voiceChat, settings, errorRuntimeContex
   }
 
   useEffect(() => {
+    // If new turn is created or voice call starts/ends, re-enable auto stick to bottom
+    if (combinedMessages.length > prevMsgLengthRef.current || isVoiceActive !== prevVoiceActiveRef.current) {
+      shouldStickToBottomRef.current = true;
+      setShowScrollBottomBtn(false);
+    }
+    prevMsgLengthRef.current = combinedMessages.length;
+    prevVoiceActiveRef.current = isVoiceActive;
+
     const el = bodyRef.current;
     if (el && shouldStickToBottomRef.current) {
-      el.scrollTop = el.scrollHeight;
+      const animationFrameId = requestAnimationFrame(() => {
+        if (bodyRef.current && shouldStickToBottomRef.current) {
+          bodyRef.current.scrollTop = bodyRef.current.scrollHeight;
+        }
+      });
+      return () => cancelAnimationFrame(animationFrameId);
     }
-  }, [combinedMessages.length, voiceChat.voiceChatTranscript, voiceChat.voiceChatReply]);
+  }, [
+    combinedMessages.length,
+    voiceChat.voiceChatTranscript,
+    voiceChat.voiceChatReply,
+    voiceChat.voiceChatAgentToolStatus,
+    isVoiceActive,
+  ]);
 
   useEffect(() => () => {
     if (copyResetTimerRef.current !== null) {
@@ -684,7 +724,9 @@ export default function ChatPage({ chat, voiceChat, settings, errorRuntimeContex
       return;
     }
     const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
-    shouldStickToBottomRef.current = distanceFromBottom < 96;
+    const isNearBottom = distanceFromBottom < 80;
+    shouldStickToBottomRef.current = isNearBottom;
+    setShowScrollBottomBtn(!isNearBottom && combinedMessages.length > 0);
   }
 
   return (
@@ -923,9 +965,23 @@ export default function ChatPage({ chat, voiceChat, settings, errorRuntimeContex
                 </div>
               </div>
             )}
+            <div ref={messagesEndRef} style={{ height: 1 }} />
           </div>
         )}
       </div>
+
+      {/* ── Scroll to bottom floating action ── */}
+      {showScrollBottomBtn && !showWelcome && (
+        <button
+          type="button"
+          className="vsScrollToBottomBtn"
+          onClick={() => scrollToBottom(true)}
+          title={t("滚动到最新对话", "Scroll to latest conversation")}
+        >
+          <ChevronDownIcon />
+          <span>{t("最新对话", "Latest")}</span>
+        </button>
+      )}
 
       {/* ── Bottom composer (visible when not in welcome mode or when voice active) ── */}
       {(!showWelcome || isVoiceActive) && (

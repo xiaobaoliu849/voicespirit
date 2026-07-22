@@ -1494,7 +1494,39 @@ button:focus-visible {
 
 .vsChatBody.liveActive {
   padding-top: clamp(22px, 4vh, 48px);
-  padding-bottom: 18px;
+  padding-bottom: 48px;
+}
+
+.vsScrollToBottomBtn {
+  position: absolute;
+  right: clamp(20px, 4vw, 48px);
+  bottom: 110px;
+  z-index: 10;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in oklab, var(--brand) 28%, var(--line));
+  background: color-mix(in oklab, var(--bg-card) 94%, var(--brand-soft));
+  color: var(--brand-dark);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 4px 14px color-mix(in oklab, var(--brand-dark) 15%, transparent);
+  backdrop-filter: blur(12px);
+  transition: all 0.2s ease;
+  animation: popIn 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.vsScrollToBottomBtn:hover {
+  background: var(--bg-card);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 18px color-mix(in oklab, var(--brand-dark) 22%, transparent);
+}
+
+.vsChatWorkspace:has(.vsComposerWrap.liveActive) .vsScrollToBottomBtn {
+  bottom: 160px;
 }
 
 .vsChatBody.empty {
