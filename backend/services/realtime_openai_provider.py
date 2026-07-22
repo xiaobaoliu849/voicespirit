@@ -7,8 +7,7 @@ import json
 import logging
 import re
 import time
-import uuid
-from typing import Any, Awaitable, Callable
+from typing import Any
 
 import websockets
 from fastapi import WebSocket, WebSocketDisconnect
@@ -19,9 +18,9 @@ from .realtime_constants import (
     _merge_streaming_text,
 )
 from .interruption_classifier import InterruptionClassifier, InterruptionDecisionCoordinator, InterruptionIntent
-from .realtime_memory_session import RealtimeMemorySession, _merge_memory_text
+from .realtime_memory_session import RealtimeMemorySession
 from .realtime_session_recorder import VoiceAgentSessionRecorder
-from .voice_agent_tools import VoiceAgentToolService, VoiceAgentToolSession, VoiceToolRequest
+from .voice_agent_tools import VoiceAgentToolService, VoiceAgentToolSession
 
 logger = logging.getLogger(__name__)
 

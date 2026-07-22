@@ -9,9 +9,7 @@ import os
 import re
 import struct
 import time
-import uuid
-from typing import Any, Awaitable, Callable
-from urllib.parse import urlparse
+from typing import Any
 
 import websockets
 from fastapi import WebSocket, WebSocketDisconnect
@@ -28,16 +26,8 @@ from .realtime_constants import (
     _normalize_dashscope_realtime_voice,
 )
 from .interruption_classifier import InterruptionClassifier, InterruptionDecisionCoordinator, InterruptionIntent
-from .realtime_dashscope_client import DashScopeAudioRealtimeConversation, DashScopeRealtimeCallback
-from .realtime_memory_session import RealtimeMemorySession, _merge_memory_text
+from .realtime_memory_session import RealtimeMemorySession
 from .realtime_session_recorder import VoiceAgentSessionRecorder
-from .realtime_tool_protocol import (
-    RealtimeToolCall,
-    dashscope_supports_native_tools,
-    tool_call_to_request,
-    tool_error_payload,
-    tool_result_payload,
-)
 from .voice_agent_tools import VoiceAgentToolService, VoiceAgentToolSession, VoiceToolRequest
 
 logger = logging.getLogger(__name__)
@@ -47,7 +37,7 @@ class QwenAudioRealtimeMixin:
     """Qwen-Audio raw-WebSocket provider methods for RealtimeVoiceService."""
 
     @staticmethod
-    def _is_qwen_audio_model(model: str | None) -> bool:
+    def is_qwen_audio_model(model: str | None) -> bool:
         """Return True when *model* is a Qwen-Audio realtime model (supports native function calling)."""
         return bool(model and "qwen-audio" in str(model).lower())
     @staticmethod

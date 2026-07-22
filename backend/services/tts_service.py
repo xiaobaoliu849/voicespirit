@@ -219,6 +219,32 @@ class TTSService:
                 except OSError:
                     continue
 
+    @staticmethod
+    def _atomic_write_bytes(path: Path, data: bytes) -> None:
+        """Write *data* to *path* atomically (tmp file + os.replace)."""
+        import tempfile
+        fd, tmp = tempfile.mkstemp(dir=str(path.parent), suffix=".tmp")
+        closed = False
+        try:
+            view = memoryview(data)
+            while view:
+                written = os.write(fd, view)
+                view = view[written:]
+            os.close(fd)
+            closed = True
+            os.replace(tmp, str(path))
+        except BaseException:
+            if not closed:
+                try:
+                    os.close(fd)
+                except OSError:
+                    pass
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+            raise
+
     def _legacy_gpt_sovits_voices_dir(self) -> Path:
         return Path(__file__).resolve().parents[1] / "data" / "gpt_sovits_voices"
 
@@ -328,7 +354,7 @@ class TTSService:
                 old_file.unlink()
 
         audio_path = voices_dir / f"{clone_name}{extension}"
-        audio_path.write_bytes(audio_bytes)
+        self._atomic_write_bytes(audio_path, audio_bytes)
         text_path = voices_dir / f"{clone_name}.txt"
         text_path.write_text(prompt_text.strip(), encoding="utf-8")
 
@@ -559,7 +585,18 @@ class TTSService:
             if wav.ndim > 1 and wav.shape[0] == 1:
                 wav = wav[0]
 
-            sf.write(str(path), wav.T if wav.ndim > 1 else wav, 24000)
+            import tempfile as _tf
+            _fd, _tmp = _tf.mkstemp(dir=str(path.parent), suffix=".tmp")
+            os.close(_fd)
+            try:
+                sf.write(_tmp, wav.T if wav.ndim > 1 else wav, 24000)
+                os.replace(_tmp, str(path))
+            except BaseException:
+                try:
+                    os.unlink(_tmp)
+                except OSError:
+                    pass
+                raise
 
     async def _generate_gpt_sovits_audio(self, text: str, voice: str, path: Path) -> None:
         api_key, base_url = self._gpt_sovits_settings()
@@ -616,14 +653,25 @@ class TTSService:
         if response.status_code != 200:
             raise RuntimeError(f"GPT-SoVITS API error: {response.status_code} - {response.text}")
 
-        path.write_bytes(response.content)
+        self._atomic_write_bytes(path, response.content)
 
     async def _generate_edge_audio(self, text: str, voice: str, rate: str, path: Path) -> None:
         if edge_tts is None:
             raise RuntimeError("edge-tts Python 依赖未安装。")
         try:
             communicator = edge_tts.Communicate(text, voice, rate=rate)
-            await communicator.save(str(path))
+            import tempfile as _tf
+            _fd, _tmp = _tf.mkstemp(dir=str(path.parent), suffix=".tmp")
+            os.close(_fd)
+            try:
+                await communicator.save(_tmp)
+                os.replace(_tmp, str(path))
+            except BaseException:
+                try:
+                    os.unlink(_tmp)
+                except OSError:
+                    pass
+                raise
         except Exception as exc:
             raise RuntimeError(f"Edge TTS 朗读生成失败 ({exc})。请检查网络是否能够正常访问微软 Edge 语音服务。") from exc
 
@@ -641,7 +689,7 @@ class TTSService:
         synthesizer = SpeechSynthesizer(model=DEFAULT_QWEN_FLASH_MODEL, voice=voice)
         # dashscope SDK 的 call() 是同步阻塞的网络调用，放到线程池里跑，避免卡住事件循环
         audio = await asyncio.to_thread(synthesizer.call, text)
-        path.write_bytes(audio)
+        self._atomic_write_bytes(path, audio)
 
     async def _generate_minimax_audio(self, text: str, voice: str, path: Path) -> None:
         api_key, base_url = self._minimax_settings()
@@ -692,7 +740,7 @@ class TTSService:
         if not audio_hex:
             raise RuntimeError("MiniMax returned no audio data.")
 
-        path.write_bytes(bytes.fromhex(audio_hex))
+        self._atomic_write_bytes(path, bytes.fromhex(audio_hex))
 
     async def _generate_xiaomi_audio(self, text: str, voice: str, path: Path) -> None:
         api_key, base_url = self._xiaomi_settings()
@@ -736,7 +784,7 @@ class TTSService:
 
         import base64
         audio_bytes = base64.b64decode(audio_data)
-        path.write_bytes(audio_bytes)
+        self._atomic_write_bytes(path, audio_bytes)
 
     async def _generate_openai_audio(self, text: str, voice: str, rate: str, path: Path) -> None:
         self.config.reload()
@@ -780,8 +828,8 @@ class TTSService:
             response = await client.post(f"{base_url}/audio/speech", json=payload, headers=headers)
         if response.status_code != 200:
             raise RuntimeError(f"OpenAI TTS API error: {response.status_code} - {response.text}")
-        
-        path.write_bytes(response.content)
+
+        self._atomic_write_bytes(path, response.content)
 
     async def _generate_elevenlabs_audio(self, text: str, voice: str, path: Path) -> None:
         self.config.reload()
@@ -819,7 +867,7 @@ class TTSService:
         if response.status_code != 200:
             raise RuntimeError(f"ElevenLabs TTS API error: {response.status_code} - {response.text}")
 
-        path.write_bytes(response.content)
+        self._atomic_write_bytes(path, response.content)
 
     async def _fetch_elevenlabs_voices(self) -> list[dict[str, Any]]:
         self.config.reload()

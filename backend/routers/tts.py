@@ -170,7 +170,7 @@ async def speak(
 
 
 class StreamTtsRequest(BaseModel):
-    text: str = Field(..., min_length=1)
+    text: str = Field(..., min_length=1, max_length=3000)
     voice: str = Field(default="zh-CN-YunxiNeural")
 
 @router.post("/stream-with-timestamps")

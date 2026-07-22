@@ -16,33 +16,10 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-# Ensure robust relative and absolute imports for both runtime and IDE
-try:
-    # 1. Try absolute import from the project root (most IDEs)
-    from backend.services.config_loader import BackendConfig # type: ignore
-    from backend.services.evermem_config import EverMemConfig # type: ignore
-    from backend.services.transcription_publish_adapter import build_transcription_publisher # type: ignore
-    from backend.services.llm_service import LLMService # type: ignore
-except ImportError:
-    try:
-        # 2. Try the voicespirit package prefix (alternate IDE resolution)
-        from voicespirit.backend.services.config_loader import BackendConfig # type: ignore
-        from voicespirit.backend.services.evermem_config import EverMemConfig # type: ignore
-        from voicespirit.backend.services.transcription_publish_adapter import build_transcription_publisher # type: ignore
-        from voicespirit.backend.services.llm_service import LLMService # type: ignore
-    except ImportError:
-        try:
-            # 3. Try standard relative imports (for runtime if started within the directory)
-            from .config_loader import BackendConfig # type: ignore
-            from .evermem_config import EverMemConfig # type: ignore
-            from .transcription_publish_adapter import build_transcription_publisher # type: ignore
-            from .llm_service import LLMService # type: ignore
-        except ImportError:
-            # 4. Last resort for very flat runtimes
-            from config_loader import BackendConfig # type: ignore
-            from evermem_config import EverMemConfig # type: ignore
-            from transcription_publish_adapter import build_transcription_publisher # type: ignore
-            from llm_service import LLMService # type: ignore
+from .config_loader import BackendConfig
+from .evermem_config import EverMemConfig
+from .transcription_publish_adapter import build_transcription_publisher
+from .llm_service import LLMService
 
 QWEN_ASR_SYNC_MODEL = "qwen3-asr-flash-2026-02-10"
 QWEN_ASR_ASYNC_MODEL = "qwen3-asr-flash-filetrans"

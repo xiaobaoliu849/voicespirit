@@ -194,7 +194,7 @@ async def voice_chat_ws(
 
     try:
         if selected_provider == "DashScope":
-            if voice_chat_service._is_qwen_audio_model(model):
+            if voice_chat_service.is_qwen_audio_model(model):
                 await voice_chat_service.stream_dashscope_audio_session(
                     websocket,
                     model=model,

@@ -1,7 +1,7 @@
 """Tests for Qwen-Audio native realtime voice path (raw WebSocket, bypasses DashScope SDK).
 
 Covers:
-  - ``_is_qwen_audio_model`` model detection
+  - ``is_qwen_audio_model`` model detection
   - ``_build_qwen_audio_instructions`` with/without memory context
   - ``_qwen_audio_to_client_loop`` function_call gating (multi-call, finalize)
   - ``_handle_qwen_audio_function_call`` tool execution and response.create ordering
@@ -21,10 +21,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from services.interruption_classifier import InterruptionDecisionCoordinator
 from services.realtime_voice_service import RealtimeVoiceService
 from services.voice_agent_tools import VoiceAgentToolSession, VoiceToolRequest
-
-# NOTE: ``VoiceToolRequest`` is imported at module level in realtime_voice_service.py.
-# (Previously a test-side injection worked around a missing import; that NameError is
-# now fixed in source, so tests import it directly and exercise the real import path.)
 
 
 # ---------------------------------------------------------------------------
@@ -161,17 +157,17 @@ class TestQwenAudioRealtime(unittest.IsolatedAsyncioTestCase):
     # ---- 1-3: correct-behavior regression baseline -------------------------
 
     def test_is_qwen_audio_model_detection(self):
-        """_is_qwen_audio_model returns True for qwen-audio* models, False otherwise."""
+        """is_qwen_audio_model returns True for qwen-audio* models, False otherwise."""
         svc = RealtimeVoiceService
         # True cases
-        self.assertTrue(svc._is_qwen_audio_model("qwen-audio-3.0-realtime-plus"))
-        self.assertTrue(svc._is_qwen_audio_model("QWEN-AUDIO-flash"))
-        self.assertTrue(svc._is_qwen_audio_model("qwen-audio"))
+        self.assertTrue(svc.is_qwen_audio_model("qwen-audio-3.0-realtime-plus"))
+        self.assertTrue(svc.is_qwen_audio_model("QWEN-AUDIO-flash"))
+        self.assertTrue(svc.is_qwen_audio_model("qwen-audio"))
         # False cases
-        self.assertFalse(svc._is_qwen_audio_model("qwen-realtime"))
-        self.assertFalse(svc._is_qwen_audio_model(None))
-        self.assertFalse(svc._is_qwen_audio_model(""))
-        self.assertFalse(svc._is_qwen_audio_model("gpt-4o"))
+        self.assertFalse(svc.is_qwen_audio_model("qwen-realtime"))
+        self.assertFalse(svc.is_qwen_audio_model(None))
+        self.assertFalse(svc.is_qwen_audio_model(""))
+        self.assertFalse(svc.is_qwen_audio_model("gpt-4o"))
 
     def test_build_instructions_without_memory(self):
         """_build_qwen_audio_instructions returns non-empty string containing 小云."""

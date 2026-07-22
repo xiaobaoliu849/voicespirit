@@ -8,8 +8,7 @@ import json
 import logging
 import re
 import time
-import uuid
-from typing import Any, Awaitable, Callable
+from typing import Any
 
 from fastapi import WebSocket, WebSocketDisconnect
 
@@ -38,7 +37,7 @@ from .realtime_tool_protocol import (
     tool_error_payload,
     tool_result_payload,
 )
-from .voice_agent_tools import VoiceAgentToolSession, VoiceToolRequest
+from .voice_agent_tools import VoiceAgentToolSession
 
 logger = logging.getLogger(__name__)
 
