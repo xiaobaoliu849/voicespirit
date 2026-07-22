@@ -714,6 +714,12 @@ class GoogleRealtimeMixin:
                         for function_call in function_calls:
                             provider_call_id = str(getattr(function_call, "id", "") or "").strip()
                             tool_name = str(getattr(function_call, "name", "") or "").strip()
+                            logger.warning(
+                                "[REALTIME-TOOL-CALL] Google Live fired tool '%s' (call_id=%s) args=%s",
+                                tool_name,
+                                provider_call_id,
+                                dict(getattr(function_call, "args", {}) or {}),
+                            )
                             if not provider_call_id:
                                 await self._send_event(
                                     websocket,

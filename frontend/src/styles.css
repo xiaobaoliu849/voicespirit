@@ -1572,6 +1572,13 @@ button:focus-visible {
   color: var(--brand-dark);
 }
 
+.vsBubbleMemoryTag.tool {
+  background: color-mix(in oklab, oklch(0.78 0.12 55) 22%, var(--bg-card));
+  color: oklch(0.52 0.14 55);
+  font-weight: 600;
+  cursor: default;
+}
+
 .vsRealtimeContent {
   font-size: 15px;
   line-height: 1.6;

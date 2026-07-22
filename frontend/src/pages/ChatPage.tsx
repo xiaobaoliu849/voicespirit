@@ -845,7 +845,7 @@ export default function ChatPage({ chat, voiceChat, settings, errorRuntimeContex
                 key={`${idx}-${msg.role}`}
                 className={msg.role === "user" ? "bubble user hasCopyAction" : "bubble assistant hasCopyAction"}
               >
-                {msg.memorySaved || msg.memoriesUsed || msg.memorySourceSummary || msg.interrupted ? (
+                {msg.memorySaved || msg.memoriesUsed || msg.memorySourceSummary || msg.interrupted || (msg.toolCalls && msg.toolCalls.length > 0) ? (
                   <div className="vsBubbleMeta">
                     {msg.memorySaved ? (
                       <span className="vsBubbleMemoryTag saved">{t("✓ 已记忆", "✓ Saved")}</span>
@@ -861,6 +861,26 @@ export default function ChatPage({ chat, voiceChat, settings, errorRuntimeContex
                     {msg.interrupted ? (
                       <span className="vsBubbleMemoryTag used">{t("已打断", "Interrupted")}</span>
                     ) : null}
+                    {msg.toolCalls && msg.toolCalls.length > 0 && (() => {
+                      const last = [...msg.toolCalls].reverse().find(
+                        (r) => r.status === "result" || r.status === "completed" || r.status === "context_injected" || r.status === "result_delivered"
+                      ) ?? msg.toolCalls[msg.toolCalls.length - 1];
+                      const toolLabel = last.tool_name === "search_web"
+                        ? t("🔍 联网搜索", "🔍 Web Search")
+                        : last.tool_name === "translate_text"
+                        ? t("🌐 翻译", "🌐 Translate")
+                        : last.tool_name === "summarize_transcript"
+                        ? t("📝 摘要", "📝 Summary")
+                        : `🔧 ${last.tool_name || t("工具", "Tool")}`;
+                      const meta: string[] = [];
+                      if (last.source_count != null && last.source_count > 0) meta.push(t(`${last.source_count} 来源`, `${last.source_count} sources`));
+                      if (last.elapsed_ms != null) meta.push(`${(last.elapsed_ms / 1000).toFixed(1)}s`);
+                      return (
+                        <span className="vsBubbleMemoryTag tool" title={last.query || ""}>
+                          {toolLabel}{meta.length > 0 ? ` · ${meta.join(" · ")}` : ""}
+                        </span>
+                      );
+                    })()}
                   </div>
                 ) : null}
                 {msg.role === "user" && msg.attachments && msg.attachments.length > 0 && (
