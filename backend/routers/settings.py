@@ -206,6 +206,7 @@ def _filter_dashscope_models(model_ids: list[str]) -> list[str]:
     # Using keyword fragments that are unambiguous within the qwen namespace.
     _OFF_TOPIC_KEYWORDS = (
         "-image-",       # qwen-image-*, qwen-image-edit-*  → image generation
+        "-vl-",          # qwen-vl-*, qwen-vl-ocr-*         → vision-language (no vision in VoiceSpirit)
         "-coder-",       # qwen-coder-*                     → code generation
         "-math-",        # qwen-math-*                      → mathematics
         "-deep-research",# qwen-deep-research-*             → agentic research tool
@@ -219,18 +220,17 @@ def _filter_dashscope_models(model_ids: list[str]) -> list[str]:
     # which we do NOT want to block — only block the raw dense parameter suffixes.
     _SIZE_SUFFIX_RE = re.compile(r"(?<!-a)-\d*\.?\d+b\b", re.IGNORECASE)
 
-    # Date-snapshot suffixes to DROP — compressed formats only:
-    #   Long form  (8 digits): -20241018, -20250601  (DashScope alias snapshots)
-    #   Short form (4 digits): -0107, -1201, -0919   (month-day pinned aliases)
+    # Date-snapshot suffixes to DROP — ALL date formats:
+    #   Compressed 8-digit:  -20241018, -20250601  (DashScope alias snapshots)
+    #   Compressed 4-digit:  -0107, -1201, -0919   (month-day pinned aliases)
+    #   Hyphenated YYYY-MM-DD: -2025-11-05, -2024-11-01  (also alias snapshots)
     #
-    # KEEP hyphenated YYYY-MM-DD dates (e.g. -2025-11-27, -2026-03-15):
-    #   These appear in production versioned models like qwen3-tts-flash-2025-11-27
-    #   and qwen3.5-omni-plus-realtime-2026-03-15.  They are NOT snapshot aliases;
-    #   they are the canonical version identifier for that specific model tier.
-    _DATE_SUFFIX_RE = re.compile(r"(-\d{6,8}|-(?!\d{4}-\d{2}-\d{2})\d{4})$", re.IGNORECASE)
-
-    # No whitelist needed: hyphenated dates pass naturally, compressed dates are blocked.
-    _DATE_NAME_WHITELIST: set[str] = set()
+    # Note: production versioned models we specifically want (e.g. qwen3-tts-flash-2025-11-27,
+    # qwen3-omni-flash-2025-12-01) are guaranteed via DASHSCOPE_MODEL_LIST_SUPPLEMENTS which
+    # is applied AFTER this filter, so we can safely drop all date-suffixed names here.
+    _DATE_SUFFIX_RE = re.compile(
+        r"(-\d{4}-\d{2}-\d{2}|-\d{6,8}|-(?!\d{4}-\d{2}-\d{2})\d{4})$", re.IGNORECASE
+    )
 
     filtered: list[str] = []
     for m in model_ids:
@@ -268,16 +268,20 @@ def _filter_dashscope_models(model_ids: list[str]) -> list[str]:
         # 6. Strip models with an explicit dense-parameter-size suffix (raw checkpoints)
         #    e.g. qwen2.5-72b-instruct, qwen3-7b-instruct  → skip
         #    but  qwen-max, qwq-32b, qwen3-235b-a22b        → keep
+        #    MoE heuristic: true product MoE ends with -Xb-aYb$ (no role suffix after).
+        #    qwen2-57b-a14b-instruct: has -instruct after MoE suffix → old checkpoint → DROP.
         if _SIZE_SUFFIX_RE.search(low):
-            is_moe = bool(re.search(r"-\d+b-a\d+b", low))
+            is_moe = bool(re.search(r"-\d+b-a\d+b$", low))  # must end with MoE suffix
             if not is_moe:
                 if re.match(r"(qwen\d|deepseek-v\d)", low):
                     continue
                 if re.search(r"-\d*\.?\d+b-(instruct|chat|base|preview)", low):
                     continue
 
-        # 7. Strip date-snapshot versions (pinned releases not meant for production use)
-        if raw not in _DATE_NAME_WHITELIST and _DATE_SUFFIX_RE.search(low):
+        # 7. Strip ALL date-suffixed names (both compressed and YYYY-MM-DD).
+        #    Curated versioned models we want are guaranteed via DASHSCOPE_MODEL_LIST_SUPPLEMENTS
+        #    which is merged AFTER this filter runs (see fetch_models endpoint).
+        if _DATE_SUFFIX_RE.search(low):
             continue
 
         filtered.append(raw)
@@ -420,8 +424,11 @@ async def fetch_models(provider: str, payload: FetchModelsRequest) -> FetchModel
         if provider == "Google":
             model_ids.extend(GOOGLE_MODEL_LIST_SUPPLEMENTS)
         elif provider == "DashScope":
-            model_ids.extend(DASHSCOPE_MODEL_LIST_SUPPLEMENTS)
+            # Filter API response first, then append curated supplements.
+            # This ensures versioned production models in DASHSCOPE_MODEL_LIST_SUPPLEMENTS
+            # survive even though the filter drops all date-suffixed names.
             model_ids = _filter_dashscope_models(model_ids)
+            model_ids.extend(DASHSCOPE_MODEL_LIST_SUPPLEMENTS)
 
         model_ids = sorted(list(set(model_ids)))
         tts_keywords = ("tts", "speech", "cosyvoice", "sambert", "voice", "eleven", "qwen-audio")
