@@ -68,12 +68,12 @@ DEFAULT_SETTINGS_TEMPLATE: dict[str, Any] = {
         "OpenRouter": {"default": "", "available": [], "enabled": []},
         "SiliconFlow": {"default": "", "available": [], "enabled": []},
         "Groq": {"default": "", "available": [], "enabled": []},
-        "DashScope": {"default": "", "available": [], "enabled": []},
+        "DashScope": {"default": "", "available": [], "enabled": [], "tts_default": "qwen3-tts-flash-2025-11-27", "tts_available": ["qwen3-tts-flash-2025-11-27", "cosyvoice-v2-1.5", "qwen-tts-v2"], "tts_enabled": ["qwen3-tts-flash-2025-11-27", "cosyvoice-v2-1.5"]},
         "Google": {"default": "", "available": [], "enabled": []},
-        "MiniMax": {"default": "", "available": [], "enabled": []},
-        "Xiaomi": {"default": "", "available": [], "enabled": []},
-        "OpenAI": {"default": "tts-1", "available": ["tts-1", "tts-1-hd"], "enabled": ["tts-1", "tts-1-hd"]},
-        "ElevenLabs": {"default": "eleven_multilingual_v2", "available": ["eleven_multilingual_v2", "eleven_turbo_v2_5", "eleven_monolingual_v1"], "enabled": ["eleven_multilingual_v2", "eleven_turbo_v2_5"]},
+        "MiniMax": {"default": "", "available": [], "enabled": [], "tts_default": "speech-02-turbo", "tts_available": ["speech-02-turbo", "speech-02-hd", "speech-01-turbo", "speech-01-hd"], "tts_enabled": ["speech-02-turbo", "speech-02-hd"]},
+        "Xiaomi": {"default": "", "available": [], "enabled": [], "tts_default": "mimo-v2.5-tts", "tts_available": ["mimo-v2.5-tts", "mimo-v2-tts"], "tts_enabled": ["mimo-v2.5-tts"]},
+        "OpenAI": {"default": "tts-1", "available": ["tts-1", "tts-1-hd"], "enabled": ["tts-1", "tts-1-hd"], "tts_default": "tts-1", "tts_available": ["tts-1", "tts-1-hd"], "tts_enabled": ["tts-1", "tts-1-hd"]},
+        "ElevenLabs": {"default": "eleven_multilingual_v2", "available": ["eleven_multilingual_v2", "eleven_turbo_v2_5", "eleven_monolingual_v1"], "enabled": ["eleven_multilingual_v2", "eleven_turbo_v2_5"], "tts_default": "eleven_multilingual_v2", "tts_available": ["eleven_multilingual_v2", "eleven_turbo_v2_5", "eleven_monolingual_v1"], "tts_enabled": ["eleven_multilingual_v2", "eleven_turbo_v2_5"]},
         "Ollama": {"default": "", "available": [], "enabled": []},
         "Deepgram": {"default": "", "available": [], "enabled": []},
         "GPT-SoVITS": {"default": "", "available": [], "enabled": []},
@@ -205,11 +205,23 @@ class SettingsService:
                 enabled_raw = []
             enabled = [str(item).strip() for item in enabled_raw if str(item).strip()]
 
-            normalized[provider_name] = {
+            tts_default = str(model_data.get("tts_default", "")).strip()
+            tts_available_raw = model_data.get("tts_available", [])
+            tts_available = [str(item).strip() for item in tts_available_raw if str(item).strip()] if isinstance(tts_available_raw, list) else []
+            tts_enabled_raw = model_data.get("tts_enabled", [])
+            tts_enabled = [str(item).strip() for item in tts_enabled_raw if str(item).strip()] if isinstance(tts_enabled_raw, list) else []
+
+            item_dict: dict[str, Any] = {
                 "default": default_model,
                 "available": available,
                 "enabled": enabled,
             }
+            if tts_default or tts_available or tts_enabled:
+                item_dict["tts_default"] = tts_default
+                item_dict["tts_available"] = tts_available
+                item_dict["tts_enabled"] = tts_enabled
+
+            normalized[provider_name] = item_dict
         return normalized
 
     @staticmethod

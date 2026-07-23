@@ -7,6 +7,9 @@ export type ProviderModelCatalog = Record<
     defaultModel: string;
     availableModels: string[];
     enabledModels?: string[];
+    ttsDefaultModel?: string;
+    ttsAvailableModels?: string[];
+    ttsEnabledModels?: string[];
   }
 >;
 

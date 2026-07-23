@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import {
+  API_BASE_URL,
   fetchTranscriptionJob,
   transcribeAudio,
   createTranscriptionJobFromUrl,
@@ -145,12 +146,13 @@ export function TranscriptionPage({ onSendToChat }: Props) {
       const resp = await transcribeAudio(file);
       const localJob: TranscriptionJobResponse = {
         job_id: resp.job_id || `sync_${Date.now()}`,
-        mode: "local_file",
+        mode: (resp as any).mode || "sync",
         status: "completed",
         file_name: file.name,
         transcript: resp.transcript,
         has_transcript: true,
         memory_saved: resp.memory_saved,
+        source_url: resp.source_url ? (resp.source_url.startsWith("http") ? resp.source_url : `${API_BASE_URL}${resp.source_url}`) : undefined,
         updated_at: new Date().toISOString(),
       };
 
@@ -219,6 +221,7 @@ export function TranscriptionPage({ onSendToChat }: Props) {
         file_name: item.file_name,
         has_transcript: item.has_transcript,
         memory_saved: item.memory_saved,
+        source_url: item.source_url,
         updated_at: item.updated_at,
         error: item.error,
       };

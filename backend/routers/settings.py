@@ -124,6 +124,7 @@ class FetchModelsRequest(BaseModel):
 class FetchModelsResponse(BaseModel):
     provider: str
     models: list[str]
+    tts_models: list[str] = Field(default_factory=list)
 
 
 GOOGLE_MODEL_LIST_SUPPLEMENTS = [
@@ -189,8 +190,6 @@ async def fetch_models(provider: str, payload: FetchModelsRequest) -> FetchModel
         )
 
     if provider == "Ollama":
-        # Native API endpoint is /api/tags
-        # base_url is typically http://localhost:11434/v1
         base = base_url
         if base.endswith("/v1"):
             base = base[:-3]
@@ -271,8 +270,10 @@ async def fetch_models(provider: str, payload: FetchModelsRequest) -> FetchModel
             model_ids.extend(GOOGLE_MODEL_LIST_SUPPLEMENTS)
 
         model_ids = sorted(list(set(model_ids)))
+        tts_keywords = ("tts", "speech", "cosyvoice", "sambert", "voice", "eleven")
+        tts_ids = [m for m in model_ids if any(kw in m.lower() for kw in tts_keywords)]
 
-        return FetchModelsResponse(provider=provider, models=model_ids)
+        return FetchModelsResponse(provider=provider, models=model_ids, tts_models=tts_ids)
     except Exception as exc:
         raise HTTPException(
             status_code=500,
@@ -282,4 +283,3 @@ async def fetch_models(provider: str, payload: FetchModelsRequest) -> FetchModel
                 "meta": {},
             },
         ) from exc
-

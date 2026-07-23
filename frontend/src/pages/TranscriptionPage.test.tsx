@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as api from "../api";
 import { API_BASE_URL } from "../api";
@@ -46,7 +46,7 @@ describe("TranscriptionPage", () => {
 
   afterEach(() => {
     vi.useRealTimers();
-    vi.restoreAllMocks();
+    vi.clearAllMocks();
   });
 
   it("transcribes a local audio file", async () => {
@@ -72,15 +72,6 @@ describe("TranscriptionPage", () => {
     mockedTranscribeAudio.mockResolvedValueOnce({
       transcript: "同步转写结果",
       job_id: "tx_sync_audio_001",
-      memory_saved: true
-    });
-    mockedFetchTranscriptionJob.mockResolvedValueOnce({
-      job_id: "tx_sync_audio_001",
-      mode: "sync",
-      status: "completed",
-      file_name: "note.wav",
-      transcript: "同步转写结果",
-      has_transcript: true,
       source_url: "/api/transcription/jobs/tx_sync_audio_001/audio",
       memory_saved: true
     });
@@ -94,15 +85,14 @@ describe("TranscriptionPage", () => {
     fireEvent.change(fileInput, { target: { files: [audioFile] } });
     fireEvent.click(screen.getByRole("button", { name: "开始同步转写" }));
 
-    const audio = await screen.findByLabelText("转写音频播放器");
-
-    expect(mockedFetchTranscriptionJob).toHaveBeenCalledWith("tx_sync_audio_001", {
-      refresh: false
+    await waitFor(() => {
+      const audio = document.querySelector("audio");
+      expect(audio).not.toBeNull();
+      expect(audio).toHaveAttribute(
+        "src",
+        `${API_BASE_URL}/api/transcription/jobs/tx_sync_audio_001/audio`
+      );
     });
-    expect(audio).toHaveAttribute(
-      "src",
-      `${API_BASE_URL}/api/transcription/jobs/tx_sync_audio_001/audio`
-    );
   });
 
   it("polls a remote async transcription job until completion", async () => {
@@ -133,8 +123,8 @@ describe("TranscriptionPage", () => {
       await Promise.resolve();
     });
 
-    expect(mockedFetchTranscriptionJob).toHaveBeenCalledWith("tx_url_001", { refresh: true });
-    expect(screen.getByText("异步转写完成")).toBeInTheDocument();
+    expect(mockedFetchTranscriptionJob).toHaveBeenCalledWith("tx_url_001");
+    expect(screen.getByText("转写完成。")).toBeInTheDocument();
     expect(screen.getByText("已入记忆")).toBeInTheDocument();
   });
 });

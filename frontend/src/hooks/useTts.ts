@@ -48,11 +48,39 @@ type Options = {
   language?: UiLanguage;
 };
 
+const DEFAULT_ENGINE_MODELS: Record<TtsEngine, { defaultModel: string; availableModels: string[] }> = {
+  edge: { defaultModel: "", availableModels: [] },
+  qwen_flash: {
+    defaultModel: "qwen3-tts-flash-2025-11-27",
+    availableModels: ["qwen3-tts-flash-2025-11-27", "cosyvoice-v2-1.5", "qwen-tts-v2"]
+  },
+  minimax: {
+    defaultModel: "speech-02-turbo",
+    availableModels: ["speech-02-turbo", "speech-02-hd", "speech-01-turbo", "speech-01-hd"]
+  },
+  xiaomi: {
+    defaultModel: "mimo-v2.5-tts",
+    availableModels: ["mimo-v2.5-tts", "mimo-v2-tts"]
+  },
+  openai: {
+    defaultModel: "tts-1",
+    availableModels: ["tts-1", "tts-1-hd"]
+  },
+  elevenlabs: {
+    defaultModel: "eleven_multilingual_v2",
+    availableModels: ["eleven_multilingual_v2", "eleven_turbo_v2_5", "eleven_monolingual_v1"]
+  },
+  chattts: { defaultModel: "", availableModels: [] },
+  gpt_sovits: { defaultModel: "", availableModels: [] }
+};
+
 export default function useTts({ defaultText, formatErrorMessage, language = "zh-CN" }: Options) {
   const t = createInlineTranslator(language);
   const [ttsMode, setTtsMode] = useState<TtsWorkspaceMode>("text");
   const [ttsEngine, setTtsEngine] = useState<TtsEngine>("edge");
   const [ttsEngineB, setTtsEngineB] = useState<TtsEngine>("edge");
+  const [ttsModel, setTtsModel] = useState<string>("");
+  const [ttsModelB, setTtsModelB] = useState<string>("");
   const [text, setText] = useState(defaultText);
   const [dialogueText, setDialogueText] = useState("");
   const [pdfText, setPdfText] = useState("");
@@ -213,6 +241,8 @@ export default function useTts({ defaultText, formatErrorMessage, language = "zh
         rate,
         engine: ttsEngine,
         engineB: ttsMode === "dialogue" ? ttsEngineB : undefined,
+        model: ttsModel || undefined,
+        modelB: ttsMode === "dialogue" ? (ttsModelB || undefined) : undefined,
       });
       if (audioUrl.startsWith("blob:")) {
         URL.revokeObjectURL(audioUrl);
@@ -237,6 +267,7 @@ export default function useTts({ defaultText, formatErrorMessage, language = "zh
 
   function onEngineChange(engine: TtsEngine) {
     setTtsEngine(engine);
+    setTtsModel(DEFAULT_ENGINE_MODELS[engine]?.defaultModel || "");
     setTtsError("");
     setTtsInfo("");
     if (audioUrl.startsWith("blob:")) {
@@ -324,10 +355,28 @@ export default function useTts({ defaultText, formatErrorMessage, language = "zh
     }
   }
 
+  const ttsModelOptions = useMemo(() => {
+    const defaultList = DEFAULT_ENGINE_MODELS[ttsEngine]?.availableModels || [];
+    if (ttsModel && !defaultList.includes(ttsModel)) {
+      return [...defaultList, ttsModel];
+    }
+    return defaultList;
+  }, [ttsEngine, ttsModel]);
+
+  const ttsModelOptionsB = useMemo(() => {
+    const defaultList = DEFAULT_ENGINE_MODELS[ttsEngineB]?.availableModels || [];
+    if (ttsModelB && !defaultList.includes(ttsModelB)) {
+      return [...defaultList, ttsModelB];
+    }
+    return defaultList;
+  }, [ttsEngineB, ttsModelB]);
+
   return {
     ttsMode,
     ttsEngine,
     ttsEngineB,
+    ttsModel,
+    ttsModelB,
     text,
     dialogueText,
     pdfText,
@@ -349,11 +398,15 @@ export default function useTts({ defaultText, formatErrorMessage, language = "zh
     engineOptions,
     voiceOptions,
     voiceOptionsB,
+    ttsModelOptions,
+    ttsModelOptionsB,
     activeSourceText,
     onSubmit,
     onTtsModeChange,
     onEngineChange,
     onEngineBChange,
+    onModelChange: setTtsModel,
+    onModelBChange: setTtsModelB,
     onTextChange,
     onDialogueTextChange,
     onPdfFileChange,

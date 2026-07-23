@@ -33,22 +33,35 @@ const ALL_PROVIDER_KEYS = Object.keys(PROVIDER_API_KEY_FIELD);
 
 function parseModelValue(
   value: SettingsModelValue | undefined
-): { defaultModel: string; availableModels: string[]; enabledModels: string[] } {
+): {
+  defaultModel: string;
+  availableModels: string[];
+  enabledModels: string[];
+  ttsDefaultModel: string;
+  ttsAvailableModels: string[];
+  ttsEnabledModels: string[];
+} {
   if (typeof value === "string") {
-    return { defaultModel: value, availableModels: [], enabledModels: [] };
+    return { defaultModel: value, availableModels: [], enabledModels: [], ttsDefaultModel: "", ttsAvailableModels: [], ttsEnabledModels: [] };
   }
   if (!value || typeof value !== "object") {
-    return { defaultModel: "", availableModels: [], enabledModels: [] };
+    return { defaultModel: "", availableModels: [], enabledModels: [], ttsDefaultModel: "", ttsAvailableModels: [], ttsEnabledModels: [] };
   }
-  const defaultModel =
-    typeof value.default === "string" ? value.default : "";
+  const defaultModel = typeof value.default === "string" ? value.default : "";
   const availableModels = Array.isArray(value.available)
     ? value.available.filter((item) => typeof item === "string")
     : [];
   const enabledModels = Array.isArray(value.enabled)
     ? value.enabled.filter((item) => typeof item === "string")
     : [];
-  return { defaultModel, availableModels, enabledModels };
+  const ttsDefaultModel = typeof (value as any).tts_default === "string" ? (value as any).tts_default : "";
+  const ttsAvailableModels = Array.isArray((value as any).tts_available)
+    ? (value as any).tts_available.filter((item: any) => typeof item === "string")
+    : [];
+  const ttsEnabledModels = Array.isArray((value as any).tts_enabled)
+    ? (value as any).tts_enabled.filter((item: any) => typeof item === "string")
+    : [];
+  return { defaultModel, availableModels, enabledModels, ttsDefaultModel, ttsAvailableModels, ttsEnabledModels };
 }
 
 type Options = {
@@ -65,6 +78,9 @@ type ProviderModelCatalog = Record<
     defaultModel: string;
     availableModels: string[];
     enabledModels: string[];
+    ttsDefaultModel?: string;
+    ttsAvailableModels?: string[];
+    ttsEnabledModels?: string[];
   }
 >;
 
@@ -83,6 +99,9 @@ export default function useSettings({ formatErrorMessage }: Options) {
   const [settingsDefaultModel, setSettingsDefaultModel] = useState("");
   const [settingsAvailableModels, setSettingsAvailableModels] = useState<string[]>([]);
   const [settingsEnabledModels, setSettingsEnabledModels] = useState<string[]>([]);
+  const [settingsTtsDefaultModel, setSettingsTtsDefaultModel] = useState("");
+  const [settingsTtsAvailableModels, setSettingsTtsAvailableModels] = useState<string[]>([]);
+  const [settingsTtsEnabledModels, setSettingsTtsEnabledModels] = useState<string[]>([]);
   const [settingsFetchingModels, setSettingsFetchingModels] = useState(false);
   const settingsAvailableModelsText = settingsAvailableModels.join("\n");
   const [transcriptionUploadMode, setTranscriptionUploadMode] = useState("static");
@@ -270,6 +289,9 @@ export default function useSettings({ formatErrorMessage }: Options) {
           defaultModel: cp.default_model || "",
           availableModels: cp.available_models || [],
           enabledModels: cp.enabled_models || [],
+          ttsDefaultModel: "",
+          ttsAvailableModels: [],
+          ttsEnabledModels: []
         };
       }
     }
@@ -475,6 +497,9 @@ export default function useSettings({ formatErrorMessage }: Options) {
         setSettingsDefaultModel("");
         setSettingsAvailableModels([]);
         setSettingsEnabledModels([]);
+        setSettingsTtsDefaultModel("");
+        setSettingsTtsAvailableModels([]);
+        setSettingsTtsEnabledModels([]);
         setSettingsProviderUseMaxCompletionTokens(false);
         setSettingsProviderHeadersJson("{}");
       }
@@ -483,7 +508,7 @@ export default function useSettings({ formatErrorMessage }: Options) {
       const apiKey = keyField ? settingsData.api_keys[keyField] || "" : "";
       const apiUrl = settingsData.api_urls[settingsProvider] || "";
       const modelValue = settingsData.default_models[settingsProvider];
-      const { defaultModel, availableModels, enabledModels } = parseModelValue(modelValue);
+      const { defaultModel, availableModels, enabledModels, ttsDefaultModel, ttsAvailableModels, ttsEnabledModels } = parseModelValue(modelValue);
 
       setSettingsApiKey(apiKey);
       setSettingsApiUrl(apiUrl);
@@ -491,6 +516,9 @@ export default function useSettings({ formatErrorMessage }: Options) {
       setSettingsDefaultModel(defaultModel);
       setSettingsAvailableModels(availableModels);
       setSettingsEnabledModels(enabledModels);
+      setSettingsTtsDefaultModel(ttsDefaultModel);
+      setSettingsTtsAvailableModels(ttsAvailableModels);
+      setSettingsTtsEnabledModels(ttsEnabledModels);
       setSettingsProviderUseMaxCompletionTokens(false);
       setSettingsProviderHeadersJson("{}");
     }
@@ -888,6 +916,10 @@ export default function useSettings({ formatErrorMessage }: Options) {
     onRealtimeApiUrlChange: setSettingsRealtimeApiUrl,
     onXiaomiApiKeyChange: setXiaomiApiKey,
     onXiaomiApiUrlChange: setXiaomiApiUrl,
+    settingsTtsDefaultModel,
+    settingsTtsAvailableModels,
+    settingsTtsEnabledModels,
+    onTtsDefaultModelChange: setSettingsTtsDefaultModel,
     onDefaultModelChange: setSettingsDefaultModel,
     onAvailableModelsChange,
     onToggleModelEnabled,

@@ -264,6 +264,24 @@ export default function TtsPage({ tts, errorRuntimeContext }: Props) {
               </select>
             </div>
 
+            {tts.ttsModelOptions && tts.ttsModelOptions.length > 0 && (
+              <div className="vsTtsToolbarField">
+                <span className="vsFieldLabel" style={{ fontSize: "13px", fontWeight: "600", color: "#334155" }}>{t("模型版本", "Model")}:</span>
+                <select
+                  className="vsSelect"
+                  value={tts.ttsModel || ""}
+                  onChange={(e) => tts.onModelChange?.(e.target.value)}
+                  style={{ width: "190px", height: "34px", padding: "4px 8px", fontSize: "13px", borderRadius: "6px" }}
+                >
+                  {tts.ttsModelOptions.map((m) => (
+                    <option key={m} value={m}>
+                      {m}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
             <div className="vsTtsToolbarField">
               <span className="vsFieldLabel" style={{ fontSize: "13px", fontWeight: "600", color: "#334155" }}>{t("首选音色", "Voice")}:</span>
               <select

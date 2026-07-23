@@ -441,8 +441,8 @@ class TTSService:
             return "wav", MEDIA_TYPE_WAV
         return "mp3", MEDIA_TYPE_MP3
 
-    def _make_filename(self, text: str, voice: str, rate: str, engine: str, extension: str) -> str:
-        digest = hashlib.md5(f"{engine}|{voice}|{rate}|{text}".encode("utf-8")).hexdigest()[:16]
+    def _make_filename(self, text: str, voice: str, rate: str, engine: str, extension: str, model: str | None = None) -> str:
+        digest = hashlib.md5(f"{engine}|{model or ''}|{voice}|{rate}|{text}".encode("utf-8")).hexdigest()[:16]
         return f"{engine}_{digest}.{extension}"
 
     def _filter_by_locale(self, voices: list[dict[str, Any]], locale: str | None) -> list[dict[str, Any]]:
@@ -675,7 +675,7 @@ class TTSService:
         except Exception as exc:
             raise RuntimeError(f"Edge TTS 朗读生成失败 ({exc})。请检查网络是否能够正常访问微软 Edge 语音服务。") from exc
 
-    async def _generate_qwen_flash_audio(self, text: str, voice: str, path: Path) -> None:
+    async def _generate_qwen_flash_audio(self, text: str, voice: str, path: Path, model: str | None = None) -> None:
         api_key = self._dashscope_key()
         if not api_key:
             raise RuntimeError("DashScope API Key is not configured.")
@@ -686,18 +686,20 @@ class TTSService:
             raise RuntimeError("dashscope SDK is not installed on backend.") from exc
 
         dashscope.api_key = api_key
-        synthesizer = SpeechSynthesizer(model=DEFAULT_QWEN_FLASH_MODEL, voice=voice)
+        model_name = model or DEFAULT_QWEN_FLASH_MODEL
+        synthesizer = SpeechSynthesizer(model=model_name, voice=voice)
         # dashscope SDK 的 call() 是同步阻塞的网络调用，放到线程池里跑，避免卡住事件循环
         audio = await asyncio.to_thread(synthesizer.call, text)
         self._atomic_write_bytes(path, audio)
 
-    async def _generate_minimax_audio(self, text: str, voice: str, path: Path) -> None:
+    async def _generate_minimax_audio(self, text: str, voice: str, path: Path, model: str | None = None) -> None:
         api_key, base_url = self._minimax_settings()
         if not api_key:
             raise RuntimeError("MiniMax API Key is not configured.")
 
+        model_name = model or DEFAULT_MINIMAX_MODEL
         payload = {
-            "model": DEFAULT_MINIMAX_MODEL,
+            "model": model_name,
             "text": text,
             "voice_setting": {
                 "voice_id": voice,
@@ -742,14 +744,15 @@ class TTSService:
 
         self._atomic_write_bytes(path, bytes.fromhex(audio_hex))
 
-    async def _generate_xiaomi_audio(self, text: str, voice: str, path: Path) -> None:
+    async def _generate_xiaomi_audio(self, text: str, voice: str, path: Path, model: str | None = None) -> None:
         api_key, base_url = self._xiaomi_settings()
         if not api_key:
             raise RuntimeError("Xiaomi API Key is not configured.")
 
         url = f"{base_url}/v1/chat/completions"
+        model_name = model or DEFAULT_XIAOMI_MODEL
         payload = {
-            "model": DEFAULT_XIAOMI_MODEL,
+            "model": model_name,
             "messages": [{"role": "assistant", "content": text}],
             "audio": {
                 "format": "mp3",
@@ -786,7 +789,7 @@ class TTSService:
         audio_bytes = base64.b64decode(audio_data)
         self._atomic_write_bytes(path, audio_bytes)
 
-    async def _generate_openai_audio(self, text: str, voice: str, rate: str, path: Path) -> None:
+    async def _generate_openai_audio(self, text: str, voice: str, rate: str, path: Path, model: str | None = None) -> None:
         self.config.reload()
         api_key = str(self.config.get_all().get("api_keys", {}).get("openai_api_key", "")).strip()
         if not api_key:
@@ -810,10 +813,10 @@ class TTSService:
                 else:
                     speed = min(4.0, 1.0 + percent)
 
-        model = self.config.get_provider_settings("OpenAI").get("model", "").strip() or "tts-1"
+        model_name = model or self.config.get_provider_settings("OpenAI").get("tts_default", "").strip() or self.config.get_provider_settings("OpenAI").get("model", "").strip() or "tts-1"
 
         payload = {
-            "model": model,
+            "model": model_name,
             "input": text,
             "voice": voice.lower() if voice else "alloy",
             "response_format": "mp3",
@@ -831,7 +834,7 @@ class TTSService:
 
         self._atomic_write_bytes(path, response.content)
 
-    async def _generate_elevenlabs_audio(self, text: str, voice: str, path: Path) -> None:
+    async def _generate_elevenlabs_audio(self, text: str, voice: str, path: Path, model: str | None = None) -> None:
         self.config.reload()
         api_key = str(self.config.get_all().get("api_keys", {}).get("elevenlabs_api_key", "")).strip()
         if not api_key:
@@ -847,11 +850,11 @@ class TTSService:
         voice_id = voice or "21m0aEP3W9qOfdrWSyXx"
         url = f"{base_url}/text-to-speech/{voice_id}"
 
-        model = self.config.get_provider_settings("ElevenLabs").get("model", "").strip() or "eleven_multilingual_v2"
+        model_name = model or self.config.get_provider_settings("ElevenLabs").get("tts_default", "").strip() or self.config.get_provider_settings("ElevenLabs").get("model", "").strip() or "eleven_multilingual_v2"
 
         payload = {
             "text": text,
-            "model_id": model,
+            "model_id": model_name,
             "voice_settings": {
                 "stability": 0.5,
                 "similarity_boost": 0.75,
@@ -943,6 +946,7 @@ class TTSService:
         voice: str | None,
         rate: str = "+0%",
         engine: str | None = None,
+        model: str | None = None,
     ) -> TTSAudioResult:
         cleaned = self._clean_text(text)
 
@@ -974,7 +978,7 @@ class TTSService:
             selected_voice = voice or XIAOMI_VOICES[0]["name"]
 
         extension, media_type = self._audio_profile_for_engine(normalized_engine)
-        filename = self._make_filename(cleaned, selected_voice, rate, normalized_engine, extension)
+        filename = self._make_filename(cleaned, selected_voice, rate, normalized_engine, extension, model=model)
         path = self.output_dir / filename
 
         if path.exists() and path.stat().st_size > 0:
@@ -990,19 +994,19 @@ class TTSService:
         if normalized_engine == TTS_ENGINE_EDGE:
             await self._generate_edge_audio(cleaned, selected_voice, rate, path)
         elif normalized_engine == TTS_ENGINE_QWEN_FLASH:
-            await self._generate_qwen_flash_audio(cleaned, selected_voice, path)
+            await self._generate_qwen_flash_audio(cleaned, selected_voice, path, model=model)
         elif normalized_engine == TTS_ENGINE_MINIMAX:
-            await self._generate_minimax_audio(cleaned, selected_voice, path)
+            await self._generate_minimax_audio(cleaned, selected_voice, path, model=model)
         elif normalized_engine == TTS_ENGINE_OPENAI:
-            await self._generate_openai_audio(cleaned, selected_voice, rate, path)
+            await self._generate_openai_audio(cleaned, selected_voice, rate, path, model=model)
         elif normalized_engine == TTS_ENGINE_ELEVENLABS:
-            await self._generate_elevenlabs_audio(cleaned, selected_voice, path)
+            await self._generate_elevenlabs_audio(cleaned, selected_voice, path, model=model)
         elif normalized_engine == TTS_ENGINE_CHATTTS:
             await self._generate_chattts_audio(cleaned, selected_voice, path)
         elif normalized_engine == TTS_ENGINE_GPT_SOVITS:
             await self._generate_gpt_sovits_audio(cleaned, selected_voice, path)
         else:
-            await self._generate_xiaomi_audio(cleaned, selected_voice, path)
+            await self._generate_xiaomi_audio(cleaned, selected_voice, path, model=model)
 
         if not path.exists() or path.stat().st_size == 0:
             raise RuntimeError("Failed to generate audio file.")
@@ -1024,6 +1028,8 @@ class TTSService:
         rate: str = "+0%",
         engine: str = "edge",
         engine_b: str | None = None,
+        model: str | None = None,
+        model_b: str | None = None,
     ) -> TTSAudioResult:
         import uuid
         
@@ -1040,11 +1046,13 @@ class TTSService:
         for idx, line in enumerate(lines):
             selected_voice = voice_a if line["role"] == "A" else voice_b
             selected_engine = engine if line["role"] == "A" else (engine_b or engine)
+            selected_model = model if line["role"] == "A" else (model_b or model)
             result = await self.generate_audio(
                 text=line["text"],
                 voice=selected_voice,
                 rate=rate,
                 engine=selected_engine,
+                model=selected_model,
             )
             segment_results.append(result)
             used_voice_by_role.setdefault(line["role"], result.voice)

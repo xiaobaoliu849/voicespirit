@@ -548,6 +548,7 @@ export type WordTimestamp = {
 export type TranscriptionResponse = {
   transcript: string;
   job_id?: string;
+  source_url?: string | null;
   memory_saved?: boolean;
   duration_seconds?: number | null;
   words?: WordTimestamp[] | null;

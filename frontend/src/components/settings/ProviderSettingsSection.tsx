@@ -298,6 +298,24 @@ export default function ProviderSettingsSection({ settings }: Props) {
               </select>
             </label>
           )}
+
+          {["DashScope", "MiniMax", "Xiaomi", "OpenAI", "ElevenLabs"].includes(settings.settingsProvider) && (
+            <label className="vsField">
+              <span className="vsFieldLabel">{t("默认 TTS 语音模型", "Default TTS Model")}</span>
+              <input
+                className="vsInput"
+                value={settings.settingsTtsDefaultModel || ""}
+                onChange={(e) => settings.onTtsDefaultModelChange?.(e.target.value)}
+                placeholder={t("输入或选择 TTS 模型 ID", "Enter or select TTS model ID")}
+              />
+              <span className="vsFieldHint">
+                {t(
+                  "用于语音中心合成的标准 TTS 模型 (例如 qwen3-tts-flash-2025-11-27, cosyvoice-v2-1.5, speech-02-hd, tts-1-hd 等)",
+                  "Model used for Voice Center synthesis (e.g. qwen3-tts-flash-2025-11-27, cosyvoice-v2-1.5, speech-02-hd, tts-1-hd, etc.)"
+                )}
+              </span>
+            </label>
+          )}
         </div>
 
         {/* Model Management Section */}

@@ -493,7 +493,7 @@ describe("App interactions", () => {
       expect(mockedTranscribeAudio.mock.calls[0][0]).toBe(audioFile);
     });
     expect(await screen.findByText("同步转写结果")).toBeInTheDocument();
-    expect(screen.getByText("同步转写完成，摘要已写入长期记忆。")).toBeInTheDocument();
+    expect(screen.getByText("转写完成。")).toBeInTheDocument();
   });
 
   it("reveals and copies backend runtime details", async () => {

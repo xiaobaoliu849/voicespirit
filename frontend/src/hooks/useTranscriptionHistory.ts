@@ -20,6 +20,7 @@ export type HistoryItem = Pick<
   | "remote_job_id"
   | "has_transcript"
   | "memory_saved"
+  | "source_url"
   | "error"
 > & {
   timestamp: number;
@@ -56,6 +57,7 @@ function mapJobToHistoryItem(job: TranscriptionJobResponse): HistoryItem {
     remote_job_id: job.remote_job_id,
     has_transcript: Boolean(job.has_transcript),
     memory_saved: Boolean(job.memory_saved),
+    source_url: job.source_url,
     error: job.error,
     timestamp: Date.now(),
   };

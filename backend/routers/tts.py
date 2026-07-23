@@ -85,6 +85,14 @@ async def speak(
         default=None,
         description="Optional speaker B engine for dialogue synthesis.",
     ),
+    model: str | None = Query(
+        default=None,
+        description="Optional TTS model identifier.",
+    ),
+    model_b: str | None = Query(
+        default=None,
+        description="Optional speaker B TTS model identifier for dialogue synthesis.",
+    ),
 ) -> FileResponse:
     # FastAPI injects concrete values for HTTP requests. Direct route tests pass
     # Query objects for omitted defaults, so normalize all optional inputs here.
@@ -93,9 +101,17 @@ async def speak(
     rate = _normalize_query_string(rate, "+0%")
     engine = _normalize_query_string(engine, "edge")
     engine_b = _normalize_query_optional(engine_b)
+    model = _normalize_query_optional(model)
+    model_b = _normalize_query_optional(model_b)
+
+    kwargs: dict[str, Any] = {}
+    if model:
+        kwargs["model"] = model
 
     try:
         if voice_b:
+            if model_b:
+                kwargs["model_b"] = model_b
             result = await tts_service.generate_dialogue_audio(
                 text=text,
                 voice_a=voice,
@@ -103,6 +119,7 @@ async def speak(
                 rate=rate,
                 engine=engine,
                 engine_b=engine_b,
+                **kwargs,
             )
         else:
             result = await tts_service.generate_audio(
@@ -110,6 +127,7 @@ async def speak(
                 voice=voice,
                 rate=rate,
                 engine=engine,
+                **kwargs,
             )
     except ValueError as exc:
         raise HTTPException(
