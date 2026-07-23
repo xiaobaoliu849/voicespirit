@@ -165,10 +165,15 @@ def _filter_dashscope_models(model_ids: list[str]) -> list[str]:
     """
     import re
 
-    # Only accept models from DashScope's official provider families
+    # VoiceSpirit only uses DashScope for:
+    #   - Qwen/QwQ chat models  (qwen-max, qwen-plus, qwq-32b …)  → back AI conversation
+    #   - Voice synthesis models (qwen-audio-*, cosyvoice-*, sambert-*) → TTS
+    # Excluded intentionally:
+    #   - deepseek-* : pure text/coding LLMs, no voice relevance
+    #   - paraformer-*, sensevoice-* : ASR (speech recognition), separate concern
+    #   - farui-* : enterprise compliance tool, out of scope
     _DASHSCOPE_PREFIXES = (
-        "qwen", "qwq", "cosyvoice", "sambert", "deepseek",
-        "paraformer", "sensevoice", "farui",
+        "qwen", "qwq", "cosyvoice", "sambert",
     )
 
     # Parameter-size-like suffixes that indicate raw academic checkpoints, NOT product APIs.
