@@ -51,8 +51,8 @@ type Options = {
 const DEFAULT_ENGINE_MODELS: Record<TtsEngine, { defaultModel: string; availableModels: string[] }> = {
   edge: { defaultModel: "", availableModels: [] },
   qwen_flash: {
-    defaultModel: "qwen3-tts-flash-2025-11-27",
-    availableModels: ["qwen3-tts-flash-2025-11-27", "cosyvoice-v2-1.5", "qwen-tts-v2"]
+    defaultModel: "qwen-audio-3.0-tts-flash",
+    availableModels: ["qwen-audio-3.0-tts-flash", "qwen-audio-3.0-tts-plus", "qwen3-tts-flash-2025-11-27", "cosyvoice-v2-1.5", "qwen-tts-v2"]
   },
   minimax: {
     defaultModel: "speech-02-turbo",

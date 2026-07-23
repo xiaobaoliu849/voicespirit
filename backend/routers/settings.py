@@ -132,6 +132,15 @@ GOOGLE_MODEL_LIST_SUPPLEMENTS = [
     "gemini-3.1-flash-live-preview",
     "gemini-3.5-live-translate-preview",
 ]
+DASHSCOPE_MODEL_LIST_SUPPLEMENTS = [
+    "qwen-audio-3.0-tts-plus",
+    "qwen-audio-3.0-tts-flash",
+    "qwen3-tts-flash-2025-11-27",
+    "cosyvoice-v2-1.5",
+    "cosyvoice-v1",
+    "qwen-tts-v2",
+    "sambert-zhichu-v1",
+]
 GOOGLE_MODELS_BASE_URL = GOOGLE_INTERACTIONS_BASE_URL
 
 
@@ -268,9 +277,11 @@ async def fetch_models(provider: str, payload: FetchModelsRequest) -> FetchModel
 
         if provider == "Google":
             model_ids.extend(GOOGLE_MODEL_LIST_SUPPLEMENTS)
+        elif provider == "DashScope":
+            model_ids.extend(DASHSCOPE_MODEL_LIST_SUPPLEMENTS)
 
         model_ids = sorted(list(set(model_ids)))
-        tts_keywords = ("tts", "speech", "cosyvoice", "sambert", "voice", "eleven")
+        tts_keywords = ("tts", "speech", "cosyvoice", "sambert", "voice", "eleven", "qwen-audio")
         tts_ids = [m for m in model_ids if any(kw in m.lower() for kw in tts_keywords)]
 
         return FetchModelsResponse(provider=provider, models=model_ids, tts_models=tts_ids)
