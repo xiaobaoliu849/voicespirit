@@ -206,6 +206,10 @@ async def voice_chat_ws(
                     model=model,
                     voice=(voice or DEFAULT_DASHSCOPE_REALTIME_VOICE).strip(),
                     voiceprint_audio_urls=voiceprint_audio_urls,
+                    translation_mode=(translation_mode or "bidirectional").strip(),
+                    source_language_code=(source_language_code or "zh-Hans").strip(),
+                    target_language_code=(target_language_code or "en").strip(),
+                    echo_target_language=bool(echo_target_language),
                 )
         elif selected_provider == "OpenAI":
             await voice_chat_service.stream_openai_session(

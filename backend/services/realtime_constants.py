@@ -17,6 +17,8 @@ DEFAULT_GOOGLE_REALTIME_MODEL = "gemini-2.5-flash-native-audio-preview-12-2025"
 DEFAULT_GOOGLE_REALTIME_VOICE = "Puck"
 DEFAULT_DASHSCOPE_REALTIME_MODEL = "qwen3.5-omni-plus-realtime"
 DEFAULT_DASHSCOPE_REALTIME_VOICE = "Tina"
+# Default voice for qwen3.5-livetranslate-*-realtime (official default: Tina).
+DEFAULT_DASHSCOPE_LIVETRANSLATE_VOICE = "Tina"
 
 # Voices supported by qwen3.5-omni-*-realtime models (default: Tina), per the
 # official omni voice list. The provider rejects voices from the older
@@ -126,6 +128,60 @@ def _is_dashscope_omni_realtime_model(model: str | None) -> bool:
             str(model or "").strip().lower(),
         )
     )
+
+
+def _is_dashscope_live_translate_model(model: str | None) -> bool:
+    return bool(
+        re.fullmatch(
+            r"qwen3(?:\.5)?-livetranslate-(?:flash|plus)-realtime(?:-\d{4}-\d{2}-\d{2})?",
+            str(model or "").strip().lower(),
+        )
+    )
+
+
+# ---------------------------------------------------------------------------
+# Qwen LiveTranslate language normalization
+# ---------------------------------------------------------------------------
+
+_QWEN_TRANSLATE_LANGUAGE_ALIASES = {
+    # Chinese variants → "zh"
+    "zh": "zh", "zh-hans": "zh", "zh-cn": "zh", "zh-hant": "zh", "zh-tw": "zh",
+    "chinese": "zh", "mandarin": "zh",
+    # English variants → "en"
+    "en": "en", "en-us": "en", "en-gb": "en", "english": "en",
+    # Common languages
+    "ja": "ja", "japanese": "ja",
+    "ko": "ko", "korean": "ko",
+    "fr": "fr", "french": "fr",
+    "de": "de", "german": "de",
+    "es": "es", "spanish": "es",
+    "pt": "pt", "pt-br": "pt", "pt-pt": "pt", "portuguese": "pt",
+    "ru": "ru", "russian": "ru",
+    "it": "it", "italian": "it",
+    "yue": "yue", "cantonese": "yue",
+    "ar": "ar", "arabic": "ar",
+    "hi": "hi", "hindi": "hi",
+    "th": "th", "thai": "th",
+    "vi": "vi", "vietnamese": "vi",
+    "id": "id", "indonesian": "id",
+    "tr": "tr", "turkish": "tr",
+    "el": "el", "greek": "el",
+}
+
+
+def normalize_qwen_translate_language(code: str | None, default: str = "en") -> str:
+    """Normalize BCP-47 style language codes to Qwen LiveTranslate format.
+
+    Examples: "zh-Hans" → "zh", "pt-BR" → "pt", "en-US" → "en"
+    """
+    normalized = str(code or "").strip().lower()
+    if not normalized:
+        return default
+    if normalized in _QWEN_TRANSLATE_LANGUAGE_ALIASES:
+        return _QWEN_TRANSLATE_LANGUAGE_ALIASES[normalized]
+    # Fall back to primary subtag (e.g. "fr-CA" → "fr")
+    primary = normalized.split("-", 1)[0].strip()
+    return primary or default
 
 
 def _normalize_dashscope_realtime_voice(model: str | None, voice: str | None) -> str:

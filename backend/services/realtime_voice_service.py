@@ -81,17 +81,20 @@ from .realtime_constants import (  # noqa: F401 — re-exports
     DEFAULT_OPENAI_REALTIME_VOICE,
     DEFAULT_QWEN_AUDIO_REALTIME_VOICE,
     DEFAULT_QWEN_OMNI_REALTIME_VOICE,
+    DEFAULT_DASHSCOPE_LIVETRANSLATE_VOICE,
     QWEN_AUDIO_BENIGN_ERROR_PATTERNS,
     QWEN_AUDIO_REALTIME_INSTRUCTIONS,
     QWEN_AUDIO_REALTIME_VOICES,
     QWEN_OMNI_REALTIME_VOICES,
     _audio_energy_qwen,
     _is_dashscope_audio_realtime_model,
+    _is_dashscope_live_translate_model,
     _is_dashscope_omni_realtime_model,
     _is_google_live_translate_model,
     _is_google_public_rest_base_url,
     _merge_streaming_text,
     _normalize_dashscope_realtime_voice,
+    normalize_qwen_translate_language,
 )
 
 # Provider mixins
@@ -258,7 +261,8 @@ class RealtimeVoiceService(
         if _is_dashscope_omni_realtime_model(resolved_model):
             if OmniRealtimeConversation is None or MultiModality is None or AudioFormat is None:
                 raise RuntimeError("DashScope Omni Realtime 依赖未安装，无法启动实时语音会话。")
-        if not dashscope_supports_native_tools(resolved_model):
+        # LiveTranslate models do not support native tools; skip the tool check for them.
+        if not _is_dashscope_live_translate_model(resolved_model) and not dashscope_supports_native_tools(resolved_model):
             raise RuntimeError(
                 "VoiceSpirit 实时语音仅支持具备原生 Function Calling 的 "
                 "qwen3.5-omni-plus-realtime、qwen3.5-omni-flash-realtime，或 qwen-audio-3.0-realtime-plus/flash；请在设置中升级模型。"
