@@ -145,49 +145,84 @@ GOOGLE_MODELS_BASE_URL = GOOGLE_INTERACTIONS_BASE_URL
 
 
 def _filter_dashscope_models(model_ids: list[str]) -> list[str]:
-    import re
-    filtered: list[str] = []
-    allowed_patterns = [
-        r"^qwen-max(-.*)?$",
-        r"^qwen-plus(-.*)?$",
-        r"^qwen-turbo(-.*)?$",
-        r"^qwen-long$",
-        r"^qwen-omni-turbo$",
-        r"^qwen2\.5-72b-instruct$",
-        r"^qwen2\.5-32b-instruct$",
-        r"^qwen2\.5-14b-instruct$",
-        r"^qwen2\.5-7b-instruct$",
-        r"^qwen2\.5-coder-32b-instruct$",
-        r"^qwen2\.5-coder-7b-instruct$",
-        r"^qwen-coder-plus$",
-        r"^qwq-32b$",
-        r"^deepseek-r1$",
-        r"^deepseek-v3$",
-        r"^qwen-audio-3\.0-tts-flash$",
-        r"^qwen-audio-3\.0-tts-plus$",
-        r"^qwen3-tts-flash-2025-11-27$",
-        r"^cosyvoice-v2-1\.5$",
-        r"^cosyvoice-v1$",
-        r"^sambert-zhichu-v1$",
-        r"^paraformer-realtime-v2$",
-        r"^sensevoice-v1$",
-    ]
-    compiled = [re.compile(p, re.IGNORECASE) for p in allowed_patterns]
+    """
+    Filter DashScope model list down to production-grade API alias models only.
 
+    Strategy: blocklist noise rather than whitelist specific model names.
+    DashScope exposes two distinct categories:
+      - Product API aliases  (e.g. qwen-max, qwen-plus, deepseek-r1, qwq-32b)
+        -> no or symbolic parameter-count suffix; these track "latest" automatically.
+      - Raw academic checkpoints  (e.g. qwen2.5-72b-instruct, deepseek-r1-distill-llama-8b)
+        -> carry explicit size suffixes like -7b / -72b; NOT meant for product API use.
+
+    Noise patterns we strip:
+      1. Explicit parameter-size suffixes  (-7b, -14b, -32b, -72b, -0.5b, -1.5b, -3b, etc.)
+      2. Distillation checkpoints          (-distill-)
+      3. Quantization variants             (-int4, -int8, -fp16)
+      4. Date-stamped snapshots            (-20xxxxxx or -2025xxxx style 6-8 digit suffix)
+         EXCEPTION: keep qwen3-tts-flash-2025-11-27 which is a production TTS model
+      5. Non-DashScope models that leaked in from gateway responses
+    """
+    import re
+
+    # Only accept models from DashScope's official provider families
+    _DASHSCOPE_PREFIXES = (
+        "qwen", "qwq", "cosyvoice", "sambert", "deepseek",
+        "paraformer", "sensevoice", "farui",
+    )
+
+    # Parameter-size-like suffixes that indicate raw academic checkpoints, NOT product APIs.
+    # We match things like -7b, -14b, -72b, -0.5b, -1.5b, -3b at a word boundary.
+    # NOTE: MoE models use -235b-a22b pattern; the -a22b part is the active-param suffix
+    # which we do NOT want to block — only block the raw dense parameter suffixes.
+    _SIZE_SUFFIX_RE = re.compile(r"(?<!-a)-\d*\.?\d+b\b", re.IGNORECASE)
+
+    # Date-snapshot suffix: 6–8 consecutive digits at end (e.g. -20241018, -20250601)
+    _DATE_SUFFIX_RE = re.compile(r"-\d{6,8}$")
+
+    # Known TTS production model that happens to end with a date string — keep it
+    _TTS_DATE_WHITELIST = {"qwen3-tts-flash-2025-11-27"}
+
+    filtered: list[str] = []
     for m in model_ids:
         raw = m.strip()
+        if not raw:
+            continue
         low = raw.lower()
 
-        # 1. Filter out date snapshot suffixes (e.g. -20241018, -20250101) unless explicitly whitelisted
-        if re.search(r"-\d{4,}$", low) and raw != "qwen3-tts-flash-2025-11-27":
-            continue
-        # 2. Filter out raw quantization & small distillation checkpoints
-        if any(kw in low for kw in ("-int4", "-int8", "-fp16", "-distill-", "-0.5b", "-1.5b", "-3b")):
+        # 1. Must belong to a DashScope official model family
+        if not any(low.startswith(p) for p in _DASHSCOPE_PREFIXES):
             continue
 
-        # 3. Match against allowed production pattern whitelist
-        if any(pat.match(raw) for pat in compiled):
-            filtered.append(raw)
+        # 2. Strip distillation checkpoints (e.g. deepseek-r1-distill-qwen-7b)
+        if "-distill-" in low:
+            continue
+
+        # 3. Strip quantization variants
+        if any(q in low for q in ("-int4", "-int8", "-fp16")):
+            continue
+
+        # 4. Strip models with an explicit parameter-size suffix (raw checkpoints)
+        #    e.g. qwen2.5-72b-instruct, qwen3-7b-instruct  → skip (raw dense checkpoints)
+        #    but  qwen-max, qwq-32b, deepseek-r1            → keep (product aliases)
+        #    and  qwen3-235b-a22b, qwen3-30b-a3b            → keep (MoE flagship products)
+        if _SIZE_SUFFIX_RE.search(low):
+            # MoE models (e.g. qwen3-235b-a22b) have a dense total followed by -a<N>b active params.
+            # They are product-grade and should be kept despite having a size in their name.
+            is_moe = bool(re.search(r"-\d+b-a\d+b", low))
+            if not is_moe:
+                # Block versioned raw dense checkpoints: qwen\d.x-Nb-instruct style
+                if re.match(r"(qwen\d|deepseek-v\d)", low):
+                    continue
+                # Also block if there's a role suffix after the size
+                if re.search(r"-\d*\.?\d+b-(instruct|chat|base|preview)", low):
+                    continue
+
+        # 5. Strip date-snapshot suffixes (e.g. qwen-max-20241018)
+        if raw not in _TTS_DATE_WHITELIST and _DATE_SUFFIX_RE.search(low):
+            continue
+
+        filtered.append(raw)
 
     return filtered
 
