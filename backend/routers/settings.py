@@ -164,6 +164,8 @@ DASHSCOPE_MODEL_LIST_SUPPLEMENTS = [
     # Realtime omni models
     "qwen3.5-omni-plus-realtime-2026-03-15",
     "qwen3-omni-flash-2025-12-01",
+    # Live translation (future: DashScope WebSocket protocol not yet integrated)
+    "qwen3.5-livetranslate-flash-realtime",
 ]
 GOOGLE_MODELS_BASE_URL = GOOGLE_INTERACTIONS_BASE_URL
 
@@ -206,7 +208,8 @@ def _filter_dashscope_models(model_ids: list[str]) -> list[str]:
     # Using keyword fragments that are unambiguous within the qwen namespace.
     _OFF_TOPIC_KEYWORDS = (
         "-image-",       # qwen-image-*, qwen-image-edit-*  → image generation
-        "-vl-",          # qwen-vl-*, qwen-vl-ocr-*         → vision-language (no vision in VoiceSpirit)
+        "-vl-",          # qwen-vl-*, qwen-vl-ocr-*         → vision-language
+        "-ocr",          # qwen*-ocr, qwen3.5-ocr            → OCR, not voice-relevant
         "-coder-",       # qwen-coder-*                     → code generation
         "-math-",        # qwen-math-*                      → mathematics
         "-deep-research",# qwen-deep-research-*             → agentic research tool
@@ -265,18 +268,27 @@ def _filter_dashscope_models(model_ids: list[str]) -> list[str]:
         if any(q in low for q in ("-int4", "-int8", "-fp16")):
             continue
 
-        # 6. Strip models with an explicit dense-parameter-size suffix (raw checkpoints)
-        #    e.g. qwen2.5-72b-instruct, qwen3-7b-instruct  → skip
-        #    but  qwen-max, qwq-32b, qwen3-235b-a22b        → keep
-        #    MoE heuristic: true product MoE ends with -Xb-aYb$ (no role suffix after).
+        # 6. Strip models with an explicit dense-parameter-size suffix (raw checkpoints).
+        #    MoE heuristic: a product MoE (e.g. qwen3-235b-a22b) ends with -Xb-aYb$ and
+        #    has NO minor version in its name (qwen3-, not qwen3.5-).
+        #    qwen3.5-122b-a10b / qwen3.5-35b-a3b: intermediate research checkpoints → DROP.
         #    qwen2-57b-a14b-instruct: has -instruct after MoE suffix → old checkpoint → DROP.
         if _SIZE_SUFFIX_RE.search(low):
-            is_moe = bool(re.search(r"-\d+b-a\d+b$", low))  # must end with MoE suffix
-            if not is_moe:
+            # True product MoE: ends with -Xb-aYb$ AND comes from a major-only family
+            is_flagship_moe = (
+                bool(re.search(r"-\d+b-a\d+b$", low))
+                and not re.search(r"qwen\d+\.\d+", low)  # no minor version (qwen3.5 etc.)
+            )
+            if not is_flagship_moe:
                 if re.match(r"(qwen\d|deepseek-v\d)", low):
                     continue
                 if re.search(r"-\d*\.?\d+b-(instruct|chat|base|preview)", low):
                     continue
+
+        # 6b. Block standalone versioned flash models (e.g. qwen3.5-flash).
+        #     These are tiny capability-specific models, not product-grade chat APIs.
+        if re.match(r"qwen\d+\.\d+-flash$", low):
+            continue
 
         # 7. Strip ALL date-suffixed names (both compressed and YYYY-MM-DD).
         #    Curated versioned models we want are guaranteed via DASHSCOPE_MODEL_LIST_SUPPLEMENTS
