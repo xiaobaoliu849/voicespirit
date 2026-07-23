@@ -145,23 +145,50 @@ GOOGLE_MODELS_BASE_URL = GOOGLE_INTERACTIONS_BASE_URL
 
 
 def _filter_dashscope_models(model_ids: list[str]) -> list[str]:
+    import re
     filtered: list[str] = []
-    dashscope_prefixes = (
-        "qwen", "qwq", "cosyvoice", "sambert", "deepseek", "paraformer", "sensevoice", "bailian"
-    )
+    allowed_patterns = [
+        r"^qwen-max(-.*)?$",
+        r"^qwen-plus(-.*)?$",
+        r"^qwen-turbo(-.*)?$",
+        r"^qwen-long$",
+        r"^qwen-omni-turbo$",
+        r"^qwen2\.5-72b-instruct$",
+        r"^qwen2\.5-32b-instruct$",
+        r"^qwen2\.5-14b-instruct$",
+        r"^qwen2\.5-7b-instruct$",
+        r"^qwen2\.5-coder-32b-instruct$",
+        r"^qwen2\.5-coder-7b-instruct$",
+        r"^qwen-coder-plus$",
+        r"^qwq-32b$",
+        r"^deepseek-r1$",
+        r"^deepseek-v3$",
+        r"^qwen-audio-3\.0-tts-flash$",
+        r"^qwen-audio-3\.0-tts-plus$",
+        r"^qwen3-tts-flash-2025-11-27$",
+        r"^cosyvoice-v2-1\.5$",
+        r"^cosyvoice-v1$",
+        r"^sambert-zhichu-v1$",
+        r"^paraformer-realtime-v2$",
+        r"^sensevoice-v1$",
+    ]
+    compiled = [re.compile(p, re.IGNORECASE) for p in allowed_patterns]
+
     for m in model_ids:
-        low = m.lower().strip()
-        # Must belong to official DashScope model families
-        if not any(low.startswith(prefix) for prefix in dashscope_prefixes):
+        raw = m.strip()
+        low = raw.lower()
+
+        # 1. Filter out date snapshot suffixes (e.g. -20241018, -20250101) unless explicitly whitelisted
+        if re.search(r"-\d{4,}$", low) and raw != "qwen3-tts-flash-2025-11-27":
             continue
-        # Filter out raw quantized weight checkpoints and legacy Qwen 1.0 / 1.5 checkpoints
-        if any(suffix in low for suffix in ("-int4", "-int8", "-fp16", "-v1.0", "-v1.5")):
+        # 2. Filter out raw quantization & small distillation checkpoints
+        if any(kw in low for kw in ("-int4", "-int8", "-fp16", "-distill-", "-0.5b", "-1.5b", "-3b")):
             continue
-        if low.startswith("qwen-1.") or low.startswith("qwen-7b") or low.startswith("qwen-14b") or low.startswith("qwen-72b"):
-            continue
-        if low.startswith("qwen1.5-") or low.startswith("qwen-math-1") or low.startswith("qwen-coder-1"):
-            continue
-        filtered.append(m)
+
+        # 3. Match against allowed production pattern whitelist
+        if any(pat.match(raw) for pat in compiled):
+            filtered.append(raw)
+
     return filtered
 
 
