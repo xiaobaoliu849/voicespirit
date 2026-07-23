@@ -75,6 +75,12 @@ async def get_settings() -> SettingsResponse:
                 raw_avail = ds_entry.get("available", [])
                 if isinstance(raw_avail, list) and len(raw_avail) > 30:
                     ds_entry["available"] = _filter_dashscope_models(raw_avail)
+                # Merge the curated supplements regardless of whether the filter ran, so
+                # versioned voice models (qwen3.5-livetranslate-flash-realtime, omni/tts
+                # checkpoints) are always present — consistent with the fetch-models
+                # endpoint, which filters then appends DASHSCOPE_MODEL_LIST_SUPPLEMENTS.
+                # TTS supplements land in tts_available; chat/realtime ones in available.
+                _merge_dashscope_supplements(ds_entry)
     except Exception:
         pass  # never let filter errors break settings load
 
@@ -301,6 +307,56 @@ def _filter_dashscope_models(model_ids: list[str]) -> list[str]:
     return filtered
 
 
+# Keyword fragments that mark a model id as a TTS/voice-synthesis model rather than a
+# chat/realtime model.  Shared by the fetch-models endpoint and the GET /settings
+# supplement-merge path so both classify curated models identically.
+TTS_MODEL_KEYWORDS = ("tts", "speech", "cosyvoice", "sambert", "voice", "eleven", "qwen-audio")
+
+
+def _is_tts_model_id(model_id: str) -> bool:
+    low = model_id.lower()
+    return any(kw in low for kw in TTS_MODEL_KEYWORDS)
+
+
+def _append_unique(target: list[str], seen: set[str], model_id: str) -> None:
+    if model_id not in seen:
+        target.append(model_id)
+        seen.add(model_id)
+
+
+def _merge_dashscope_supplements(ds_entry: dict[str, Any]) -> None:
+    """
+    Merge the curated DASHSCOPE_MODEL_LIST_SUPPLEMENTS into a DashScope models entry,
+    routing each supplement to the correct sub-list:
+      - TTS/voice-synthesis models  -> ``tts_available``
+      - chat / realtime / livetranslate models -> ``available``
+
+    This mirrors the fetch-models endpoint (filter first, then append supplements) so that
+    versioned production voice models — e.g. ``qwen3.5-livetranslate-flash-realtime`` and the
+    omni/tts checkpoints whose date suffixes the filter strips — are guaranteed present on
+    every settings load, even when the persisted list in config.json predates them.  Dedupes
+    against whatever is already in each list; order of existing entries is preserved.
+    """
+    chat_avail = ds_entry.get("available")
+    if not isinstance(chat_avail, list):
+        chat_avail = []
+    tts_avail = ds_entry.get("tts_available")
+    if not isinstance(tts_avail, list):
+        tts_avail = []
+
+    chat_seen = {str(m).strip() for m in chat_avail}
+    tts_seen = {str(m).strip() for m in tts_avail}
+
+    for supplement in DASHSCOPE_MODEL_LIST_SUPPLEMENTS:
+        if _is_tts_model_id(supplement):
+            _append_unique(tts_avail, tts_seen, supplement)
+        else:
+            _append_unique(chat_avail, chat_seen, supplement)
+
+    ds_entry["available"] = chat_avail
+    ds_entry["tts_available"] = tts_avail
+
+
 
 @router.post(
     "/providers/{provider}/fetch-models",
@@ -443,9 +499,9 @@ async def fetch_models(provider: str, payload: FetchModelsRequest) -> FetchModel
             model_ids.extend(DASHSCOPE_MODEL_LIST_SUPPLEMENTS)
 
         model_ids = sorted(list(set(model_ids)))
-        tts_keywords = ("tts", "speech", "cosyvoice", "sambert", "voice", "eleven", "qwen-audio")
-        tts_ids = [m for m in model_ids if any(kw in m.lower() for kw in tts_keywords)]
-        chat_ids = [m for m in model_ids if m not in tts_ids]
+        tts_ids = [m for m in model_ids if _is_tts_model_id(m)]
+        tts_set = set(tts_ids)
+        chat_ids = [m for m in model_ids if m not in tts_set]
 
         return FetchModelsResponse(provider=provider, models=chat_ids, tts_models=tts_ids)
     except Exception as exc:

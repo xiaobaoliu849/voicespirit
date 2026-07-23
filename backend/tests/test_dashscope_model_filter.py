@@ -1,0 +1,122 @@
+from __future__ import annotations
+
+import unittest
+
+from routers.settings import (
+    DASHSCOPE_MODEL_LIST_SUPPLEMENTS,
+    _filter_dashscope_models,
+    _is_tts_model_id,
+    _merge_dashscope_supplements,
+)
+
+
+class FilterDashScopeModelsTests(unittest.TestCase):
+    def test_keeps_current_livetranslate_realtime(self) -> None:
+        # The undated production alias must survive the filter (no date suffix to strip,
+        # and the "-flash-" off-topic keyword is overridden for voice/realtime models).
+        filtered = _filter_dashscope_models(["qwen3.5-livetranslate-flash-realtime"])
+        self.assertIn("qwen3.5-livetranslate-flash-realtime", filtered)
+
+    def test_drops_date_snapshots_and_off_topic_families(self) -> None:
+        noisy = [
+            "qwen3-livetranslate-flash-realtime-2025-09-22",  # date snapshot -> drop
+            "qwen2.5-72b-instruct",                            # raw checkpoint -> drop
+            "qwen-vl-ocr",                                     # off-topic -> drop
+            "qwen-coder-plus",                                 # off-topic -> drop
+            "deepseek-r1",                                     # non-DashScope family -> drop
+            "qwen-plus",                                       # product alias -> keep
+        ]
+        filtered = _filter_dashscope_models(noisy)
+        self.assertIn("qwen-plus", filtered)
+        for dropped in noisy[:-1]:
+            self.assertNotIn(dropped, filtered)
+
+
+class SupplementClassificationTests(unittest.TestCase):
+    def test_tts_supplements_are_classified_as_tts(self) -> None:
+        tts_supplements = [
+            "qwen-audio-3.0-tts-plus",
+            "qwen-audio-3.0-tts-flash",
+            "qwen3-tts-flash-2025-11-27",
+            "cosyvoice-v2-1.5",
+            "sambert-zhichu-v1",
+            "qwen-tts-v2",
+        ]
+        for model in tts_supplements:
+            self.assertIn(model, DASHSCOPE_MODEL_LIST_SUPPLEMENTS)
+            self.assertTrue(_is_tts_model_id(model), model)
+
+    def test_livetranslate_and_omni_supplements_are_chat(self) -> None:
+        chat_supplements = [
+            "qwen3.5-livetranslate-flash-realtime",
+            "qwen3.5-omni-plus-realtime-2026-03-15",
+            "qwen3-omni-flash-2025-12-01",
+        ]
+        for model in chat_supplements:
+            self.assertIn(model, DASHSCOPE_MODEL_LIST_SUPPLEMENTS)
+            self.assertFalse(_is_tts_model_id(model), model)
+
+
+class MergeDashScopeSupplementsTests(unittest.TestCase):
+    def test_routes_supplements_into_correct_sublists(self) -> None:
+        entry: dict = {"available": ["qwen-plus"], "tts_available": ["cosyvoice-v1"]}
+        _merge_dashscope_supplements(entry)
+
+        # Chat/realtime supplements land in "available".
+        self.assertIn("qwen3.5-livetranslate-flash-realtime", entry["available"])
+        self.assertIn("qwen3.5-omni-plus-realtime-2026-03-15", entry["available"])
+        # TTS supplements land in "tts_available", never in chat "available".
+        self.assertIn("qwen-audio-3.0-tts-plus", entry["tts_available"])
+        self.assertIn("qwen3-tts-flash-2025-11-27", entry["tts_available"])
+        for model in entry["available"]:
+            self.assertFalse(_is_tts_model_id(model), f"{model} leaked into chat available")
+
+    def test_dedupes_and_preserves_existing_order(self) -> None:
+        entry: dict = {
+            "available": ["qwen-plus", "qwen3.5-livetranslate-flash-realtime"],
+            "tts_available": ["cosyvoice-v1"],
+        }
+        _merge_dashscope_supplements(entry)
+        # Pre-existing entries keep their positions; no duplicates introduced.
+        self.assertEqual(entry["available"][0], "qwen-plus")
+        self.assertEqual(entry["available"][1], "qwen3.5-livetranslate-flash-realtime")
+        self.assertEqual(entry["available"].count("qwen3.5-livetranslate-flash-realtime"), 1)
+        self.assertEqual(entry["tts_available"].count("cosyvoice-v1"), 1)
+
+    def test_missing_tts_available_field_is_created(self) -> None:
+        entry: dict = {"available": ["qwen-plus"]}
+        _merge_dashscope_supplements(entry)
+        self.assertIsInstance(entry["tts_available"], list)
+        self.assertIn("qwen-audio-3.0-tts-flash", entry["tts_available"])
+
+
+class GetSettingsRefilterIntegrationTests(unittest.TestCase):
+    """Replicates the GET /settings re-filter path: filter first, then merge supplements."""
+
+    def test_qwen35_livetranslate_recovered_even_when_absent_from_config(self) -> None:
+        # The original bug: config.json persisted a list WITHOUT the undated qwen3.5
+        # livetranslate alias (only dated snapshots the filter drops). The old path did
+        # not merge supplements, so qwen3.5 never reappeared. The fixed path must restore it.
+        raw_avail = [
+            "qwen-plus",
+            "qwen-max",
+            "qwen3-livetranslate-flash",
+            "qwen3-livetranslate-flash-realtime",
+            "qwen3.5-livetranslate-flash-realtime-2026-05-19",  # dated -> dropped by filter
+        ] + [f"qwen2.5-{n}b-instruct" for n in range(7, 73)]  # pad past the >30 re-filter gate
+
+        entry: dict = {"available": list(raw_avail), "tts_available": []}
+        # Mirror settings.py get_settings(): filter when bloated, then always merge.
+        if len(entry["available"]) > 30:
+            entry["available"] = _filter_dashscope_models(entry["available"])
+        _merge_dashscope_supplements(entry)
+
+        self.assertIn("qwen3.5-livetranslate-flash-realtime", entry["available"])
+        self.assertIn("qwen3-livetranslate-flash-realtime", entry["available"])
+        # Noise stays filtered out — the list must not balloon back up.
+        self.assertLess(len(entry["available"]), 30)
+        self.assertNotIn("qwen2.5-72b-instruct", entry["available"])
+
+
+if __name__ == "__main__":
+    unittest.main()
