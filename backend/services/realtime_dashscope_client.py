@@ -9,6 +9,7 @@ from urllib.parse import urlparse, parse_qsl, urlunparse, urlencode
 import websockets
 
 from .background_tasks import spawn_background_task
+from .realtime_constants import DEFAULT_DASHSCOPE_LIVETRANSLATE_VOICE
 
 DEFAULT_QWEN_AUDIO_REALTIME_VOICE = "longanqian"
 
@@ -50,6 +51,23 @@ class DashScopeRealtimeCallback:
                     "item_id": str(response.get("item_id", "")),
                 }
             )
+            return
+        if event_type == "conversation.item.input_audio_transcription.text":
+            # LiveTranslate incremental source-language ASR: `text` is the
+            # confirmed prefix, `stash` is the tentative prediction.
+            confirmed = str(response.get("text", ""))
+            stash = str(response.get("stash", ""))
+            if confirmed or stash:
+                self._push(
+                    {
+                        "type": "user_transcript",
+                        "text": confirmed,
+                        "stash": stash,
+                        "cumulative": True,
+                        "provider_event_type": event_type,
+                        "item_id": str(response.get("item_id", "")),
+                    }
+                )
             return
         if event_type == "response.created":
             self._push(
@@ -94,6 +112,36 @@ class DashScopeRealtimeCallback:
                         "response_id": str(response.get("response_id", "")),
                     }
                 )
+            return
+        if event_type in {"response.audio_transcript.text", "response.text.text"}:
+            # LiveTranslate incremental translation: `text` is the confirmed
+            # prefix, `stash` is the tentative prediction. The provider merges
+            # (text + stash) into a running display string.
+            confirmed = str(response.get("text", ""))
+            stash = str(response.get("stash", ""))
+            if confirmed or stash:
+                self._push(
+                    {
+                        "type": "assistant_text",
+                        "text": confirmed,
+                        "stash": stash,
+                        "cumulative": True,
+                        "response_id": str(response.get("response_id", "")),
+                    }
+                )
+            return
+        if event_type in {"response.audio_transcript.done", "response.text.done"}:
+            final = response.get("transcript")
+            if final is None:
+                final = response.get("text")
+            self._push(
+                {
+                    "type": "assistant_text",
+                    "text": str(final or ""),
+                    "final": True,
+                    "response_id": str(response.get("response_id", "")),
+                }
+            )
             return
         if event_type == "response.done":
             response_data = response.get("response") or {}
@@ -290,3 +338,67 @@ class DashScopeAudioRealtimeConversation:
             self._receiver_task.cancel()
         if self._ws is not None:
             spawn_background_task(self._ws.close())
+
+
+DEFAULT_QWEN_LIVETRANSLATE_VOICE = DEFAULT_DASHSCOPE_LIVETRANSLATE_VOICE  # backward-compat alias
+
+
+class DashScopeLiveTranslateConversation(DashScopeAudioRealtimeConversation):
+    """Raw-WebSocket conversation for qwen3(.5)-livetranslate-*-realtime.
+
+    Reuses the connect/receive/append/close machinery of the Qwen-Audio raw
+    client but sends a translation-specific ``session.update`` (source/target
+    language + hot-word corpus, no instructions/tools) and supports
+    ``session.finish`` to flush the final translation segment.
+    """
+
+    def update_session(  # type: ignore[override]
+        self,
+        *,
+        voice: str | None = None,
+        source_language: str = "zh",
+        target_language: str = "en",
+        corpus_phrases: dict[str, str] | None = None,
+        modalities: list[str] | None = None,
+    ) -> None:
+        session: dict[str, Any] = {
+            "modalities": list(modalities or ["text", "audio"]),
+            "voice": str(voice or DEFAULT_QWEN_LIVETRANSLATE_VOICE),
+            "input_audio_format": "pcm",
+            "output_audio_format": "pcm",
+            "sample_rate": 16000,
+            "input_audio_transcription": {
+                "model": "qwen3-asr-flash-realtime",
+                "language": source_language or "zh",
+            },
+            "translation": {
+                "language": target_language or "en",
+            },
+            # Server VAD segments the continuous stream into translatable chunks.
+            "turn_detection": {
+                "type": "server_vad",
+                "threshold": 0.3,
+                "silence_duration_ms": 1200,
+            },
+        }
+        phrases = {str(k): str(v) for k, v in (corpus_phrases or {}).items() if str(k).strip()}
+        if phrases:
+            session["translation"]["corpus"] = {"phrases": phrases}
+
+        self._send_event(
+            {
+                "event_id": f"event_{uuid.uuid4().hex}",
+                "type": "session.update",
+                "session": session,
+            }
+        )
+        self._session_update_count += 1
+
+    def finish_session(self) -> None:
+        """Send ``session.finish`` so the server flushes the last segment."""
+        self._send_event(
+            {
+                "event_id": f"event_{uuid.uuid4().hex}",
+                "type": "session.finish",
+            }
+        )

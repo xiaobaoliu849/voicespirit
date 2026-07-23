@@ -164,7 +164,7 @@ DASHSCOPE_MODEL_LIST_SUPPLEMENTS = [
     # Realtime omni models
     "qwen3.5-omni-plus-realtime-2026-03-15",
     "qwen3-omni-flash-2025-12-01",
-    # Live translation (future: DashScope WebSocket protocol not yet integrated)
+    # Live translation (DashScope Realtime WebSocket — integrated)
     "qwen3.5-livetranslate-flash-realtime",
 ]
 GOOGLE_MODELS_BASE_URL = GOOGLE_INTERACTIONS_BASE_URL

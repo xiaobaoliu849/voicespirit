@@ -23,15 +23,22 @@ except ImportError:  # pragma: no cover
 from .realtime_constants import (
     DEFAULT_DASHSCOPE_REALTIME_MODEL,
     DEFAULT_DASHSCOPE_REALTIME_VOICE,
+    DEFAULT_DASHSCOPE_LIVETRANSLATE_VOICE,
     QWEN_OMNI_REALTIME_VOICES,
     _is_dashscope_audio_realtime_model,
+    _is_dashscope_live_translate_model,
     _is_dashscope_omni_realtime_model,
     _merge_streaming_text,
     _normalize_dashscope_realtime_voice,
+    normalize_qwen_translate_language,
 )
 from .interruption_classifier import InterruptionClassifier, InterruptionDecisionCoordinator, InterruptionIntent
 from .background_tasks import spawn_background_task
-from .realtime_dashscope_client import DashScopeAudioRealtimeConversation, DashScopeRealtimeCallback
+from .realtime_dashscope_client import (
+    DashScopeAudioRealtimeConversation,
+    DashScopeLiveTranslateConversation,
+    DashScopeRealtimeCallback,
+)
 from .realtime_memory_session import RealtimeMemorySession
 from .realtime_session_recorder import VoiceAgentSessionRecorder
 from .realtime_tool_protocol import (
@@ -166,6 +173,22 @@ class DashScopeRealtimeMixin:
             turn_detection_silence_duration_ms=5000,
             instructions=instructions,
             tools=dashscope_tool_declarations(),
+        )
+
+    @staticmethod
+    def _configure_dashscope_live_translate(
+        conversation: Any,
+        *,
+        voice: str,
+        source_language: str,
+        target_language: str,
+        corpus_phrases: dict[str, str] | None = None,
+    ) -> None:
+        conversation.update_session(
+            voice=voice or DEFAULT_DASHSCOPE_LIVETRANSLATE_VOICE,
+            source_language=normalize_qwen_translate_language(source_language, "zh"),
+            target_language=normalize_qwen_translate_language(target_language, "en"),
+            corpus_phrases=corpus_phrases,
         )
     async def _client_to_dashscope_loop(
         self,
@@ -576,6 +599,303 @@ class DashScopeRealtimeMixin:
                 await websocket.send_json(event)
                 break
             await websocket.send_json(event)
+    async def _client_to_dashscope_live_translate_loop(
+        self,
+        websocket: WebSocket,
+        conversation: Any,
+    ) -> None:
+        """Forward mic audio to the LiveTranslate model; ignore chat-only commands."""
+        while True:
+            message = await websocket.receive()
+            if message.get("type") == "websocket.disconnect":
+                break
+
+            text_data = message.get("text")
+            if text_data:
+                try:
+                    payload = json.loads(text_data)
+                except Exception:
+                    await self._send_event(websocket, "error", message="无效的实时语音消息。")
+                    continue
+                command_type = str(payload.get("type", "")).strip()
+                if command_type == "ping":
+                    await self._send_event(websocket, "pong")
+                elif command_type == "stop":
+                    break
+                # config / text_input / interruption_* are not meaningful in
+                # simultaneous-translation mode — silently ignore them.
+                continue
+
+            audio_bytes = message.get("bytes")
+            if audio_bytes:
+                conversation.append_audio(base64.b64encode(audio_bytes).decode("ascii"))
+
+    async def _dashscope_live_translate_to_client_loop(
+        self,
+        websocket: WebSocket,
+        queue: asyncio.Queue[dict[str, Any]],
+        memory_session: RealtimeMemorySession,
+        recorder: VoiceAgentSessionRecorder | None = None,
+    ) -> None:
+        """Map DashScope LiveTranslate server events to client events.
+
+        The translation model streams cumulative text (``text`` confirmed prefix
+        plus a tentative ``stash``). We merge each update into a running display
+        string and emit only the novel suffix, mirroring the Google
+        live-translate behaviour. An inactivity monitor finalizes a turn ~2s
+        after the last content event.
+        """
+        interruption = InterruptionDecisionCoordinator()
+        display_translation = ""
+        pending_user = ""
+        last_activity = time.time()
+        has_content = False
+        input_finished = False
+        output_finished = False
+
+        async def complete_turn(force: bool = False) -> None:
+            nonlocal display_translation, pending_user, last_activity
+            nonlocal has_content, input_finished, output_finished
+            if not has_content:
+                return
+            if not force and not (input_finished and output_finished):
+                return
+            # Clear the guard flags BEFORE any await so the inactivity monitor
+            # and the event loop cannot both pass the guard and emit a duplicate
+            # turn_complete (the awaits below yield control mid-completion).
+            has_content = False
+            input_finished = False
+            output_finished = False
+            completed_turn_id = ""
+            if recorder is not None:
+                completed_turn_id = await recorder.complete_turn({})
+            await self._send_event(
+                websocket, "turn_complete", turn_id=completed_turn_id, interrupted=False
+            )
+            display_translation = ""
+            pending_user = ""
+            last_activity = time.time()
+
+        async def monitor_inactivity() -> None:
+            try:
+                while True:
+                    await asyncio.sleep(0.5)
+                    if has_content and time.time() - last_activity >= 2.0:
+                        await complete_turn(force=True)
+            except asyncio.CancelledError:
+                pass
+            except Exception as exc:
+                logger.exception("dashscope_live_translate_inactivity_monitor_failed: %s", exc)
+
+        monitor_task = asyncio.create_task(monitor_inactivity())
+        try:
+            while True:
+                event = await queue.get()
+                event_type = str(event.get("type", "")).strip()
+                if event_type == "closed":
+                    break
+
+                if event_type == "user_transcript":
+                    last_activity = time.time()
+                    has_content = True
+                    if event.get("cumulative"):
+                        # Only the confirmed prefix is canonical/monotonic; the
+                        # tentative `stash` is sent as a separate non-accumulating
+                        # field so it can never corrupt the running transcript.
+                        confirmed = str(event.get("text", ""))
+                        stash = str(event.get("stash", ""))
+                        pending_user = confirmed
+                        if confirmed:
+                            extra: dict[str, Any] = {"tentative": stash} if stash else {}
+                            await self._send_event(
+                                websocket,
+                                "user_transcript",
+                                text=confirmed,
+                                turn_id="",
+                                **extra,
+                            )
+                    else:
+                        text = str(event.get("text", "")).strip()
+                        if text:
+                            pending_user = text
+                            voice_turn_id = ""
+                            if recorder is not None:
+                                voice_turn_id = await recorder.note_user_transcript(text)
+                            await self._send_event(
+                                websocket, "user_transcript", text=text, turn_id=voice_turn_id
+                            )
+                            input_finished = True
+                    await complete_turn()
+                    continue
+
+                if event_type == "assistant_text":
+                    last_activity = time.time()
+                    has_content = True
+                    if event.get("final"):
+                        final_text = str(event.get("text", "")).strip()
+                        if final_text:
+                            display_translation, delta = _merge_streaming_text(
+                                display_translation, final_text
+                            )
+                            if delta:
+                                await self._emit_assistant_output(
+                                    websocket,
+                                    interruption,
+                                    {"type": "assistant_text", "text": delta},
+                                    memory_session=memory_session,
+                                    recorder=recorder,
+                                    record_memory=False,
+                                )
+                        output_finished = True
+                    else:
+                        # Merge the confirmed prefix only (monotonic). The
+                        # tentative `stash` is exposed as an ephemeral preview
+                        # event and is deliberately kept OUT of the accumulating
+                        # stream — predictions get revised and are not a growing
+                        # prefix, so merging them would garble/duplicate output.
+                        confirmed = str(event.get("text", ""))
+                        stash = str(event.get("stash", ""))
+                        display_translation, delta = _merge_streaming_text(
+                            display_translation, confirmed
+                        )
+                        if delta:
+                            await self._emit_assistant_output(
+                                websocket,
+                                interruption,
+                                {"type": "assistant_text", "text": delta},
+                                memory_session=memory_session,
+                                recorder=recorder,
+                                record_memory=False,
+                            )
+                        if stash:
+                            await self._send_event(
+                                websocket,
+                                "translation_preview",
+                                text=confirmed,
+                                tentative=stash,
+                            )
+                    await complete_turn()
+                    continue
+
+                if event_type == "assistant_audio":
+                    last_activity = time.time()
+                    has_content = True
+                    await self._emit_assistant_output(
+                        websocket,
+                        interruption,
+                        event,
+                        memory_session=memory_session,
+                        recorder=recorder,
+                        record_memory=False,
+                    )
+                    continue
+
+                if event_type == "turn_complete":
+                    # Server finished a translation response; the inactivity
+                    # monitor finalizes the client turn once output settles.
+                    output_finished = True
+                    await complete_turn()
+                    continue
+
+                if event_type == "error":
+                    await websocket.send_json(event)
+                    break
+                # speech_started / response_started / tool events are ignored in
+                # translation mode (no barge-in arbitration, no function calling).
+        finally:
+            monitor_task.cancel()
+
+    async def _stream_dashscope_live_translate_session(
+        self,
+        websocket: WebSocket,
+        *,
+        settings: dict[str, str],
+        voice: str,
+        translation_mode: str,
+        source_language_code: str,
+        target_language_code: str,
+        echo_target_language: bool,
+    ) -> None:
+        resolved_voice = (voice or DEFAULT_DASHSCOPE_LIVETRANSLATE_VOICE).strip() or DEFAULT_DASHSCOPE_LIVETRANSLATE_VOICE
+        memory_session = RealtimeMemorySession()
+        recorder = await self._create_voice_session_recorder(
+            provider="DashScope",
+            model=settings["model"],
+            voice=resolved_voice,
+        )
+        url = settings["realtime_base_url"]
+        event_queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
+        loop = asyncio.get_running_loop()
+        callback = DashScopeRealtimeCallback(loop=loop, queue=event_queue)
+        conversation = DashScopeLiveTranslateConversation(
+            model=settings["model"],
+            api_key=settings["api_key"],
+            callback=callback,
+            url=url,
+        )
+        try:
+            await conversation.connect()
+            await asyncio.sleep(0.5)
+            # NOTE: Qwen LiveTranslate performs UNIDIRECTIONAL source→target
+            # translation per its Realtime API (source language in
+            # input_audio_transcription.language, target in translation.language).
+            # Unlike Gemini, it has no bidirectional/echo mode, so
+            # ``translation_mode`` and ``echo_target_language`` are accepted for
+            # UI parity and echoed in ``session_open`` but not applied upstream.
+            self._configure_dashscope_live_translate(
+                conversation,
+                voice=resolved_voice,
+                source_language=source_language_code,
+                target_language=target_language_code,
+            )
+            await asyncio.sleep(0.5)
+            await self._send_event(
+                websocket,
+                "session_open",
+                provider="DashScope",
+                model=settings["model"],
+                voice=resolved_voice,
+                session_id=recorder.session_id if recorder is not None else "",
+                mode="live_translate",
+                translation_mode=translation_mode,
+                source_language_code=source_language_code,
+                target_language_code=target_language_code,
+                echo_target_language=echo_target_language,
+            )
+            send_task = asyncio.create_task(
+                self._client_to_dashscope_live_translate_loop(websocket, conversation)
+            )
+            receive_task = asyncio.create_task(
+                self._dashscope_live_translate_to_client_loop(
+                    websocket, event_queue, memory_session, recorder
+                )
+            )
+            await self._run_duplex_tasks(send_task, receive_task)
+        except WebSocketDisconnect:
+            return
+        except Exception as e:
+            logger.exception("DashScope live translate session failed: %s", e)
+            await self._send_event(
+                websocket, "error", message=f"DashScope 实时翻译会话启动失败: {str(e)}"
+            )
+            return
+        finally:
+            try:
+                conversation.finish_session()
+                # finish_session() schedules the send as a background task; give
+                # it a moment to flush before the socket is closed so the final
+                # translation segment is not dropped on stop/disconnect.
+                await asyncio.sleep(0.2)
+            except Exception:
+                pass
+            await memory_session.drain()
+            if recorder is not None:
+                await recorder.finish()
+            try:
+                conversation.close()
+            except Exception:
+                pass
+
     async def stream_dashscope_session(
         self,
         websocket: WebSocket,
@@ -583,8 +903,23 @@ class DashScopeRealtimeMixin:
         model: str | None = None,
         voice: str = DEFAULT_DASHSCOPE_REALTIME_VOICE,
         voiceprint_audio_urls: list[str] | None = None,
+        translation_mode: str = "bidirectional",
+        source_language_code: str = "zh-Hans",
+        target_language_code: str = "en",
+        echo_target_language: bool = True,
     ) -> None:
         settings = self._resolve_dashscope_settings(model)
+        if _is_dashscope_live_translate_model(settings["model"]):
+            await self._stream_dashscope_live_translate_session(
+                websocket,
+                settings=settings,
+                voice=voice,
+                translation_mode=translation_mode,
+                source_language_code=source_language_code,
+                target_language_code=target_language_code,
+                echo_target_language=echo_target_language,
+            )
+            return
         voice = _normalize_dashscope_realtime_voice(settings["model"], voice)
         memory_session = RealtimeMemorySession()
         tool_session = VoiceAgentToolSession(default_provider="DashScope")
