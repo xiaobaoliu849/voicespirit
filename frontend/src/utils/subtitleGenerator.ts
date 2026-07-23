@@ -1,0 +1,186 @@
+import type { WordTimestamp } from "../api";
+
+export function pad2(n: number): string {
+  return n < 10 ? `0${n}` : `${n}`;
+}
+
+export function pad3(n: number): string {
+  if (n < 10) return `00${n}`;
+  if (n < 100) return `0${n}`;
+  return `${n}`;
+}
+
+export function formatSrtTime(totalSeconds: number): string {
+  const h = Math.floor(totalSeconds / 3600);
+  const m = Math.floor((totalSeconds % 3600) / 60);
+  const s = Math.floor(totalSeconds % 60);
+  const ms = Math.round((totalSeconds % 1) * 1000);
+  return `${pad2(h)}:${pad2(m)}:${pad2(s)},${pad3(ms)}`;
+}
+
+export function formatVttTime(totalSeconds: number): string {
+  const h = Math.floor(totalSeconds / 3600);
+  const m = Math.floor((totalSeconds % 3600) / 60);
+  const s = Math.floor(totalSeconds % 60);
+  const ms = Math.round((totalSeconds % 1) * 1000);
+  return `${pad2(h)}:${pad2(m)}:${pad2(s)}.${pad3(ms)}`;
+}
+
+export function splitTranscriptToSegments(text: string): string[] {
+  const cleaned = text.replace(/\r\n/g, "\n").trim();
+  if (!cleaned) return [];
+
+  // Split by sentence-ending punctuation (CJK + Western) or double newlines
+  const raw = cleaned.split(/(?<=[。！？!?\n])\s*/);
+  const segments: string[] = [];
+  let buf = "";
+
+  for (const part of raw) {
+    const trimmed = part.trim();
+    if (!trimmed) continue;
+    // If buffer + part is too long for a subtitle line, flush first
+    if (buf && (buf.length + trimmed.length > 60 || buf.includes("\n"))) {
+      segments.push(buf.trim());
+      buf = "";
+    }
+    buf += (buf ? " " : "") + trimmed;
+    // Flush if we hit a natural sentence boundary
+    if (/[。！？!?\n]$/.test(trimmed)) {
+      segments.push(buf.trim());
+      buf = "";
+    }
+  }
+  if (buf.trim()) segments.push(buf.trim());
+
+  // If we ended up with very few segments, split by character count
+  if (segments.length <= 1 && cleaned.length > 80) {
+    const chunks: string[] = [];
+    const chars = [...cleaned];
+    let chunk = "";
+    for (const ch of chars) {
+      chunk += ch;
+      if (chunk.length >= 50 && /[，,。！？!?\s]/.test(ch)) {
+        chunks.push(chunk.trim());
+        chunk = "";
+      }
+    }
+    if (chunk.trim()) chunks.push(chunk.trim());
+    return chunks.length > 0 ? chunks : segments;
+  }
+
+  return segments;
+}
+
+export function generateSrtFromWords(words: WordTimestamp[]): string {
+  const segments: Array<{ start: number; end: number; text: string }> = [];
+  let currentSegment: WordTimestamp[] = [];
+  let segmentStart = words[0]?.start ?? 0;
+
+  for (const word of words) {
+    currentSegment.push(word);
+
+    const segmentDuration = word.end - segmentStart;
+    const isSentenceEnd = /[。！？!?\n]$/.test(word.text);
+    if (currentSegment.length >= 10 || segmentDuration >= 5 || isSentenceEnd) {
+      segments.push({
+        start: segmentStart,
+        end: word.end,
+        text: currentSegment.map(w => w.text).join(" "),
+      });
+      currentSegment = [];
+      segmentStart = word.end;
+    }
+  }
+
+  if (currentSegment.length > 0) {
+    segments.push({
+      start: segmentStart,
+      end: currentSegment[currentSegment.length - 1].end,
+      text: currentSegment.map(w => w.text).join(" "),
+    });
+  }
+
+  return segments
+    .map((seg, i) => {
+      return `${i + 1}\n${formatSrtTime(seg.start)} --> ${formatSrtTime(seg.end)}\n${seg.text}`;
+    })
+    .join("\n\n");
+}
+
+export function generateSrt(text: string, durationSec: number, words?: WordTimestamp[] | null): string {
+  if (words && words.length > 0) {
+    return generateSrtFromWords(words);
+  }
+
+  const segments = splitTranscriptToSegments(text);
+  if (segments.length === 0) return "";
+  const safeDuration = durationSec > 0 ? durationSec : segments.length * 5;
+  const segDuration = safeDuration / segments.length;
+
+  return segments
+    .map((seg, i) => {
+      const start = i * segDuration;
+      const end = Math.min((i + 1) * segDuration, safeDuration);
+      return `${i + 1}\n${formatSrtTime(start)} --> ${formatSrtTime(end)}\n${seg}`;
+    })
+    .join("\n\n");
+}
+
+export function generateVttFromWords(words: WordTimestamp[]): string {
+  const segments: Array<{ start: number; end: number; text: string }> = [];
+  let currentSegment: WordTimestamp[] = [];
+  let segmentStart = words[0]?.start ?? 0;
+
+  for (const word of words) {
+    currentSegment.push(word);
+
+    const segmentDuration = word.end - segmentStart;
+    const isSentenceEnd = /[。！？!?\n]$/.test(word.text);
+    if (currentSegment.length >= 10 || segmentDuration >= 5 || isSentenceEnd) {
+      segments.push({
+        start: segmentStart,
+        end: word.end,
+        text: currentSegment.map(w => w.text).join(" "),
+      });
+      currentSegment = [];
+      segmentStart = word.end;
+    }
+  }
+
+  if (currentSegment.length > 0) {
+    segments.push({
+      start: segmentStart,
+      end: currentSegment[currentSegment.length - 1].end,
+      text: currentSegment.map(w => w.text).join(" "),
+    });
+  }
+
+  const cues = segments
+    .map((seg) => {
+      return `${formatVttTime(seg.start)} --> ${formatVttTime(seg.end)}\n${seg.text}`;
+    })
+    .join("\n\n");
+
+  return `WEBVTT\n\n${cues}\n`;
+}
+
+export function generateVtt(text: string, durationSec: number, words?: WordTimestamp[] | null): string {
+  if (words && words.length > 0) {
+    return generateVttFromWords(words);
+  }
+
+  const segments = splitTranscriptToSegments(text);
+  if (segments.length === 0) return "WEBVTT\n";
+  const safeDuration = durationSec > 0 ? durationSec : segments.length * 5;
+  const segDuration = safeDuration / segments.length;
+
+  const cues = segments
+    .map((seg, i) => {
+      const start = i * segDuration;
+      const end = Math.min((i + 1) * segDuration, safeDuration);
+      return `${formatVttTime(start)} --> ${formatVttTime(end)}\n${seg}`;
+    })
+    .join("\n\n");
+
+  return `WEBVTT\n\n${cues}\n`;
+}
