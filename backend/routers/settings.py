@@ -61,7 +61,25 @@ async def get_settings() -> SettingsResponse:
                 "meta": {},
             },
         ) from exc
+
+    # On every load, re-filter the DashScope available_models list that is persisted in
+    # config.json.  Old fetches may have stored hundreds of raw checkpoint IDs; the filter
+    # keeps only the production-grade models that VoiceSpirit actually needs.
+    # This prevents the jarring "221 models" → "45 models after Fetch" UX mismatch.
+    try:
+        settings_blob = result.get("settings", {})
+        dm = settings_blob.get("default_models", {})
+        if isinstance(dm, dict) and "DashScope" in dm:
+            ds_entry = dm["DashScope"]
+            if isinstance(ds_entry, dict):
+                raw_avail = ds_entry.get("available", [])
+                if isinstance(raw_avail, list) and len(raw_avail) > 30:
+                    ds_entry["available"] = _filter_dashscope_models(raw_avail)
+    except Exception:
+        pass  # never let filter errors break settings load
+
     return SettingsResponse(**result)
+
 
 
 @router.get(
@@ -133,13 +151,19 @@ GOOGLE_MODEL_LIST_SUPPLEMENTS = [
     "gemini-3.5-live-translate-preview",
 ]
 DASHSCOPE_MODEL_LIST_SUPPLEMENTS = [
+    # TTS synthesis models
     "qwen-audio-3.0-tts-plus",
     "qwen-audio-3.0-tts-flash",
+    "qwen-audio-3.0-realtime-plus",
+    "qwen-audio-3.0-realtime-flash",
     "qwen3-tts-flash-2025-11-27",
     "cosyvoice-v2-1.5",
     "cosyvoice-v1",
     "qwen-tts-v2",
     "sambert-zhichu-v1",
+    # Realtime omni models
+    "qwen3.5-omni-plus-realtime-2026-03-15",
+    "qwen3-omni-flash-2025-12-01",
 ]
 GOOGLE_MODELS_BASE_URL = GOOGLE_INTERACTIONS_BASE_URL
 
@@ -195,17 +219,18 @@ def _filter_dashscope_models(model_ids: list[str]) -> list[str]:
     # which we do NOT want to block — only block the raw dense parameter suffixes.
     _SIZE_SUFFIX_RE = re.compile(r"(?<!-a)-\d*\.?\d+b\b", re.IGNORECASE)
 
-    # Date-snapshot suffixes — two forms:
-    #   Long form  (8 digits): -20241018, -20250601
-    #   Short form (4 digits): -0107, -1201  (month-day pinned versions)
-    #   Hyphenated date:       -2026-03-03, -2025-10-30  (YYYY-MM-DD)
-    # EXCEPTION: qwen3-tts-flash-2025-11-27 is a production TTS model name, keep it.
-    _DATE_SUFFIX_RE = re.compile(
-        r"(-\d{4}-\d{2}-\d{2}|-\d{6,8}|-\d{4})$", re.IGNORECASE
-    )
+    # Date-snapshot suffixes to DROP — compressed formats only:
+    #   Long form  (8 digits): -20241018, -20250601  (DashScope alias snapshots)
+    #   Short form (4 digits): -0107, -1201, -0919   (month-day pinned aliases)
+    #
+    # KEEP hyphenated YYYY-MM-DD dates (e.g. -2025-11-27, -2026-03-15):
+    #   These appear in production versioned models like qwen3-tts-flash-2025-11-27
+    #   and qwen3.5-omni-plus-realtime-2026-03-15.  They are NOT snapshot aliases;
+    #   they are the canonical version identifier for that specific model tier.
+    _DATE_SUFFIX_RE = re.compile(r"(-\d{6,8}|-(?!\d{4}-\d{2}-\d{2})\d{4})$", re.IGNORECASE)
 
-    # Known production models whose names incidentally end in a date-like string.
-    _DATE_NAME_WHITELIST = {"qwen3-tts-flash-2025-11-27"}
+    # No whitelist needed: hyphenated dates pass naturally, compressed dates are blocked.
+    _DATE_NAME_WHITELIST: set[str] = set()
 
     filtered: list[str] = []
     for m in model_ids:
@@ -220,8 +245,12 @@ def _filter_dashscope_models(model_ids: list[str]) -> list[str]:
 
         # 2. Strip off-topic Qwen sub-families (image, coder, math, search, research)
         if any(kw in low for kw in _OFF_TOPIC_KEYWORDS):
-            # Special-case: qwen3-tts-flash-* contains "-flash-" but IS voice-relevant
-            if not (low.startswith("qwen") and "tts" in low):
+            # Special-case: voice/realtime models that incidentally contain "-flash-":
+            #   qwen3-tts-flash-*, qwen3-omni-flash-*, qwen-audio-*-realtime-flash
+            is_voice_flash = low.startswith("qwen") and any(
+                kw in low for kw in ("tts", "omni", "realtime", "audio")
+            )
+            if not is_voice_flash:
                 continue
 
         # 3. Strip legacy tiny parameter models (e.g. qwen-1.8b-longcontext-chat)
