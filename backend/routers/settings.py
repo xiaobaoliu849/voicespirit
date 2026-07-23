@@ -146,8 +146,14 @@ GOOGLE_MODELS_BASE_URL = GOOGLE_INTERACTIONS_BASE_URL
 
 def _filter_dashscope_models(model_ids: list[str]) -> list[str]:
     filtered: list[str] = []
+    dashscope_prefixes = (
+        "qwen", "qwq", "cosyvoice", "sambert", "deepseek", "paraformer", "sensevoice", "bailian"
+    )
     for m in model_ids:
-        low = m.lower()
+        low = m.lower().strip()
+        # Must belong to official DashScope model families
+        if not any(low.startswith(prefix) for prefix in dashscope_prefixes):
+            continue
         # Filter out raw quantized weight checkpoints and legacy Qwen 1.0 / 1.5 checkpoints
         if any(suffix in low for suffix in ("-int4", "-int8", "-fp16", "-v1.0", "-v1.5")):
             continue
@@ -299,8 +305,9 @@ async def fetch_models(provider: str, payload: FetchModelsRequest) -> FetchModel
         model_ids = sorted(list(set(model_ids)))
         tts_keywords = ("tts", "speech", "cosyvoice", "sambert", "voice", "eleven", "qwen-audio")
         tts_ids = [m for m in model_ids if any(kw in m.lower() for kw in tts_keywords)]
+        chat_ids = [m for m in model_ids if m not in tts_ids]
 
-        return FetchModelsResponse(provider=provider, models=model_ids, tts_models=tts_ids)
+        return FetchModelsResponse(provider=provider, models=chat_ids, tts_models=tts_ids)
     except Exception as exc:
         raise HTTPException(
             status_code=500,

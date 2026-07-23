@@ -598,10 +598,18 @@ export default function useSettings({ formatErrorMessage }: Options) {
       setSettingsEnabledModels((prev) => {
         return prev.filter(m => res.models.includes(m));
       });
+      const ttsList = res.tts_models || [];
+      if (ttsList.length > 0) {
+        setSettingsTtsAvailableModels(ttsList);
+        setSettingsTtsEnabledModels((prev) => {
+          return Array.from(new Set([...prev, ...ttsList]));
+        });
+      }
+      const totalCount = res.models.length + (res.tts_models?.length || 0);
       setSettingsInfo(
         t(
-          `已从 ${settingsProvider} 获取 ${res.models.length} 个模型。请手动勾选要启用的模型。`,
-          `Fetched ${res.models.length} models from ${settingsProvider}. Please tick the ones you want to enable.`
+          `已从 ${settingsProvider} 获取 ${totalCount} 个模型（对话模型 ${res.models.length} 个，TTS 语音模型 ${res.tts_models?.length || 0} 个）。请手动勾选要启用的模型。`,
+          `Fetched ${totalCount} models from ${settingsProvider} (${res.models.length} LLM models, ${res.tts_models?.length || 0} TTS models). Please tick the ones you want to enable.`
         )
       );
     } catch (err) {

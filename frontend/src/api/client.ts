@@ -1064,6 +1064,7 @@ export async function updateSettings(
 export type FetchModelsResponse = {
   provider: string;
   models: string[];
+  tts_models?: string[];
 };
 
 export async function fetchProviderModels(
