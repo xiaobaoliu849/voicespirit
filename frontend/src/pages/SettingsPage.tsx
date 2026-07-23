@@ -17,7 +17,7 @@ type Props = {
 
 type SettingCategory = "general" | "provider" | "transcription" | "memory" | "desktop";
 
-export default function SettingsPage({ settings, errorRuntimeContext }: Props) {
+export default function SettingsPage({ settings, errorRuntimeContext, onClose }: Props) {
   const { t } = useI18n();
   const [activeCategory, setActiveCategory] = useState<SettingCategory>("provider");
 
@@ -153,14 +153,37 @@ export default function SettingsPage({ settings, errorRuntimeContext }: Props) {
           {activeCategory === "transcription" && <TranscriptionSettingsSection settings={settings} />}
           {activeCategory === "desktop" && <DesktopSettingsSection settings={settings} />}
 
-          <footer className="vsSettingsFooter">
-            <button
-              type="submit"
-              className="vsBtnPrimary"
-              disabled={settings.settingsSaving || settings.settingsBusy}
-            >
-              {settings.settingsSaving ? t("保存中...", "Saving...") : t("保存", "Save")}
-            </button>
+          <footer className="vsSettingsFormFooter">
+            <div className="vsSettingsFooterStatus">
+              {settings.settingsSaving ? (
+                <span className="status-saving">
+                  <span className="spinner-mini" /> {t("正在保存配置...", "Saving settings...")}
+                </span>
+              ) : settings.settingsInfo ? (
+                <span className="status-saved ok">✓ {settings.settingsInfo}</span>
+              ) : (
+                <span className="status-ready">{t("参数配置就绪", "Settings ready")}</span>
+              )}
+            </div>
+            <div className="vsSettingsFooterActions">
+              {onClose && (
+                <button
+                  type="button"
+                  className="vsBtnSecondary vsFooterCloseBtn"
+                  onClick={onClose}
+                  disabled={settings.settingsSaving}
+                >
+                  {t("关闭", "Close")}
+                </button>
+              )}
+              <button
+                type="submit"
+                className="vsBtnPrimary vsFooterSaveBtn"
+                disabled={settings.settingsSaving || settings.settingsBusy}
+              >
+                {settings.settingsSaving ? t("保存中...", "Saving...") : t("保存", "Save")}
+              </button>
+            </div>
           </footer>
         </form>
       </section>

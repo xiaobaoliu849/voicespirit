@@ -345,6 +345,7 @@ export default function ProviderSettingsSection({ settings }: Props) {
               <button
                 type="button"
                 className="vsBtnSecondary vsBtnSmall"
+                style={{ whiteSpace: "nowrap", flexShrink: 0, padding: "0 12px", height: "32px", display: "inline-flex", alignItems: "center", gap: "4px" }}
                 onClick={() => void settings.onFetchModels()}
                 disabled={settings.settingsFetchingModels || settings.settingsBusy}
               >
