@@ -166,8 +166,9 @@ def _filter_dashscope_models(model_ids: list[str]) -> list[str]:
     import re
 
     # VoiceSpirit uses DashScope for:
-    #   - Qwen/QwQ chat models   (qwen-max, qwen-plus, qwq-32b …)       → AI conversation
-    #   - Voice synthesis models (qwen-audio-*, cosyvoice-*, sambert-*)  → TTS
+    #   - Qwen/QwQ chat models   (qwen-max, qwen-plus, qwen-turbo, qwen-long, qwen-omni-*)
+    #   - Machine translation    (qwen-mt-*)
+    #   - Voice synthesis        (qwen-audio-*, cosyvoice-*, sambert-*)  → TTS
     #   - ASR / transcription    (paraformer-*, sensevoice-*)             → speech recognition
     # Excluded intentionally:
     #   - deepseek-* : pure text/coding LLMs, no voice relevance
@@ -177,17 +178,34 @@ def _filter_dashscope_models(model_ids: list[str]) -> list[str]:
         "paraformer", "sensevoice",
     )
 
+    # Qwen sub-families that are completely off-topic for VoiceSpirit.
+    # Using keyword fragments that are unambiguous within the qwen namespace.
+    _OFF_TOPIC_KEYWORDS = (
+        "-image-",       # qwen-image-*, qwen-image-edit-*  → image generation
+        "-coder-",       # qwen-coder-*                     → code generation
+        "-math-",        # qwen-math-*                      → mathematics
+        "-deep-research",# qwen-deep-research-*             → agentic research tool
+        "-deep-search",  # qwen-deep-search-*               → web search tool
+        "-flash-",       # qwen-flash-* (legacy tiny model series, NOT qwen3-tts-flash-*)
+    )
+
     # Parameter-size-like suffixes that indicate raw academic checkpoints, NOT product APIs.
     # We match things like -7b, -14b, -72b, -0.5b, -1.5b, -3b at a word boundary.
     # NOTE: MoE models use -235b-a22b pattern; the -a22b part is the active-param suffix
     # which we do NOT want to block — only block the raw dense parameter suffixes.
     _SIZE_SUFFIX_RE = re.compile(r"(?<!-a)-\d*\.?\d+b\b", re.IGNORECASE)
 
-    # Date-snapshot suffix: 6–8 consecutive digits at end (e.g. -20241018, -20250601)
-    _DATE_SUFFIX_RE = re.compile(r"-\d{6,8}$")
+    # Date-snapshot suffixes — two forms:
+    #   Long form  (8 digits): -20241018, -20250601
+    #   Short form (4 digits): -0107, -1201  (month-day pinned versions)
+    #   Hyphenated date:       -2026-03-03, -2025-10-30  (YYYY-MM-DD)
+    # EXCEPTION: qwen3-tts-flash-2025-11-27 is a production TTS model name, keep it.
+    _DATE_SUFFIX_RE = re.compile(
+        r"(-\d{4}-\d{2}-\d{2}|-\d{6,8}|-\d{4})$", re.IGNORECASE
+    )
 
-    # Known TTS production model that happens to end with a date string — keep it
-    _TTS_DATE_WHITELIST = {"qwen3-tts-flash-2025-11-27"}
+    # Known production models whose names incidentally end in a date-like string.
+    _DATE_NAME_WHITELIST = {"qwen3-tts-flash-2025-11-27"}
 
     filtered: list[str] = []
     for m in model_ids:
@@ -200,37 +218,43 @@ def _filter_dashscope_models(model_ids: list[str]) -> list[str]:
         if not any(low.startswith(p) for p in _DASHSCOPE_PREFIXES):
             continue
 
-        # 2. Strip distillation checkpoints (e.g. deepseek-r1-distill-qwen-7b)
+        # 2. Strip off-topic Qwen sub-families (image, coder, math, search, research)
+        if any(kw in low for kw in _OFF_TOPIC_KEYWORDS):
+            # Special-case: qwen3-tts-flash-* contains "-flash-" but IS voice-relevant
+            if not (low.startswith("qwen") and "tts" in low):
+                continue
+
+        # 3. Strip legacy tiny parameter models (e.g. qwen-1.8b-longcontext-chat)
+        if re.search(r"qwen-\d+\.?\d*b-", low):
+            continue
+
+        # 4. Strip distillation checkpoints (e.g. deepseek-r1-distill-qwen-7b)
         if "-distill-" in low:
             continue
 
-        # 3. Strip quantization variants
+        # 5. Strip quantization variants
         if any(q in low for q in ("-int4", "-int8", "-fp16")):
             continue
 
-        # 4. Strip models with an explicit parameter-size suffix (raw checkpoints)
-        #    e.g. qwen2.5-72b-instruct, qwen3-7b-instruct  → skip (raw dense checkpoints)
-        #    but  qwen-max, qwq-32b, deepseek-r1            → keep (product aliases)
-        #    and  qwen3-235b-a22b, qwen3-30b-a3b            → keep (MoE flagship products)
+        # 6. Strip models with an explicit dense-parameter-size suffix (raw checkpoints)
+        #    e.g. qwen2.5-72b-instruct, qwen3-7b-instruct  → skip
+        #    but  qwen-max, qwq-32b, qwen3-235b-a22b        → keep
         if _SIZE_SUFFIX_RE.search(low):
-            # MoE models (e.g. qwen3-235b-a22b) have a dense total followed by -a<N>b active params.
-            # They are product-grade and should be kept despite having a size in their name.
             is_moe = bool(re.search(r"-\d+b-a\d+b", low))
             if not is_moe:
-                # Block versioned raw dense checkpoints: qwen\d.x-Nb-instruct style
                 if re.match(r"(qwen\d|deepseek-v\d)", low):
                     continue
-                # Also block if there's a role suffix after the size
                 if re.search(r"-\d*\.?\d+b-(instruct|chat|base|preview)", low):
                     continue
 
-        # 5. Strip date-snapshot suffixes (e.g. qwen-max-20241018)
-        if raw not in _TTS_DATE_WHITELIST and _DATE_SUFFIX_RE.search(low):
+        # 7. Strip date-snapshot versions (pinned releases not meant for production use)
+        if raw not in _DATE_NAME_WHITELIST and _DATE_SUFFIX_RE.search(low):
             continue
 
         filtered.append(raw)
 
     return filtered
+
 
 
 @router.post(
