@@ -144,6 +144,21 @@ DASHSCOPE_MODEL_LIST_SUPPLEMENTS = [
 GOOGLE_MODELS_BASE_URL = GOOGLE_INTERACTIONS_BASE_URL
 
 
+def _filter_dashscope_models(model_ids: list[str]) -> list[str]:
+    filtered: list[str] = []
+    for m in model_ids:
+        low = m.lower()
+        # Filter out raw quantized weight checkpoints and legacy Qwen 1.0 / 1.5 checkpoints
+        if any(suffix in low for suffix in ("-int4", "-int8", "-fp16", "-v1.0", "-v1.5")):
+            continue
+        if low.startswith("qwen-1.") or low.startswith("qwen-7b") or low.startswith("qwen-14b") or low.startswith("qwen-72b"):
+            continue
+        if low.startswith("qwen1.5-") or low.startswith("qwen-math-1") or low.startswith("qwen-coder-1"):
+            continue
+        filtered.append(m)
+    return filtered
+
+
 @router.post(
     "/providers/{provider}/fetch-models",
     response_model=FetchModelsResponse,
@@ -279,6 +294,7 @@ async def fetch_models(provider: str, payload: FetchModelsRequest) -> FetchModel
             model_ids.extend(GOOGLE_MODEL_LIST_SUPPLEMENTS)
         elif provider == "DashScope":
             model_ids.extend(DASHSCOPE_MODEL_LIST_SUPPLEMENTS)
+            model_ids = _filter_dashscope_models(model_ids)
 
         model_ids = sorted(list(set(model_ids)))
         tts_keywords = ("tts", "speech", "cosyvoice", "sambert", "voice", "eleven", "qwen-audio")
