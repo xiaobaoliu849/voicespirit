@@ -167,6 +167,12 @@ class LiveTranslateSessionConfigTests(unittest.TestCase):
         # No chat-only fields leak into the translation session
         self.assertNotIn("instructions", session)
         self.assertNotIn("tools", session)
+        # Regression: the translation model runs its own server-side VAD and derives
+        # the rate from input_audio_format. Sending the chat-style turn_detection /
+        # sample_rate fields makes DashScope reject session.update (parameter error),
+        # which looks like "connected but no response". They must never be sent.
+        self.assertNotIn("turn_detection", session)
+        self.assertNotIn("sample_rate", session)
 
     def test_update_session_omits_empty_corpus(self):
         captured: list[dict] = []

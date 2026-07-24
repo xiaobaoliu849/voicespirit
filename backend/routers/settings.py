@@ -252,6 +252,12 @@ def _filter_dashscope_models(model_ids: list[str]) -> list[str]:
         if not any(low.startswith(p) for p in _DASHSCOPE_PREFIXES):
             continue
 
+        # 1b. Drop the legacy qwen3-livetranslate series (superseded by
+        #     qwen3.5-livetranslate, the only LiveTranslate model VoiceSpirit ships).
+        #     qwen3.5-livetranslate-* is unaffected (its name has a minor version).
+        if re.match(r"qwen3-livetranslate-", low):
+            continue
+
         # 2. Strip off-topic Qwen sub-families (image, coder, math, search, research)
         if any(kw in low for kw in _OFF_TOPIC_KEYWORDS):
             # Special-case: voice/realtime models that incidentally contain "-flash-":

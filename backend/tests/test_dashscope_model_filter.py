@@ -17,9 +17,24 @@ class FilterDashScopeModelsTests(unittest.TestCase):
         filtered = _filter_dashscope_models(["qwen3.5-livetranslate-flash-realtime"])
         self.assertIn("qwen3.5-livetranslate-flash-realtime", filtered)
 
+    def test_drops_legacy_qwen3_livetranslate_keeps_qwen35(self) -> None:
+        # VoiceSpirit ships only the newest LiveTranslate model; the legacy
+        # qwen3-livetranslate series must be filtered out (dated or not), while
+        # qwen3.5-livetranslate-flash-realtime is kept.
+        filtered = _filter_dashscope_models(
+            [
+                "qwen3-livetranslate-flash",
+                "qwen3-livetranslate-flash-realtime",
+                "qwen3.5-livetranslate-flash-realtime",
+            ]
+        )
+        self.assertNotIn("qwen3-livetranslate-flash", filtered)
+        self.assertNotIn("qwen3-livetranslate-flash-realtime", filtered)
+        self.assertIn("qwen3.5-livetranslate-flash-realtime", filtered)
+
     def test_drops_date_snapshots_and_off_topic_families(self) -> None:
         noisy = [
-            "qwen3-livetranslate-flash-realtime-2025-09-22",  # date snapshot -> drop
+            "qwen3-livetranslate-flash-realtime-2025-09-22",  # legacy + date -> drop
             "qwen2.5-72b-instruct",                            # raw checkpoint -> drop
             "qwen-vl-ocr",                                     # off-topic -> drop
             "qwen-coder-plus",                                 # off-topic -> drop
@@ -112,8 +127,8 @@ class GetSettingsRefilterIntegrationTests(unittest.TestCase):
         _merge_dashscope_supplements(entry)
 
         self.assertIn("qwen3.5-livetranslate-flash-realtime", entry["available"])
-        self.assertIn("qwen3-livetranslate-flash-realtime", entry["available"])
-        # Noise stays filtered out — the list must not balloon back up.
+        # Legacy qwen3-livetranslate is filtered out; only the newest model ships.
+        self.assertNotIn("qwen3-livetranslate-flash-realtime", entry["available"])
         self.assertLess(len(entry["available"]), 30)
         self.assertNotIn("qwen2.5-72b-instruct", entry["available"])
 

@@ -361,24 +361,27 @@ class DashScopeLiveTranslateConversation(DashScopeAudioRealtimeConversation):
         corpus_phrases: dict[str, str] | None = None,
         modalities: list[str] | None = None,
     ) -> None:
+        # NOTE: keep this payload aligned with the official qwen3.5-livetranslate
+        # Realtime ``session.update`` schema. The translation model is NOT a chat
+        # session: it runs its own server-side VAD ("服务端自动检测音频的起始和结束")
+        # and derives the 16kHz rate from ``input_audio_format: pcm``. Sending the
+        # chat-style ``turn_detection`` / ``sample_rate`` fields (copied from the
+        # Qwen-Omni config) makes the server reject ``session.update`` as a parameter
+        # error — the socket connects and ``session_open`` fires, but no transcription
+        # or translation ever comes back. Only documented fields are sent here:
+        # modalities / voice / input_audio_format / output_audio_format /
+        # input_audio_transcription / translation (+ optional corpus).
         session: dict[str, Any] = {
             "modalities": list(modalities or ["text", "audio"]),
             "voice": str(voice or DEFAULT_QWEN_LIVETRANSLATE_VOICE),
             "input_audio_format": "pcm",
             "output_audio_format": "pcm",
-            "sample_rate": 16000,
             "input_audio_transcription": {
                 "model": "qwen3-asr-flash-realtime",
                 "language": source_language or "zh",
             },
             "translation": {
                 "language": target_language or "en",
-            },
-            # Server VAD segments the continuous stream into translatable chunks.
-            "turn_detection": {
-                "type": "server_vad",
-                "threshold": 0.3,
-                "silence_duration_ms": 1200,
             },
         }
         phrases = {str(k): str(v) for k, v in (corpus_phrases or {}).items() if str(k).strip()}
