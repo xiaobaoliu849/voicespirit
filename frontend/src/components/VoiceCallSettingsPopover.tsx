@@ -3,7 +3,7 @@ import type { UseVoiceChatResult } from "../hooks/useVoiceChat";
 import {
   DASHSCOPE_PROVIDER,
   PRESET_LANGUAGE_PAIRS,
-  formatTranslationSummary,
+  formatVoiceChatSecondaryLabel,
 } from "../hooks/useVoiceChatHelpers";
 
 type Translator = (zh: string, en: string) => string;
@@ -55,6 +55,8 @@ export default function VoiceCallSettingsPopover({ voiceChat, t, disabled = fals
       voiceChat.onProviderChange(provider);
     }
     voiceChat.onModelChange(model);
+    // Leaf selection = explicit choice: close so the updated summary pill confirms it
+    setOpen(false);
   }
 
   function handleToggle() {
@@ -98,22 +100,21 @@ export default function VoiceCallSettingsPopover({ voiceChat, t, disabled = fals
     };
   }, [open]);
 
-  // Voice Clone label fix: when voice clone is enabled, prioritize showing Voice Clone label
-  const activeVoiceLabel = voiceChat.voiceChatEnableVoiceClone
-    ? t("声音复刻 (本人音色)", "Voice Clone (Your Voice)")
-    : voiceChat.voiceChatVoiceLabel;
+  // Secondary label next to the model name: Voice Clone takes precedence, and
+  // live-translate models show the language pair instead of a stale voice label.
+  const secondaryLabel = formatVoiceChatSecondaryLabel({
+    liveTranslate: voiceChat.voiceChatLiveTranslate,
+    voiceCloneEnabled: Boolean(voiceChat.voiceChatEnableVoiceClone),
+    translationMode: voiceChat.voiceChatTranslationMode,
+    sourceLanguageCode: voiceChat.voiceChatSourceLanguageCode,
+    targetLanguageCode: voiceChat.voiceChatTargetLanguageCode,
+    voiceLabel: voiceChat.voiceChatVoiceLabel,
+    provider: voiceChat.voiceChatProvider,
+    model: voiceChat.voiceChatModel,
+    t,
+  });
 
-  const summaryText = voiceChat.voiceChatLiveTranslate
-    ? `${voiceChat.voiceChatModel} · ${
-        voiceChat.voiceChatEnableVoiceClone
-          ? t("声音复刻 (本人)", "Voice Clone")
-          : formatTranslationSummary(
-              voiceChat.voiceChatTranslationMode,
-              voiceChat.voiceChatSourceLanguageCode,
-              voiceChat.voiceChatTargetLanguageCode
-            )
-      }`
-    : `${voiceChat.voiceChatModel} · ${activeVoiceLabel}`;
+  const summaryText = `${voiceChat.voiceChatModel} · ${secondaryLabel}`;
 
   return (
     <div className="vsVoiceSettings" ref={rootRef}>
@@ -174,11 +175,15 @@ export default function VoiceCallSettingsPopover({ voiceChat, t, disabled = fals
               );
             })}
 
-            {onOpenSettings ? (
-              <div className="vsVoiceSettingsFooter" style={{ marginTop: 4, paddingTop: 4, borderTop: "1px solid var(--line)" }}>
+            <div
+              className="vsVoiceSettingsFooter"
+              style={{ marginTop: 4, paddingTop: 4, borderTop: "1px solid var(--line)", display: "flex", gap: 4 }}
+            >
+              {onOpenSettings ? (
                 <button
                   type="button"
                   className="vsVoiceSettingsRow vsVoiceSettingsManageRow"
+                  style={{ flex: 1 }}
                   onClick={() => {
                     setOpen(false);
                     onOpenSettings();
@@ -186,8 +191,16 @@ export default function VoiceCallSettingsPopover({ voiceChat, t, disabled = fals
                 >
                   <span className="vsVoiceSettingsRowLabel">{t("管理模型", "Manage models")}</span>
                 </button>
-              </div>
-            ) : null}
+              ) : null}
+              <button
+                type="button"
+                className="vsVoiceSettingsRow vsVoiceSettingsDoneRow"
+                style={{ flex: 1, justifyContent: "center", fontWeight: 600 }}
+                onClick={() => setOpen(false)}
+              >
+                <span className="vsVoiceSettingsRowLabel">{t("完成", "Done")}</span>
+              </button>
+            </div>
           </div>
 
           {/* LEVEL 2: CATEGORY SELECTION MENU (Flies out to the right/left ONLY when a Provider is hovered) */}
@@ -285,6 +298,8 @@ export default function VoiceCallSettingsPopover({ voiceChat, t, disabled = fals
                             voiceChat.onVoiceCloneToggle?.(false);
                           }
                           voiceChat.onVoiceChange(item.value);
+                          // Leaf selection = explicit choice: close so the updated summary pill confirms it
+                          setOpen(false);
                         }}
                       >
                         <span className="vsVoiceSettingsRowLabel">{item.label}</span>

@@ -219,6 +219,50 @@ export function formatTranslationSummary(
   return `单向翻译 (${src} → ${tgt})`;
 }
 
+/**
+ * The secondary label shown next to the model name (settings pill + live-call badge).
+ * Voice Clone takes precedence; live-translate models show the language pair
+ * instead of a (meaningless) TTS voice label.
+ * DashScope LiveTranslate only supports unidirectional mode (single target_language
+ * per the API), so the pair is always rendered as 单向翻译 for it.
+ */
+export function formatVoiceChatSecondaryLabel(params: {
+  liveTranslate: boolean;
+  voiceCloneEnabled: boolean;
+  translationMode: TranslationMode;
+  sourceLanguageCode: string;
+  targetLanguageCode: string;
+  voiceLabel: string;
+  provider?: string;
+  model?: string;
+  t: (zh: string, en: string) => string;
+}): string {
+  const {
+    liveTranslate,
+    voiceCloneEnabled,
+    translationMode,
+    sourceLanguageCode,
+    targetLanguageCode,
+    voiceLabel,
+    provider = "",
+    model = "",
+    t,
+  } = params;
+  if (liveTranslate) {
+    if (voiceCloneEnabled) {
+      return t("声音复刻 (本人)", "Voice Clone");
+    }
+    const effectiveMode: TranslationMode =
+      provider === DASHSCOPE_PROVIDER && isLiveTranslateModel(provider, model)
+        ? "unidirectional"
+        : translationMode;
+    return formatTranslationSummary(effectiveMode, sourceLanguageCode, targetLanguageCode);
+  }
+  return voiceCloneEnabled
+    ? t("声音复刻 (本人音色)", "Voice Clone (Your Voice)")
+    : voiceLabel;
+}
+
 export const OPENAI_REALTIME_VOICES = [
   { value: "alloy", label: "Alloy (Neutral)" },
   { value: "ash", label: "Ash (Male)" },

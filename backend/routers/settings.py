@@ -169,7 +169,6 @@ DASHSCOPE_MODEL_LIST_SUPPLEMENTS = [
     "sambert-zhichu-v1",
     # Realtime omni models
     "qwen3.5-omni-plus-realtime-2026-03-15",
-    "qwen3-omni-flash-2025-12-01",
     # Live translation (DashScope Realtime WebSocket — integrated)
     "qwen3.5-livetranslate-flash-realtime",
 ]
@@ -234,8 +233,8 @@ def _filter_dashscope_models(model_ids: list[str]) -> list[str]:
     #   Compressed 4-digit:  -0107, -1201, -0919   (month-day pinned aliases)
     #   Hyphenated YYYY-MM-DD: -2025-11-05, -2024-11-01  (also alias snapshots)
     #
-    # Note: production versioned models we specifically want (e.g. qwen3-tts-flash-2025-11-27,
-    # qwen3-omni-flash-2025-12-01) are guaranteed via DASHSCOPE_MODEL_LIST_SUPPLEMENTS which
+    # Note: production versioned models we specifically want (e.g. qwen3-tts-flash-2025-11-27)
+    # are guaranteed via DASHSCOPE_MODEL_LIST_SUPPLEMENTS which
     # is applied AFTER this filter, so we can safely drop all date-suffixed names here.
     _DATE_SUFFIX_RE = re.compile(
         r"(-\d{4}-\d{2}-\d{2}|-\d{6,8}|-(?!\d{4}-\d{2}-\d{2})\d{4})$", re.IGNORECASE

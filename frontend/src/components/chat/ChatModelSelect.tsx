@@ -148,11 +148,15 @@ export default function ChatModelSelect({ chat, t, onOpenSettings }: Props) {
               );
             })}
 
-            {onOpenSettings ? (
-              <div className="vsVoiceSettingsFooter" style={{ marginTop: 4, paddingTop: 4, borderTop: "1px solid var(--line)" }}>
+            <div
+              className="vsVoiceSettingsFooter"
+              style={{ marginTop: 4, paddingTop: 4, borderTop: "1px solid var(--line)", display: "flex", gap: 4 }}
+            >
+              {onOpenSettings ? (
                 <button
                   type="button"
                   className="vsVoiceSettingsRow vsVoiceSettingsManageRow"
+                  style={{ flex: 1 }}
                   onClick={() => {
                     setOpen(false);
                     onOpenSettings();
@@ -160,8 +164,16 @@ export default function ChatModelSelect({ chat, t, onOpenSettings }: Props) {
                 >
                   <span className="vsVoiceSettingsRowLabel">{t("管理模型", "Manage models")}</span>
                 </button>
-              </div>
-            ) : null}
+              ) : null}
+              <button
+                type="button"
+                className="vsVoiceSettingsRow vsVoiceSettingsDoneRow"
+                style={{ flex: 1, justifyContent: "center", fontWeight: 600 }}
+                onClick={() => setOpen(false)}
+              >
+                <span className="vsVoiceSettingsRowLabel">{t("完成", "Done")}</span>
+              </button>
+            </div>
           </div>
 
           {/* LEVEL 2: MODEL FLYOUT (flies out to the right/left ONLY when a Provider is hovered) */}

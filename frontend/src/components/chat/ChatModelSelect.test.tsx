@@ -10,7 +10,7 @@ const SEP = "";
 const CHOICES = [
   { provider: "DashScope", model: "qwen3.5-plus", label: "DashScope / qwen3.5-plus", value: `DashScope${SEP}qwen3.5-plus` },
   { provider: "DashScope", model: "qwen3.5-livetranslate-flash-realtime", label: "DashScope / qwen3.5-livetranslate-flash-realtime", value: `DashScope${SEP}qwen3.5-livetranslate-flash-realtime` },
-  { provider: "DashScope", model: "qwen3-omni-flash-2025-12-01", label: "DashScope / qwen3-omni-flash-2025-12-01", value: `DashScope${SEP}qwen3-omni-flash-2025-12-01` },
+  { provider: "DashScope", model: "qwen3.5-flash", label: "DashScope / qwen3.5-flash", value: `DashScope${SEP}qwen3.5-flash` },
   { provider: "DashScope", model: "qwen3.5-omni-plus-realtime", label: "DashScope / qwen3.5-omni-plus-realtime", value: `DashScope${SEP}qwen3.5-omni-plus-realtime` },
   { provider: "Google", model: "gemini-3.5-flash", label: "Google / gemini-3.5-flash", value: `Google${SEP}gemini-3.5-flash` },
   { provider: "Google", model: "gemini-3.1-flash-live-preview", label: "Google / gemini-3.1-flash-live-preview", value: `Google${SEP}gemini-3.1-flash-live-preview` },
@@ -62,7 +62,7 @@ describe("ChatModelSelect", () => {
     // Hover Level 1 provider to open Level 2 model flyout
     fireEvent.mouseEnter(screen.getByText("DashScope"));
     expect(screen.getByText("qwen3.5-plus")).toBeInTheDocument();
-    expect(screen.getByText("qwen3-omni-flash-2025-12-01")).toBeInTheDocument();
+    expect(screen.getByText("qwen3.5-flash")).toBeInTheDocument();
     // Google models stay hidden until Google is hovered
     expect(screen.queryByText("gemini-3.5-flash")).not.toBeInTheDocument();
 
@@ -87,9 +87,9 @@ describe("ChatModelSelect", () => {
     fireEvent.mouseEnter(screen.getByText("DashScope"));
     expect(screen.getByText("实时翻译")).toBeInTheDocument();
     expect(screen.getByText("全模态实时")).toBeInTheDocument();
-    // Plain text models have no hint (omni-flash is text-mode per isVoiceRealtimeModel)
+    // Plain text models have no hint
     expect(screen.getByText("qwen3.5-plus").closest("button")).not.toHaveTextContent("实时");
-    expect(screen.getByText("qwen3-omni-flash-2025-12-01").closest("button")).not.toHaveTextContent("实时");
+    expect(screen.getByText("qwen3.5-flash").closest("button")).not.toHaveTextContent("实时");
   });
 
   it("calls onModelChoiceChange with the choice value and closes the panel", () => {

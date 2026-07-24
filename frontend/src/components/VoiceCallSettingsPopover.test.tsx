@@ -78,16 +78,17 @@ describe("VoiceCallSettingsPopover", () => {
     expect(selectedVoice).toHaveClass("selected");
   });
 
-  it("calls onVoiceChange when a voice is picked in Voice flyout", () => {
+  it("calls onVoiceChange and closes the panel when a voice is picked in Voice flyout", () => {
     const voiceChat = renderPopover();
     openPanel();
     fireEvent.mouseEnter(screen.getByText("DashScope"));
     fireEvent.mouseEnter(screen.getByText("🎙️ 音色设定"));
     fireEvent.click(screen.getByText("Ethan · 晨煦 · 男声"));
     expect(voiceChat.onVoiceChange).toHaveBeenCalledWith("Ethan");
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
-  it("switches the model without closing the panel", () => {
+  it("switches the model and closes the panel to confirm the selection", () => {
     const voiceChat = renderPopover();
     openPanel();
     fireEvent.mouseEnter(screen.getByText("DashScope"));
@@ -95,10 +96,10 @@ describe("VoiceCallSettingsPopover", () => {
     fireEvent.click(screen.getByText("qwen-audio-3.0-realtime-plus"));
     expect(voiceChat.onModelChange).toHaveBeenCalledWith("qwen-audio-3.0-realtime-plus");
     expect(voiceChat.onProviderChange).not.toHaveBeenCalled();
-    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
-  it("switches provider in Level 1 and selects model in Level 3", () => {
+  it("switches provider in Level 1 and selects model in Level 3, then closes", () => {
     const voiceChat = renderPopover();
     openPanel();
     expect(screen.queryByText("gemini-2.5-flash-native-audio-preview-12-2025")).not.toBeInTheDocument();
@@ -107,7 +108,14 @@ describe("VoiceCallSettingsPopover", () => {
     fireEvent.click(screen.getByText("gemini-2.5-flash-native-audio-preview-12-2025"));
     expect(voiceChat.onProviderChange).toHaveBeenCalledWith("Google");
     expect(voiceChat.onModelChange).toHaveBeenCalledWith("gemini-2.5-flash-native-audio-preview-12-2025");
-    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("always shows a Done button in the footer that closes the panel", () => {
+    renderPopover();
+    openPanel();
+    fireEvent.click(screen.getByText("完成"));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
   it("opens model management from Level 1 footer and closes panel", () => {

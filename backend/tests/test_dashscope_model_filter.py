@@ -65,11 +65,15 @@ class SupplementClassificationTests(unittest.TestCase):
         chat_supplements = [
             "qwen3.5-livetranslate-flash-realtime",
             "qwen3.5-omni-plus-realtime-2026-03-15",
-            "qwen3-omni-flash-2025-12-01",
         ]
         for model in chat_supplements:
             self.assertIn(model, DASHSCOPE_MODEL_LIST_SUPPLEMENTS)
             self.assertFalse(_is_tts_model_id(model), model)
+
+    def test_non_realtime_omni_flash_is_not_supplemented(self) -> None:
+        # qwen3-omni-flash-2025-12-01 is a multimodal but NOT realtime model;
+        # it must not be re-added to the chat model list.
+        self.assertNotIn("qwen3-omni-flash-2025-12-01", DASHSCOPE_MODEL_LIST_SUPPLEMENTS)
 
 
 class MergeDashScopeSupplementsTests(unittest.TestCase):

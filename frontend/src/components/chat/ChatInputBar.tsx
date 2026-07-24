@@ -3,6 +3,7 @@ import { extractPdfText } from "../../api";
 import VoiceCallSettingsPopover from "../VoiceCallSettingsPopover";
 import ChatModelSelect from "./ChatModelSelect";
 import { isVoiceRealtimeModel } from "../../hooks/useChat";
+import { formatVoiceChatSecondaryLabel } from "../../hooks/useVoiceChatHelpers";
 import type { UseChatResult } from "../../hooks/useChat";
 import type { UseVoiceChatResult } from "../../hooks/useVoiceChat";
 import { useI18n } from "../../i18n";
@@ -278,7 +279,18 @@ export default function ChatInputBar({ chat, voiceChat, onOpenSettings }: Props)
             </span>
             {voiceChat.voiceChatConnected && (
               <span className="vsVoiceModelBadge">
-                {voiceChat.voiceChatProvider} / {voiceChat.voiceChatModel} · {voiceChat.voiceChatVoiceLabel}
+                {voiceChat.voiceChatProvider} / {voiceChat.voiceChatModel} ·{" "}
+                {formatVoiceChatSecondaryLabel({
+                  liveTranslate: voiceChat.voiceChatLiveTranslate,
+                  voiceCloneEnabled: Boolean(voiceChat.voiceChatEnableVoiceClone),
+                  translationMode: voiceChat.voiceChatTranslationMode,
+                  sourceLanguageCode: voiceChat.voiceChatSourceLanguageCode,
+                  targetLanguageCode: voiceChat.voiceChatTargetLanguageCode,
+                  voiceLabel: voiceChat.voiceChatVoiceLabel,
+                  provider: voiceChat.voiceChatProvider,
+                  model: voiceChat.voiceChatModel,
+                  t,
+                })}
               </span>
             )}
           </div>
