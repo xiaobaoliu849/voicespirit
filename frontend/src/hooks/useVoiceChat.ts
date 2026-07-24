@@ -30,7 +30,6 @@ import {
   QWEN_AUDIO_VOICES,
   QWEN_LIVETRANSLATE_VOICES,
   QWEN_OMNI_REALTIME_VOICES,
-  appendStreamingText,
   buildToolMeta,
   decodeBase64Pcm,
   encodePcm16k,
@@ -782,7 +781,7 @@ export default function useVoiceChat({
             voiceChatLiveTranslate &&
             shouldCoalesceLiveTranslateSegment(currentUserTurnRef.current, event.text)
           ) {
-            currentUserTurnRef.current = appendStreamingText(currentUserTurnRef.current, event.text);
+            currentUserTurnRef.current = mergeAssistantText(currentUserTurnRef.current, event.text);
             setVoiceChatTranscript(currentUserTurnRef.current);
             setVoiceChatStatus(t("正在整理实时译文…", "Refining the live translation…"));
             return;
@@ -812,13 +811,11 @@ export default function useVoiceChat({
         if (voiceChatLiveTranslate) {
           currentTurnIdRef.current = event.turn_id || currentTurnIdRef.current;
           liveTranslateLastTargetActivityAtRef.current = Date.now();
-          const confirmed = event.text || "";
-          const tentative = event.tentative || "";
-          const previewText = confirmed ? (tentative ? `${confirmed} ${tentative}` : confirmed) : tentative;
-          if (previewText) {
+          const tentative = (event.tentative || "").trim();
+          if (tentative) {
             liveTranslateTargetStreamRef.current = mergeAssistantText(
               liveTranslateTargetStreamRef.current,
-              previewText
+              tentative
             );
             syncPendingLiveTranslatePair();
             scheduleLiveTranslateBoundary();
