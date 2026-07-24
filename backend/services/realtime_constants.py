@@ -215,8 +215,12 @@ def _merge_streaming_text(previous: str, incoming: str) -> tuple[str, str]:
     if not before:
         return next_text, next_text
 
-    # Strip trailing punctuation from before so sentence punctuation doesn't break startswith
     before_clean = re.sub(r"[.!?。！？,，:：;\s]+$", "", before)
+    next_clean = re.sub(r"[.!?。！？,，:：;\s]+$", "", next_text)
+
+    if next_clean and before_clean and (before_clean == next_clean or before_clean.endswith(next_clean)):
+        return before, ""
+
     if before_clean and next_text.startswith(before_clean):
         delta = next_text[len(before_clean):].lstrip(".!?。！？,，:：; ")
         if not delta:
@@ -224,9 +228,6 @@ def _merge_streaming_text(previous: str, incoming: str) -> tuple[str, str]:
         separator = " " if (before_clean[-1:].isalnum() and delta[:1].isalnum() and re.search(r"[A-Za-z]", before_clean[-1:] + delta[:1])) else ""
         full_delta = f"{separator}{delta}" if separator and not delta.startswith(" ") else delta
         return f"{before_clean}{full_delta}", full_delta
-
-    if before.endswith(next_text):
-        return before, ""
 
     overlap = 0
     for size in range(min(len(before), len(next_text)), 0, -1):

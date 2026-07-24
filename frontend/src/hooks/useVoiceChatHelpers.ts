@@ -549,12 +549,34 @@ export function mergeAssistantText(previous: string, incoming: string): string {
   }
   const cleanPrev = stripTrailingPunctuation(previous);
   const cleanNext = stripTrailingPunctuation(next);
-  if (cleanNext && cleanPrev && cleanNext.startsWith(cleanPrev)) {
-    return next;
-  }
-  if (cleanNext && cleanPrev && cleanPrev.endsWith(cleanNext)) {
+  if (!cleanNext) {
     return previous;
   }
+  if (!cleanPrev) {
+    return next;
+  }
+  if (cleanNext === cleanPrev || cleanPrev.endsWith(cleanNext)) {
+    return previous;
+  }
+  if (cleanNext.startsWith(cleanPrev)) {
+    return next;
+  }
+
+  // Find longest overlap between suffix of cleanPrev and prefix of cleanNext
+  let maxOverlap = 0;
+  const maxSearchLen = Math.min(cleanPrev.length, cleanNext.length);
+  for (let len = maxSearchLen; len >= 1; len--) {
+    if (cleanPrev.endsWith(cleanNext.slice(0, len))) {
+      maxOverlap = len;
+      break;
+    }
+  }
+
+  if (maxOverlap > 0) {
+    const novel = next.slice(maxOverlap);
+    return appendStreamingText(previous, novel);
+  }
+
   return appendStreamingText(previous, next);
 }
 

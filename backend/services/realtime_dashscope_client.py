@@ -20,7 +20,18 @@ class DashScopeRealtimeCallback:
         self.queue = queue
 
     def _push(self, event: dict[str, Any]) -> None:
-        self.loop.call_soon_threadsafe(self.queue.put_nowait, event)
+        event_type = event.get("type")
+        text = str(event.get("text", ""))
+        stash = str(event.get("stash", ""))
+        response_id = str(event.get("response_id", ""))
+        if event_type == "assistant_text" and (text or stash):
+            sig = (response_id, text, stash, bool(event.get("final")))
+            if getattr(self, "_last_text_sig", None) == sig:
+                return
+            self._last_text_sig = sig
+
+        if self.loop is not None and self.queue is not None:
+            self.loop.call_soon_threadsafe(self.queue.put_nowait, event)
 
     def on_open(self) -> None:
         return None
