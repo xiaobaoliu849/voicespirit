@@ -1241,7 +1241,12 @@ export default function useVoiceChat({
           const retrieveAttempted = currentMemoryRetrieveAttemptedRef.current;
           if (voiceChatLiveTranslate) {
             if (!commitPendingLiveTranslatePair()) {
-              commitCompletedTurn();
+              // Boundary timer may have already committed; falling through
+              // to commitCompletedTurn() would re-commit currentUserTurnRef /
+              // currentAssistantTurnRef from the last syncPendingLiveTranslatePair
+              // call, producing exact duplicate messages.
+              currentUserTurnRef.current = "";
+              currentAssistantTurnRef.current = "";
             }
             resetLiveTranslateStreamTracking();
           } else {
