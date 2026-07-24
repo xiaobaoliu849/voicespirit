@@ -110,6 +110,13 @@ describe("ChatModelSelect", () => {
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
+  it("always shows a Done button in the footer that closes the panel", () => {
+    renderSelect();
+    openPanel();
+    fireEvent.click(screen.getByText("完成"));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
   it("closes on Escape and on outside pointer down", () => {
     renderSelect();
     openPanel();

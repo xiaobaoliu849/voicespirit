@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { isVoiceRealtimeModel, type UseChatResult } from "../../hooks/useChat";
+import { formatModelHint, type UseChatResult } from "../../hooks/useChat";
 
 type Translator = (zh: string, en: string) => string;
 
@@ -13,20 +13,6 @@ type ModelGroup = {
   provider: string;
   choices: { model: string; value: string }[];
 };
-
-function modelHint(provider: string, model: string, t: Translator): string {
-  if (!isVoiceRealtimeModel(provider, model)) {
-    return "";
-  }
-  const normalized = model.toLowerCase();
-  if (normalized.includes("live-translate") || normalized.includes("livetranslate")) {
-    return t("实时翻译", "Live translate");
-  }
-  if (normalized.includes("omni")) {
-    return t("全模态实时", "Omni realtime");
-  }
-  return t("实时通话", "Realtime call");
-}
 
 export default function ChatModelSelect({ chat, t, onOpenSettings }: Props) {
   const [open, setOpen] = useState(false);
@@ -185,7 +171,7 @@ export default function ChatModelSelect({ chat, t, onOpenSettings }: Props) {
               {activeGroup.choices.map((choice) => {
                 const isCurrentModel =
                   activeGroup.provider === chat.chatProvider && choice.model === chat.chatModel;
-                const hint = modelHint(activeGroup.provider, choice.model, t);
+                const hint = formatModelHint(activeGroup.provider, choice.model, t);
                 return (
                   <button
                     key={choice.value}

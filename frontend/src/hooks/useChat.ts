@@ -54,6 +54,28 @@ export function isVoiceRealtimeModel(provider: string, model: string): boolean {
   return normalizedModel.includes("realtime");
 }
 
+/**
+ * Short capability badge shown next to a model name in the picker flyouts.
+ * Returns "" for plain text models; shared by ChatModelSelect and
+ * VoiceCallSettingsPopover so the labels never drift apart.
+ */
+export function formatModelHint(provider: string, model: string, t: (zh: string, en: string) => string): string {
+  if (!isVoiceRealtimeModel(provider, model)) {
+    return "";
+  }
+  const normalized = model.toLowerCase();
+  if (normalized.includes("live-translate") || normalized.includes("livetranslate")) {
+    return t("实时翻译", "Live translate");
+  }
+  if (normalized.includes("qwen-audio")) {
+    return t("Qwen-Audio 原生实时", "Qwen-Audio native");
+  }
+  if (normalized.includes("omni")) {
+    return t("全模态实时", "Omni realtime");
+  }
+  return t("实时通话", "Realtime call");
+}
+
 function buildModelChoiceValue(provider: string, model: string): string {
   return `${provider}${MODEL_CHOICE_SEPARATOR}${model}`;
 }

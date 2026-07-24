@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { UseVoiceChatResult } from "../hooks/useVoiceChat";
+import { formatModelHint } from "../hooks/useChat";
 import {
   DASHSCOPE_PROVIDER,
   PRESET_LANGUAGE_PAIRS,
@@ -14,20 +15,6 @@ type Props = {
   disabled?: boolean;
   onOpenSettings?: () => void;
 };
-
-function modelHint(model: string, t: Translator): string {
-  const normalized = model.toLowerCase();
-  if (normalized.includes("live-translate") || normalized.includes("livetranslate")) {
-    return t("实时翻译", "Live translate");
-  }
-  if (normalized.includes("qwen-audio")) {
-    return t("Qwen-Audio 原生实时", "Qwen-Audio native");
-  }
-  if (normalized.includes("omni")) {
-    return t("全模态实时", "Omni realtime");
-  }
-  return t("实时语音", "Realtime");
-}
 
 export default function VoiceCallSettingsPopover({ voiceChat, t, disabled = false, onOpenSettings }: Props) {
   const [open, setOpen] = useState(false);
@@ -248,6 +235,7 @@ export default function VoiceCallSettingsPopover({ voiceChat, t, disabled = fals
                     const isCurrentModel =
                       currentProviderGroup.provider === voiceChat.voiceChatProvider &&
                       model === voiceChat.voiceChatModel;
+                    const hint = formatModelHint(currentProviderGroup.provider, model, t);
                     return (
                       <button
                         key={model}
@@ -257,7 +245,7 @@ export default function VoiceCallSettingsPopover({ voiceChat, t, disabled = fals
                         onClick={() => handleModelSelect(currentProviderGroup.provider, model)}
                       >
                         <span className="vsVoiceSettingsRowLabel">{model}</span>
-                        <span className="vsVoiceSettingsRowHint">{modelHint(model, t)}</span>
+                        {hint ? <span className="vsVoiceSettingsRowHint">{hint}</span> : null}
                       </button>
                     );
                   })}
