@@ -2003,6 +2003,44 @@ button:focus-visible {
   bottom: auto;
 }
 
+.vsCascadingTabBar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  margin-bottom: 6px;
+  background: color-mix(in oklab, var(--text-primary) 5%, transparent);
+  border-radius: 8px;
+}
+
+.vsCascadingTabItem {
+  flex: 1;
+  padding: 5px 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  text-align: center;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+
+.vsCascadingTabItem:hover {
+  color: var(--text-primary);
+  background: color-mix(in oklab, var(--text-primary) 8%, transparent);
+}
+
+.vsCascadingTabItem.active {
+  background: var(--bg-card);
+  color: var(--brand-dark);
+  font-weight: 600;
+  box-shadow: 0 1px 3px color-mix(in oklab, black 10%, transparent);
+}
+
 .vsVoiceSettingsSection + .vsVoiceSettingsSection {
   margin-top: 4px;
   padding-top: 4px;
