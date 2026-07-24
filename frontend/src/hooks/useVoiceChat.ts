@@ -254,6 +254,14 @@ export default function useVoiceChat({
   }, [voiceChatProvider, voiceChatModel, voiceChatVoice]);
 
   useEffect(() => {
+    if (voiceChatProvider === DASHSCOPE_PROVIDER && isLiveTranslateModel(voiceChatProvider, voiceChatModel)) {
+      if (voiceChatTranslationMode !== "unidirectional") {
+        setVoiceChatTranslationMode("unidirectional");
+      }
+    }
+  }, [voiceChatProvider, voiceChatModel, voiceChatTranslationMode]);
+
+  useEffect(() => {
     return () => {
       stopSessionResources();
     };

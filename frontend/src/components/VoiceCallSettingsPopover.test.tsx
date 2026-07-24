@@ -100,8 +100,9 @@ describe("VoiceCallSettingsPopover", () => {
     expect(screen.queryByText("翻译")).not.toBeInTheDocument();
   });
 
-  it("shows the translation section for live-translate models with mode toggle, preset pills, and swap button", () => {
+  it("shows the translation section for Google live-translate models with mode toggle, preset pills, and swap button", () => {
     const voiceChat = renderPopover({
+      voiceChatProvider: "Google",
       voiceChatModel: "gemini-3.5-live-translate-preview",
       voiceChatLiveTranslate: true,
       voiceChatTranslationMode: "bidirectional",
@@ -130,6 +131,23 @@ describe("VoiceCallSettingsPopover", () => {
     // Mode switch click
     fireEvent.click(screen.getByText("单向翻译 →"));
     expect(voiceChat.onTranslationModeChange).toHaveBeenCalledWith("unidirectional");
+  });
+
+  it("shows single-direction notice for DashScope live-translate models", () => {
+    renderPopover({
+      voiceChatProvider: "DashScope",
+      voiceChatModel: "qwen3.5-livetranslate-flash-realtime",
+      voiceChatLiveTranslate: true,
+      voiceChatTranslationMode: "unidirectional",
+      voiceChatSourceLanguageCode: "zh-Hans",
+      voiceChatTargetLanguageCode: "en",
+    });
+    openPanel();
+    expect(screen.getByText("翻译配置")).toBeInTheDocument();
+    expect(screen.getByText("单向同传 (源语言 → 目标语言)")).toBeInTheDocument();
+    expect(screen.queryByText("双向互翻 ⇄")).not.toBeInTheDocument();
+    expect(screen.getByText("源语言")).toBeInTheDocument();
+    expect(screen.getByText("目标语言")).toBeInTheDocument();
   });
 
   it("toggles the echo switch in unidirectional mode", () => {
