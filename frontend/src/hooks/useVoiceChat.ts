@@ -28,6 +28,7 @@ import {
   OPENAI_PROVIDER,
   OPENAI_REALTIME_VOICES,
   QWEN_AUDIO_VOICES,
+  QWEN_LIVETRANSLATE_VOICES,
   QWEN_OMNI_REALTIME_VOICES,
   appendStreamingText,
   buildToolMeta,
@@ -231,7 +232,11 @@ export default function useVoiceChat({
 
   useEffect(() => {
     if (voiceChatProvider === DASHSCOPE_PROVIDER) {
-      const validVoices = isQwenAudioModel(voiceChatModel) ? QWEN_AUDIO_VOICES : QWEN_OMNI_REALTIME_VOICES;
+      const validVoices = isQwenAudioModel(voiceChatModel)
+        ? QWEN_AUDIO_VOICES
+        : isLiveTranslateModel(voiceChatProvider, voiceChatModel)
+          ? QWEN_LIVETRANSLATE_VOICES
+          : QWEN_OMNI_REALTIME_VOICES;
       if (!validVoices.some(v => v.value === voiceChatVoice)) {
         setVoiceChatVoice(isQwenAudioModel(voiceChatModel) ? "longanqian" : "Tina");
       }
@@ -719,9 +724,10 @@ export default function useVoiceChat({
           // For cumulative transcripts (Google Live Translate): event.text contains the
           // full accumulated source. We merge it to get the updated stream, then derive
           // the delta by comparing the new pending portion against the old one.
+          const incomingSource = event.text || event.tentative || "";
           const mergedSource = mergeAssistantText(
             liveTranslateSourceStreamRef.current,
-            event.text
+            incomingSource
           );
           const newPendingSource = mergedSource
             .slice(liveTranslateConsumedSourceLengthRef.current)
@@ -791,6 +797,24 @@ export default function useVoiceChat({
         setVoiceChatMemoryWriteStatus("");
         setVoiceChatMemorySourceStatus("");
         setVoiceChatStatus(t("正在听你说话…", "Listening…"));
+        return;
+      case "translation_preview":
+        if (voiceChatLiveTranslate) {
+          currentTurnIdRef.current = event.turn_id || currentTurnIdRef.current;
+          liveTranslateLastTargetActivityAtRef.current = Date.now();
+          const confirmed = event.text || "";
+          const tentative = event.tentative || "";
+          const previewText = confirmed ? (tentative ? `${confirmed} ${tentative}` : confirmed) : tentative;
+          if (previewText) {
+            liveTranslateTargetStreamRef.current = mergeAssistantText(
+              liveTranslateTargetStreamRef.current,
+              previewText
+            );
+            syncPendingLiveTranslatePair();
+            scheduleLiveTranslateBoundary();
+            setVoiceChatStatus(t("正在生成本句译文…", "Translating this sentence…"));
+          }
+        }
         return;
       case "memory_context":
         currentMemoryRetrieveAttemptedRef.current = Boolean(event.attempted);
@@ -1408,7 +1432,7 @@ export default function useVoiceChat({
             return;
           }
           const input = audioEvent.inputBuffer.getChannelData(0);
-          if (voiceChatProvider === GOOGLE_PROVIDER && input.length > 0) {
+          if ((voiceChatProvider === GOOGLE_PROVIDER || voiceChatLiveTranslate) && input.length > 0) {
             let energy = 0;
             for (let index = 0; index < input.length; index += 1) {
               energy += input[index] * input[index];

@@ -705,7 +705,7 @@ class DashScopeRealtimeMixin:
                         confirmed = str(event.get("text", ""))
                         stash = str(event.get("stash", ""))
                         pending_user = confirmed
-                        if confirmed:
+                        if confirmed or stash:
                             extra: dict[str, Any] = {"tentative": stash} if stash else {}
                             await self._send_event(
                                 websocket,

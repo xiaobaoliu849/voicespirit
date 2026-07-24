@@ -602,7 +602,8 @@ export type VoiceChatServerEvent =
       local_pending_count?: number;
       reason?: string;
     }
-  | { type: "user_transcript"; text: string; turn_id?: string }
+  | { type: "user_transcript"; text: string; turn_id?: string; tentative?: string }
+  | { type: "translation_preview"; text?: string; tentative?: string; turn_id?: string }
   | { type: "assistant_text"; text: string; turn_id?: string }
   | {
       type: "assistant_audio";

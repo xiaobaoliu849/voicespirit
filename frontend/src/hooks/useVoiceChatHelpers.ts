@@ -256,6 +256,45 @@ export const QWEN_AUDIO_VOICES = [
   { value: "longanlufeng", label: "longanlufeng · 龙陆风 (Male)", description: "qwen-audio 男声" },
 ];
 
+// Voices for qwen3.5-livetranslate-*-realtime (default: Tina), per the official
+// LiveTranslate voice list (音色列表.txt). A small convenient subset — all are
+// valid for the translation model. NOTE: the dialect voices offered for omni
+// (Dylan/Sunny/Peter/...) are NOT supported by livetranslate and are deliberately
+// excluded so picking one can never silently break the session.
+export const QWEN_LIVETRANSLATE_VOICES = [
+  { value: "Tina", label: "Tina · 甜甜 (Female)", description: "像温热的奶茶，甜甜的暖暖的" },
+  { value: "Cindy", label: "Cindy · 林欣宜 (Female)", description: "台湾说话嗲嗲的小姐姐" },
+  { value: "Liora Mira", label: "Liora Mira · 清欢 (Female)", description: "用声音织就烟火人间的温柔" },
+  { value: "Sunnybobi", label: "Sunnybobi · 知芝 (Female)", description: "大大咧咧的社恐邻家姑娘" },
+  { value: "Raymond", label: "Raymond · 林川野 (Male)", description: "声音清亮，爱吃外卖的宅男" },
+  { value: "Ethan", label: "Ethan · 晨煦 (Male)", description: "标准普通话，阳光温暖有活力" },
+  { value: "Theo Calm", label: "Theo Calm · 予安 (Male)", description: "在静默处传递理解，在言语间疗愈人心" },
+  { value: "Serena", label: "Serena · 苏瑶 (Female)", description: "温柔小姐姐" },
+  { value: "Harvey", label: "Harvey · 厚 (Male)", description: "低沉温和，带有咖啡与旧书的气息" },
+  { value: "Maia", label: "Maia · 四月 (Female)", description: "知性与温柔的碰撞" },
+  { value: "Evan", label: "Evan · 江晨 (Male)", description: "男大学生，年下奶狗" },
+  { value: "Qiao", label: "Qiao · 小乔妹 (Female)", description: "表面甜妹，个性十足" },
+  { value: "Momo", label: "Momo · 茉兔 (Female)", description: "撒娇搞怪，逗你开心" },
+  { value: "Wil", label: "Wil · 伟伦 (Male)", description: "在深圳长大的港台腔小哥哥" },
+  { value: "Angel", label: "Angel · 安琪 (Female)", description: "略带台式口音，超甜女声" },
+  { value: "Li Cassian", label: "Li Cassian · 李公公 (Male)", description: "话中三分留白、七分察言观色" },
+  { value: "Mia", label: "Mia · 舒然 (Female)", description: "传递慢生活美学与日常治愈力量" },
+  { value: "Joyner", label: "Joyner · 阿逗 (Male)", description: "搞笑、夸张、接地气" },
+  { value: "Gold", label: "Gold · 金爷 (Male)", description: "西海岸黑人 Rapper" },
+  { value: "Katerina", label: "Katerina · 卡捷琳娜 (Female)", description: "御姐音色，韵律回味十足" },
+  { value: "Ryan", label: "Ryan · 甜茶 (Male)", description: "节奏拉满，戏感炸裂" },
+  { value: "Jennifer", label: "Jennifer · 詹妮弗 (Female)", description: "品牌级电影质感美语女声" },
+  { value: "Aiden", label: "Aiden · 艾登 (Male)", description: "精通厨艺的美语大男孩" },
+  { value: "Mione", label: "Mione · 敏儿 (Female)", description: "成熟知性英国邻家妹妹" },
+  { value: "Sohee", label: "Sohee · 素熙 (Female)", description: "温柔开朗情绪丰富的韩国欧尼" },
+  { value: "Lenn", label: "Lenn · 莱恩 (Male)", description: "理性是底色，穿西装听后朋克的德国青年" },
+  { value: "Ono Anna", label: "Ono Anna · 小野杏 (Female)", description: "鬼灵精怪的青梅竹马" },
+  { value: "Sonrisa", label: "Sonrisa · 索尼莎 (Female)", description: "热情开朗的拉美大姐" },
+  { value: "Bodega", label: "Bodega · 博德加 (Male)", description: "热情的西班牙大叔" },
+  { value: "Emilien", label: "Emilien · 埃米尔安 (Male)", description: "浪漫的法国大哥哥" },
+  { value: "Andre", label: "Andre · 安德雷 (Male)", description: "磁性自然舒服沉稳男生" },
+];
+
 export function isQwenAudioModel(model: string | undefined): boolean {
   return !!(model && model.toLowerCase().includes("qwen-audio"));
 }
@@ -276,7 +315,13 @@ export function formatRealtimeVoiceOptions(
 ): Array<{ value: string; label: string; description?: string }> {
   let options: Array<{ value: string; label: string; description?: string }>;
   if (provider === DASHSCOPE_PROVIDER) {
-    options = isQwenAudioModel(model) ? QWEN_AUDIO_VOICES : QWEN_OMNI_REALTIME_VOICES;
+    if (isQwenAudioModel(model)) {
+      options = QWEN_AUDIO_VOICES;
+    } else if (isLiveTranslateModel(provider, model ?? "")) {
+      options = QWEN_LIVETRANSLATE_VOICES;
+    } else {
+      options = QWEN_OMNI_REALTIME_VOICES;
+    }
   } else if (provider === OPENAI_PROVIDER) {
     options = OPENAI_REALTIME_VOICES;
   } else {
@@ -426,6 +471,8 @@ export function resolveRealtimeModelOptions(
   const dashscopeBuiltIns = provider === DASHSCOPE_PROVIDER
     ? [
         DEFAULT_DASHSCOPE_MODEL,
+        "qwen3.5-livetranslate-flash-realtime",
+        "qwen3-livetranslate-flash-realtime",
         "qwen-audio-3.0-realtime-plus",
         "qwen-audio-3.0-realtime-flash",
       ]
@@ -488,6 +535,10 @@ export function decodeBase64Pcm(base64Audio: string): Int16Array {
   return new Int16Array(bytes.buffer);
 }
 
+function stripTrailingPunctuation(text: string): string {
+  return text.trim().replace(/[.!?。！？,，:：;\s]+$/, "");
+}
+
 export function mergeAssistantText(previous: string, incoming: string): string {
   const next = incoming.trim();
   if (!next) {
@@ -496,10 +547,12 @@ export function mergeAssistantText(previous: string, incoming: string): string {
   if (!previous) {
     return next;
   }
-  if (next.startsWith(previous)) {
+  const cleanPrev = stripTrailingPunctuation(previous);
+  const cleanNext = stripTrailingPunctuation(next);
+  if (cleanNext && cleanPrev && cleanNext.startsWith(cleanPrev)) {
     return next;
   }
-  if (previous.endsWith(next)) {
+  if (cleanNext && cleanPrev && cleanPrev.endsWith(cleanNext)) {
     return previous;
   }
   return appendStreamingText(previous, next);
