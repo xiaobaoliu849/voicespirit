@@ -1852,57 +1852,6 @@ button:focus-visible {
 }
 
 /* Alma-style Composer Inline Selectors */
-.vsComposerPillSelect {
-  appearance: none;
-  border: 1px solid var(--line);
-  background: var(--bg-card);
-  color: var(--text-secondary);
-  font-size: 13px;
-  font-weight: 500;
-  padding: 6px 28px 6px 12px;
-  border-radius: 20px;
-  cursor: pointer;
-  outline: none;
-  transition: all 0.2s;
-  background-image: url("data:image/svg+xml,%3Csvg width='10' height='6' viewBox='0 0 10 6' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1L5 5L9 1' stroke='%23888' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: right 10px center;
-  min-width: 0;
-  max-width: none;
-  height: 34px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.vsComposerPillSelect:hover {
-  background-color: var(--surface);
-  border-color: var(--brand);
-  color: var(--text-primary);
-}
-
-.vsComposerPillSelect:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-.vsComposerVoiceSelect {
-  flex: 0 1 auto;
-  min-width: 96px;
-  width: auto;
-  max-width: 320px;
-}
-
-.vsComposerModelSelect {
-  flex: 1 1 178px;
-  max-width: 320px;
-}
-
-.vsComposerLanguageSelect {
-  flex: 1 1 168px;
-  max-width: 220px;
-}
-
 .vsComposerToggle {
   display: inline-flex;
   align-items: center;
@@ -2054,6 +2003,45 @@ button:focus-visible {
 .vsVoiceLevel3Flyout.flyLeft {
   left: auto;
   right: calc(200% + 12px);
+  animation: vsFlyoutLeft 0.12s ease-out;
+}
+
+/* Chat composer model select (provider → model cascading picker) */
+.vsModelSelectRoot {
+  flex: 1 1 178px;
+  max-width: 320px;
+}
+
+.vsModelSelectRoot .vsVoiceSettingsSummary {
+  width: 100%;
+  max-width: 100%;
+  justify-content: space-between;
+}
+
+.vsModelFlyout {
+  position: absolute;
+  top: -1px;
+  left: calc(100% + 6px);
+  min-width: 260px;
+  max-width: calc(100vw - 48px);
+  overflow-y: auto;
+  background: var(--bg-card);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow:
+    0 12px 32px color-mix(in oklab, var(--brand-dark) 18%, transparent),
+    0 2px 10px color-mix(in oklab, black 12%, transparent);
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  z-index: 1010;
+  animation: vsFlyoutRight 0.12s ease-out;
+}
+
+.vsModelFlyout.flyLeft {
+  left: auto;
+  right: calc(100% + 6px);
   animation: vsFlyoutLeft 0.12s ease-out;
 }
 

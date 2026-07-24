@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useRef } from "react";
 import { extractPdfText } from "../../api";
 import VoiceCallSettingsPopover from "../VoiceCallSettingsPopover";
+import ChatModelSelect from "./ChatModelSelect";
+import { isVoiceRealtimeModel } from "../../hooks/useChat";
 import type { UseChatResult } from "../../hooks/useChat";
 import type { UseVoiceChatResult } from "../../hooks/useVoiceChat";
 import { useI18n } from "../../i18n";
@@ -30,23 +32,6 @@ const SendIcon = () => (
 const SpinnerIcon = () => (
   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="vsSpin"><path d="M21 12a9 9 0 1 1-6.219-8.56"></path></svg>
 );
-
-function isVoiceRealtimeModel(provider: string, model: string): boolean {
-  const normalizedProvider = (provider || "").trim().toLowerCase();
-  const normalizedModel = (model || "").trim().toLowerCase();
-  if (!normalizedModel) return false;
-  if (normalizedProvider === "dashscope") {
-    return normalizedModel.includes("realtime") || normalizedModel.includes("livetranslate");
-  }
-  if (normalizedProvider === "google") {
-    return (
-      normalizedModel.includes("native-audio") ||
-      normalizedModel.includes("live") ||
-      normalizedModel.includes("realtime")
-    );
-  }
-  return normalizedModel.includes("realtime");
-}
 
 type SpeechRecognitionResultLike = {
   readonly isFinal: boolean;
@@ -371,21 +356,9 @@ export default function ChatInputBar({ chat, voiceChat, onOpenSettings }: Props)
             </button>
           )}
           
-          {/* Alma-style inline dropdowns */}
+          {/* Cascading provider → model picker */}
           {!isRealtime && (
-            <select
-              className="vsComposerPillSelect vsComposerModelSelect"
-              value={chat.chatModelChoiceValue || chat.chatModel}
-              onChange={(e) => chat.onModelChoiceChange(e.target.value)}
-              title={t("切换模型", "Switch model")}
-            >
-              {chat.chatModelChoices.map((item) => (
-                <option key={item.value} value={item.value}>{item.label}</option>
-              ))}
-              {!chat.chatModelChoices.some((item) => item.value === chat.chatModelChoiceValue) && chat.chatModel && (
-                <option value={chat.chatModel}>{chat.chatModel}</option>
-              )}
-            </select>
+            <ChatModelSelect chat={chat} t={t} onOpenSettings={onOpenSettings} />
           )}
 
           {isRealtime && (

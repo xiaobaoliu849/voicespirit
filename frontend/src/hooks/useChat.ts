@@ -35,7 +35,7 @@ type ChatModelChoice = {
 };
 
 const MODEL_CHOICE_SEPARATOR = "\u001f";
-function isVoiceRealtimeModel(provider: string, model: string): boolean {
+export function isVoiceRealtimeModel(provider: string, model: string): boolean {
   const normalizedProvider = (provider || "").trim().toLowerCase();
   const normalizedModel = (model || "").trim().toLowerCase();
   if (!normalizedModel) {
