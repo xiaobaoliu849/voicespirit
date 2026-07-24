@@ -160,6 +160,9 @@ class LiveTranslateSessionConfigTests(unittest.TestCase):
         self.assertEqual(session["translation"]["language"], "en")
         self.assertEqual(session["input_audio_transcription"]["language"], "zh")
         self.assertEqual(
+            session["input_audio_transcription"]["model"], "qwen3-asr-flash-realtime"
+        )
+        self.assertEqual(
             session["translation"]["corpus"]["phrases"], {"人工智能": "Artificial Intelligence"}
         )
         self.assertEqual(session["input_audio_format"], "pcm")

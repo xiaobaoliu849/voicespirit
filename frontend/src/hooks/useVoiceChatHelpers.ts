@@ -602,6 +602,11 @@ export function mergeAssistantText(previous: string, incoming: string): string {
   if (cleanNext === cleanPrev || cleanPrev.endsWith(cleanNext)) {
     return previous;
   }
+  // Safety-net: if the incoming text is already a substring of the
+  // accumulated text, it adds nothing new — return unmodified.
+  if (cleanPrev.includes(cleanNext)) {
+    return previous;
+  }
   if (cleanNext.startsWith(cleanPrev)) {
     return next;
   }
@@ -628,6 +633,32 @@ export function containsLatinText(value: string): boolean {
   return /[A-Za-z]/.test(value);
 }
 
+/** Return true when CJK ideographs / kana / hangul occupy >30 % of *s*.
+ *  Used by {@link appendStreamingText} to avoid inserting word-boundary
+ *  spaces inside sentences whose primary script is Chinese / Japanese /
+ *  Korean. */
+export function isCJKPredominant(value: string): boolean {
+  if (!value) {
+    return false;
+  }
+  let cjk = 0;
+  for (const c of value) {
+    const cp = c.codePointAt(0)!;
+    if (
+      (cp >= 0x4e00 && cp <= 0x9fff) || // CJK Unified Ideographs
+      (cp >= 0x3400 && cp <= 0x4dbf) || // CJK Extension A
+      (cp >= 0xf900 && cp <= 0xfaff) || // CJK Compatibility Ideographs
+      (cp >= 0x3040 && cp <= 0x309f) || // Hiragana
+      (cp >= 0x30a0 && cp <= 0x30ff) || // Katakana
+      (cp >= 0xac00 && cp <= 0xd7af) || // Hangul Syllables
+      (cp >= 0x1100 && cp <= 0x11ff)    // Hangul Jamo
+    ) {
+      cjk += 1;
+    }
+  }
+  return cjk > value.length * 0.3;
+}
+
 export function appendStreamingText(previous: string, incoming: string): string {
   const before = previous.trim();
   const next = incoming.trim();
@@ -637,7 +668,14 @@ export function appendStreamingText(previous: string, incoming: string): string 
   if (!next) {
     return before;
   }
-  if (containsLatinText(before) || containsLatinText(next)) {
+  // Only insert a word-boundary space when the surrounding text is
+  // primarily Latin-script.  For CJK-heavy sentences an embedded Latin
+  // token (e.g. "Dota") is a proper noun, not a separate English word.
+  if (
+    (containsLatinText(before) || containsLatinText(next)) &&
+    !isCJKPredominant(before) &&
+    !isCJKPredominant(next)
+  ) {
     return `${before} ${next}`.replace(/\s+([,.!?;:])/g, "$1");
   }
   return `${before}${next}`;

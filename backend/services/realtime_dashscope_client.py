@@ -396,6 +396,13 @@ class DashScopeLiveTranslateConversation(DashScopeAudioRealtimeConversation):
             "voice": target_voice,
             "input_audio_format": "pcm",
             "output_audio_format": "pcm",
+            # ``input_audio_transcription.language`` tells the server what
+            # source language to expect for ASR accuracy.  We keep the
+            # ``model`` field so the server emits source-language ASR events
+            # (conversation.item.input_audio_transcription.*), which the
+            # frontend uses to display the original speech alongside the
+            # translation.  Translation-text duplication is prevented by
+            # the frontend's separate preview-ref pattern.
             "input_audio_transcription": {
                 "model": "qwen3-asr-flash-realtime",
                 "language": source_language or "zh",

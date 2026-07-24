@@ -206,6 +206,32 @@ def _is_google_public_rest_base_url(base_url: str | None) -> bool:
 # Pure utility functions
 # ---------------------------------------------------------------------------
 
+def _is_text_primarily_cjk(s: str) -> bool:
+    """Return True when CJK ideographs / kana occupy >30 % of *s*.
+
+    Used by ``_merge_streaming_text`` to avoid inserting word-boundary
+    spaces inside sentences whose primary script is Chinese / Japanese /
+    Korean (where Latin fragments are embedded proper nouns rather than
+    separate English words).
+    """
+    if not s:
+        return False
+    cjk = sum(
+        1
+        for c in s
+        if (
+            "一" <= c <= "鿿"       # CJK Unified Ideographs
+            or "㐀" <= c <= "䶿"     # CJK Extension A
+            or "豈" <= c <= "﫿"     # CJK Compatibility Ideographs
+            or "぀" <= c <= "ゟ"     # Hiragana
+            or "゠" <= c <= "ヿ"     # Katakana
+            or "가" <= c <= "힯"     # Hangul Syllables
+            or "ᄀ" <= c <= "ᇿ"     # Hangul Jamo
+        )
+    )
+    return cjk > len(s) * 0.3
+
+
 def _merge_streaming_text(previous: str, incoming: str) -> tuple[str, str]:
     """Return canonical stream text and only the novel suffix to publish."""
     before = str(previous or "").strip()
@@ -218,14 +244,34 @@ def _merge_streaming_text(previous: str, incoming: str) -> tuple[str, str]:
     before_clean = re.sub(r"[.!?。！？,，:：;\s]+$", "", before)
     next_clean = re.sub(r"[.!?。！？,，:：;\s]+$", "", next_text)
 
-    if next_clean and before_clean and (before_clean == next_clean or before_clean.endswith(next_clean)):
-        return before, ""
+    # Safety-net: if ``next_clean`` is already wholly contained inside
+    # ``before_clean`` then the incoming text adds nothing new — return
+    # the previous text unmodified so callers never emit a duplicate.
+    if next_clean and before_clean:
+        if before_clean == next_clean or before_clean.endswith(next_clean):
+            return before, ""
+        if next_clean in before_clean:
+            return before, ""
 
     if before_clean and next_text.startswith(before_clean):
         delta = next_text[len(before_clean):].lstrip(".!?。！？,，:：; ")
         if not delta:
             return next_text, ""
-        separator = " " if (before_clean[-1:].isalnum() and delta[:1].isalnum() and re.search(r"[A-Za-z]", before_clean[-1:] + delta[:1])) else ""
+        # Only insert a word-boundary space when the surrounding text is
+        # primarily Latin-script.  For CJK-heavy sentences an embedded
+        # Latin token (e.g. "Dota") is a proper noun, not a separate
+        # English word — no space needed.
+        needs_separator = bool(
+            before_clean[-1:].isalnum()
+            and delta[:1].isalnum()
+            and re.search(r"[A-Za-z]", before_clean[-1:] + delta[:1])
+        )
+        if needs_separator and (
+            _is_text_primarily_cjk(before_clean)
+            or _is_text_primarily_cjk(delta)
+        ):
+            needs_separator = False
+        separator = " " if needs_separator else ""
         full_delta = f"{separator}{delta}" if separator and not delta.startswith(" ") else delta
         return f"{before_clean}{full_delta}", full_delta
 
@@ -238,13 +284,22 @@ def _merge_streaming_text(previous: str, incoming: str) -> tuple[str, str]:
     if not novel:
         return before, ""
 
-    separator = ""
-    if (
-        before[-1:].isalnum()
-        and novel[:1].isalnum()
-        and re.search(r"[A-Za-z]", before[-1:] + novel[:1])
-    ):
-        separator = " "
+    # Only consider a word-boundary separator when there is genuinely no
+    # overlap — when the texts *do* overlap they are a single continuous
+    # word / phrase being built up character-by-character (e.g. "I like ap"
+    # → "apple"), so no space is needed.
+    needs_separator = False
+    if overlap == 0:
+        needs_separator = bool(
+            before[-1:].isalnum()
+            and novel[:1].isalnum()
+            and re.search(r"[A-Za-z]", before[-1:] + novel[:1])
+        )
+        if needs_separator and (
+            _is_text_primarily_cjk(before) or _is_text_primarily_cjk(novel)
+        ):
+            needs_separator = False
+    separator = " " if needs_separator else ""
     delta = f"{separator}{novel}"
     return f"{before}{delta}", delta
 

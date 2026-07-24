@@ -134,6 +134,7 @@ export default function useVoiceChat({
   const currentAssistantTurnRef = useRef("");
   const liveTranslateSourceStreamRef = useRef("");
   const liveTranslateTargetStreamRef = useRef("");
+  const liveTranslatePreviewRef = useRef("");  // speculative text from stash — NOT in the confirmed stream
   const liveTranslateConsumedSourceLengthRef = useRef(0);
   const liveTranslateConsumedTargetLengthRef = useRef(0);
   const liveTranslateBoundaryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -316,6 +317,7 @@ export default function useVoiceChat({
     clearLiveTranslateBoundaryTimer();
     liveTranslateSourceStreamRef.current = "";
     liveTranslateTargetStreamRef.current = "";
+    liveTranslatePreviewRef.current = "";
     liveTranslateConsumedSourceLengthRef.current = 0;
     liveTranslateConsumedTargetLengthRef.current = 0;
     liveTranslateLastSourceActivityAtRef.current = 0;
@@ -391,13 +393,18 @@ export default function useVoiceChat({
   }
 
   function getPendingLiveTranslatePair(): { source: string; target: string } {
+    const confirmedTarget = liveTranslateTargetStreamRef.current
+      .slice(liveTranslateConsumedTargetLengthRef.current)
+      .trim();
+    // Include the speculative stash as a trailing overlay so the user sees
+    // the full predicted translation, but do NOT merge it into the confirmed
+    // stream — that would cause confirmed deltas to double-append later.
+    const preview = liveTranslatePreviewRef.current.trim();
     return {
       source: liveTranslateSourceStreamRef.current
         .slice(liveTranslateConsumedSourceLengthRef.current)
         .trim(),
-      target: liveTranslateTargetStreamRef.current
-        .slice(liveTranslateConsumedTargetLengthRef.current)
-        .trim(),
+      target: confirmedTarget + (preview ? preview : ""),
     };
   }
 
@@ -813,14 +820,17 @@ export default function useVoiceChat({
           liveTranslateLastTargetActivityAtRef.current = Date.now();
           const tentative = (event.tentative || "").trim();
           if (tentative) {
-            liveTranslateTargetStreamRef.current = mergeAssistantText(
-              liveTranslateTargetStreamRef.current,
+            // Accumulate the stash in the preview ref (the server may send
+            // multiple previews with shrinking predictions as the confirmed
+            // prefix catches up).
+            liveTranslatePreviewRef.current = mergeAssistantText(
+              liveTranslatePreviewRef.current,
               tentative
             );
-            syncPendingLiveTranslatePair();
-            scheduleLiveTranslateBoundary();
-            setVoiceChatStatus(t("正在生成本句译文…", "Translating this sentence…"));
           }
+          syncPendingLiveTranslatePair();
+          scheduleLiveTranslateBoundary();
+          setVoiceChatStatus(t("正在生成本句译文…", "Translating this sentence…"));
         }
         return;
       case "memory_context":
@@ -851,6 +861,9 @@ export default function useVoiceChat({
             liveTranslateTargetStreamRef.current,
             event.text
           );
+          // Clear the speculative preview — confirmed text has arrived and
+          // the preview is incorporated into the confirmed stream above.
+          liveTranslatePreviewRef.current = "";
           syncPendingLiveTranslatePair();
           scheduleLiveTranslateBoundary();
           setVoiceChatStatus(t("正在生成本句译文…", "Translating this sentence…"));
