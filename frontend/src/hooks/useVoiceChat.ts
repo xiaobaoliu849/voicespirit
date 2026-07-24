@@ -399,7 +399,10 @@ export default function useVoiceChat({
     // Include the speculative stash as a trailing overlay so the user sees
     // the full predicted translation, but do NOT merge it into the confirmed
     // stream — that would cause confirmed deltas to double-append later.
-    const preview = liveTranslatePreviewRef.current.trim();
+    // The stash may carry a leading space for Latin-script translations
+    // (e.g. " world") — preserve it so the concatenation below produces
+    // correct word boundaries ("Hello" + " world" = "Hello world").
+    const preview = liveTranslatePreviewRef.current;
     return {
       source: liveTranslateSourceStreamRef.current
         .slice(liveTranslateConsumedSourceLengthRef.current)
@@ -818,15 +821,13 @@ export default function useVoiceChat({
         if (voiceChatLiveTranslate) {
           currentTurnIdRef.current = event.turn_id || currentTurnIdRef.current;
           liveTranslateLastTargetActivityAtRef.current = Date.now();
-          const tentative = (event.tentative || "").trim();
-          if (tentative) {
-            // Accumulate the stash in the preview ref (the server may send
-            // multiple previews with shrinking predictions as the confirmed
-            // prefix catches up).
-            liveTranslatePreviewRef.current = mergeAssistantText(
-              liveTranslatePreviewRef.current,
-              tentative
-            );
+          // The stash from the translation model is a full speculative
+          // suffix — it REPLACES the previous prediction, not extends it.
+          // Use the raw value (untrimmed) so that a leading space (present
+          // in Latin-script translations) is preserved for correct word
+          // boundary when concatenated with the confirmed target.
+          if (event.tentative) {
+            liveTranslatePreviewRef.current = event.tentative;
           }
           syncPendingLiveTranslatePair();
           scheduleLiveTranslateBoundary();

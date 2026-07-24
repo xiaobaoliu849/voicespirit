@@ -254,26 +254,16 @@ def _merge_streaming_text(previous: str, incoming: str) -> tuple[str, str]:
             return before, ""
 
     if before_clean and next_text.startswith(before_clean):
-        delta = next_text[len(before_clean):].lstrip(".!?。！？,，:：; ")
+        # ``next_text`` is a prefix extension of ``before_clean`` — the
+        # delta is the *exact* suffix already present in the incoming
+        # cumulative text.  Do NOT strip whitespace (it was part of the
+        # original text) and do NOT insert an extra separator — by
+        # definition the two fragments are contiguous and any needed
+        # punctuation / spacing is already in ``delta`` itself.
+        delta = next_text[len(before_clean):]
         if not delta:
             return next_text, ""
-        # Only insert a word-boundary space when the surrounding text is
-        # primarily Latin-script.  For CJK-heavy sentences an embedded
-        # Latin token (e.g. "Dota") is a proper noun, not a separate
-        # English word — no space needed.
-        needs_separator = bool(
-            before_clean[-1:].isalnum()
-            and delta[:1].isalnum()
-            and re.search(r"[A-Za-z]", before_clean[-1:] + delta[:1])
-        )
-        if needs_separator and (
-            _is_text_primarily_cjk(before_clean)
-            or _is_text_primarily_cjk(delta)
-        ):
-            needs_separator = False
-        separator = " " if needs_separator else ""
-        full_delta = f"{separator}{delta}" if separator and not delta.startswith(" ") else delta
-        return f"{before_clean}{full_delta}", full_delta
+        return f"{before_clean}{delta}", delta
 
     overlap = 0
     for size in range(min(len(before), len(next_text)), 0, -1):

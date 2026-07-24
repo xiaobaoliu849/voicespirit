@@ -144,17 +144,41 @@ class MergeCumulativePrefixTests(unittest.TestCase):
         self.assertNotIn(" ", before)
 
     def test_punctuation_trailing_handled(self):
-        """Trailing punctuation on the cleaned previous is stripped, then
-        re-merged correctly."""
+        """Trailing punctuation from the previous text is preserved — the
+        delta includes the punctuation that was already part of the incoming
+        cumulative text."""
         before, delta = _merge_streaming_text("Hello.", "Hello. world")
-        self.assertEqual(before, "Hello world")
-        self.assertEqual(delta, " world")
+        self.assertEqual(before, "Hello. world")
+        self.assertEqual(delta, ". world")
 
     def test_cjk_with_punctuation_no_space(self):
-        """CJK with trailing punctuation: still no space."""
+        """CJK with trailing punctuation: still no space, period preserved."""
         before, delta = _merge_streaming_text("こんにちは。", "こんにちは。元気ですか")
-        self.assertEqual(before, "こんにちは元気ですか")
-        self.assertEqual(delta, "元気ですか")
+        self.assertEqual(before, "こんにちは。元気ですか")
+        self.assertEqual(delta, "。元気ですか")
+        self.assertNotIn(" ", before)
+
+    def test_latin_prefix_continuation_no_space(self):
+        """When the incoming text is a prefix continuation of the previous
+        (e.g. 'He' → 'Hello'), the delta is the exact suffix and should NOT
+        have a space separator inserted — the two fragments form a single
+        contiguous word being built up character by character."""
+        before, delta = _merge_streaming_text("He", "Hello")
+        self.assertEqual(before, "Hello")
+        self.assertEqual(delta, "llo")
+        self.assertNotIn(" ", before)
+
+    def test_single_letter_to_full_word_delta(self):
+        """One-letter prefix extended to a full word: delta is the rest."""
+        before, delta = _merge_streaming_text("I", "I am")
+        self.assertEqual(before, "I am")
+        self.assertEqual(delta, " am")
+
+    def test_cjk_prefix_continuation_preserved(self):
+        """CJK prefix continuation: delta is the exact suffix, no extra chars."""
+        before, delta = _merge_streaming_text("我喜", "我喜欢")
+        self.assertEqual(before, "我喜欢")
+        self.assertEqual(delta, "欢")
         self.assertNotIn(" ", before)
 
 
