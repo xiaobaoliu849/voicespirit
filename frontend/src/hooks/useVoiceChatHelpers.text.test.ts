@@ -3,7 +3,6 @@ import {
   isCJKPredominant,
   appendStreamingText,
   mergeAssistantText,
-  containsLatinText,
 } from "./useVoiceChatHelpers";
 
 // ---------------------------------------------------------------------------
