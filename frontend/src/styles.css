@@ -2122,6 +2122,58 @@ button:focus-visible {
   gap: 8px;
 }
 
+.vsVoiceSettingsProviderGroup {
+  position: relative;
+}
+
+.vsVoiceSettingsModelListFlyout {
+  position: absolute;
+  top: -4px;
+  left: calc(100% + 6px);
+  width: 240px;
+  max-width: calc(100vw - 48px);
+  background: var(--bg-card);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow:
+    0 10px 28px color-mix(in oklab, var(--brand-dark) 16%, transparent),
+    0 2px 8px color-mix(in oklab, black 10%, transparent);
+  padding: 4px;
+  z-index: 1010;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  animation: vsFlyoutRight 0.12s ease-out;
+}
+
+.vsVoiceSettingsModelListFlyout.flyLeft {
+  left: auto;
+  right: calc(100% + 6px);
+  animation: vsFlyoutLeft 0.12s ease-out;
+}
+
+@keyframes vsFlyoutRight {
+  from {
+    opacity: 0;
+    transform: translateX(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes vsFlyoutLeft {
+  from {
+    opacity: 0;
+    transform: translateX(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
 .vsVoiceSettingsProviderCheck {
   width: 14px;
   flex: 0 0 14px;

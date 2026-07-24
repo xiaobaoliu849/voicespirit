@@ -32,6 +32,7 @@ function modelHint(model: string, t: Translator): string {
 export default function VoiceCallSettingsPopover({ voiceChat, t, disabled = false, onOpenSettings }: Props) {
   const [open, setOpen] = useState(false);
   const [openUpward, setOpenUpward] = useState(true);
+  const [flyoutToLeft, setFlyoutToLeft] = useState(false);
   const [panelMaxHeight, setPanelMaxHeight] = useState(480);
   const [activeTab, setActiveTab] = useState<"model" | "voice" | "translation">("model");
   const [expandedOverride, setExpandedOverride] = useState("");
@@ -58,6 +59,7 @@ export default function VoiceCallSettingsPopover({ voiceChat, t, disabled = fals
       const spaceBelow = window.innerHeight - rect.bottom - margin;
       const upward = spaceAbove >= spaceBelow;
       setOpenUpward(upward);
+      setFlyoutToLeft(rect.left + 540 > window.innerWidth);
       setPanelMaxHeight(Math.max(200, Math.min(520, upward ? spaceAbove : spaceBelow)));
     }
     setOpen((prev) => !prev);
@@ -161,7 +163,7 @@ export default function VoiceCallSettingsPopover({ voiceChat, t, disabled = fals
             ) : null}
           </div>
 
-          {/* TAB 1: MODEL SELECTION */}
+          {/* TAB 1: MODEL SELECTION - Zcode Horizontal Flyout Submenu */}
           {activeTab === "model" ? (
             <div className="vsVoiceSettingsSection">
               <div className="vsVoiceSettingsList">
@@ -169,7 +171,11 @@ export default function VoiceCallSettingsPopover({ voiceChat, t, disabled = fals
                   const isCurrent = group.provider === voiceChat.voiceChatProvider;
                   const isExpanded = group.provider === expandedProvider;
                   return (
-                    <div key={group.provider}>
+                    <div
+                      key={group.provider}
+                      className="vsVoiceSettingsProviderGroup"
+                      onMouseEnter={() => setExpandedOverride(group.provider)}
+                    >
                       <button
                         type="button"
                         className={`vsVoiceSettingsRow vsVoiceSettingsProviderRow${isCurrent ? " selected" : ""}`}
@@ -185,7 +191,7 @@ export default function VoiceCallSettingsPopover({ voiceChat, t, disabled = fals
                         <span className={`vsVoiceSettingsProviderChevron${isExpanded ? " expanded" : ""}`} aria-hidden="true">›</span>
                       </button>
                       {isExpanded ? (
-                        <div className="vsVoiceSettingsModelList">
+                        <div className={`vsVoiceSettingsModelListFlyout${flyoutToLeft ? " flyLeft" : ""}`}>
                           {group.models.map((model) => (
                             <button
                               key={model}
