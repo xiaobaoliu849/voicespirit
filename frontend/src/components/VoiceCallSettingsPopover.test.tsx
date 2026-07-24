@@ -55,23 +55,23 @@ describe("VoiceCallSettingsPopover", () => {
     expect(summary).toHaveTextContent("qwen3.5-livetranslate-flash-realtime · 声音复刻 (本人)");
   });
 
-  it("lists models with hints in Model tab and voices in Voice tab", () => {
+  it("lists models with hints in Model flyout and voices in Voice flyout", () => {
     renderPopover();
     openPanel();
     expect(screen.getByText("全模态实时")).toBeInTheDocument();
     expect(screen.getByText("Qwen-Audio 原生实时")).toBeInTheDocument();
 
-    // Switch to Voice tab
-    fireEvent.click(screen.getByText("🎙️ 音色"));
+    // Switch to Voice flyout in Level 2
+    fireEvent.mouseEnter(screen.getByText("🎙️ 音色设定"));
     expect(screen.getByText("像温热的奶茶，甜甜的暖暖的")).toBeInTheDocument();
     const selectedVoice = screen.getByText("Tina · 甜甜 · 女声").closest("button");
     expect(selectedVoice).toHaveClass("selected");
   });
 
-  it("calls onVoiceChange when a voice is picked in Voice tab", () => {
+  it("calls onVoiceChange when a voice is picked in Voice flyout", () => {
     const voiceChat = renderPopover();
     openPanel();
-    fireEvent.click(screen.getByText("🎙️ 音色"));
+    fireEvent.mouseEnter(screen.getByText("🎙️ 音色设定"));
     fireEvent.click(screen.getByText("Ethan · 晨煦 · 男声"));
     expect(voiceChat.onVoiceChange).toHaveBeenCalledWith("Ethan");
   });
@@ -85,18 +85,18 @@ describe("VoiceCallSettingsPopover", () => {
     expect(screen.getByRole("dialog")).toBeInTheDocument();
   });
 
-  it("expands another provider and switches across providers", () => {
+  it("switches provider in Level 1 and selects model in Level 3", () => {
     const voiceChat = renderPopover();
     openPanel();
     expect(screen.queryByText("gemini-2.5-flash-native-audio-preview-12-2025")).not.toBeInTheDocument();
-    fireEvent.click(screen.getByText("Google"));
+    fireEvent.mouseEnter(screen.getByText("Google"));
     fireEvent.click(screen.getByText("gemini-2.5-flash-native-audio-preview-12-2025"));
     expect(voiceChat.onProviderChange).toHaveBeenCalledWith("Google");
     expect(voiceChat.onModelChange).toHaveBeenCalledWith("gemini-2.5-flash-native-audio-preview-12-2025");
     expect(screen.getByRole("dialog")).toBeInTheDocument();
   });
 
-  it("opens model management from the footer and closes the panel", () => {
+  it("opens model management from Level 1 footer and closes panel", () => {
     const voiceChat = createVoiceChatController();
     const onOpenSettings = vi.fn();
     render(<VoiceCallSettingsPopover voiceChat={voiceChat} t={t} onOpenSettings={onOpenSettings} />);
@@ -106,7 +106,7 @@ describe("VoiceCallSettingsPopover", () => {
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
-  it("hides the translation tab for non-live-translate models", () => {
+  it("hides the translation category in Level 2 for non-live-translate models", () => {
     renderPopover();
     openPanel();
     expect(screen.queryByText("🌐 同传与复刻")).not.toBeInTheDocument();
@@ -128,7 +128,7 @@ describe("VoiceCallSettingsPopover", () => {
       voiceChatEchoTargetLanguage: true,
     });
     openPanel();
-    fireEvent.click(screen.getByText("🌐 同传与复刻"));
+    fireEvent.mouseEnter(screen.getByText("🌐 同传与复刻"));
     expect(screen.getByText("双向互翻 ⇄")).toBeInTheDocument();
     expect(screen.getByText("常用语对")).toBeInTheDocument();
     
@@ -145,7 +145,7 @@ describe("VoiceCallSettingsPopover", () => {
     expect(voiceChat.onTranslationModeChange).toHaveBeenCalledWith("unidirectional");
   });
 
-  it("shows single-direction notice for DashScope live-translate models in Translate tab", () => {
+  it("shows single-direction notice for DashScope live-translate models in Translate category", () => {
     renderPopover({
       voiceChatProvider: "DashScope",
       voiceChatModel: "qwen3.5-livetranslate-flash-realtime",
@@ -155,7 +155,7 @@ describe("VoiceCallSettingsPopover", () => {
       voiceChatTargetLanguageCode: "en",
     });
     openPanel();
-    fireEvent.click(screen.getByText("🌐 同传与复刻"));
+    fireEvent.mouseEnter(screen.getByText("🌐 同传与复刻"));
     expect(screen.getByText("单向同传 (源语言 → 目标语言)")).toBeInTheDocument();
     expect(screen.queryByText("双向互翻 ⇄")).not.toBeInTheDocument();
     expect(screen.getByText("源语言")).toBeInTheDocument();
@@ -169,12 +169,12 @@ describe("VoiceCallSettingsPopover", () => {
       voiceChatEchoTargetLanguage: true,
     });
     openPanel();
-    fireEvent.click(screen.getByText("🌐 同传与复刻"));
+    fireEvent.mouseEnter(screen.getByText("🌐 同传与复刻"));
     fireEvent.click(screen.getByLabelText("同语回放"));
     expect(voiceChat.onEchoTargetLanguageChange).toHaveBeenCalledWith(false);
   });
 
-  it("toggles Voice Clone switch and mode frequency pills for DashScope LiveTranslate in Translate tab", () => {
+  it("toggles Voice Clone switch and mode frequency pills for DashScope LiveTranslate in Translate flyout", () => {
     const voiceChat = renderPopover({
       voiceChatProvider: "DashScope",
       voiceChatModel: "qwen3.5-livetranslate-flash-realtime",
@@ -183,7 +183,7 @@ describe("VoiceCallSettingsPopover", () => {
       voiceChatVoiceCloneFrequency: "once",
     });
     openPanel();
-    fireEvent.click(screen.getByText("🌐 同传与复刻"));
+    fireEvent.mouseEnter(screen.getByText("🌐 同传与复刻"));
     expect(screen.getByText("声音复刻 (用本人音色朗读)")).toBeInTheDocument();
     expect(screen.getByText("单人实时复刻")).toBeInTheDocument();
     expect(screen.getByText("动态实时复刻")).toBeInTheDocument();
