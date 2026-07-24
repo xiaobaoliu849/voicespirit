@@ -82,6 +82,8 @@ export default function useVoiceChat({
   const [voiceChatSourceLanguageCode, setVoiceChatSourceLanguageCode] = useState("zh-Hans");
   const [voiceChatTargetLanguageCode, setVoiceChatTargetLanguageCode] = useState("en");
   const [voiceChatEchoTargetLanguage, setVoiceChatEchoTargetLanguage] = useState(true);
+  const [voiceChatEnableVoiceClone, setVoiceChatEnableVoiceClone] = useState(false);
+  const [voiceChatVoiceCloneFrequency, setVoiceChatVoiceCloneFrequency] = useState<"once" | "always" | "never">("once");
   const [voiceChatBusy, setVoiceChatBusy] = useState(false);
   const [voiceChatRecording, setVoiceChatRecording] = useState(false);
   const [voiceChatSupported, setVoiceChatSupported] = useState(true);
@@ -1360,6 +1362,8 @@ export default function useVoiceChat({
         sourceLanguageCode: voiceChatLiveTranslate ? voiceChatSourceLanguageCode : undefined,
         targetLanguageCode: voiceChatLiveTranslate ? voiceChatTargetLanguageCode : undefined,
         echoTargetLanguage: voiceChatLiveTranslate ? voiceChatEchoTargetLanguage : undefined,
+        enableVoiceClone: (voiceChatProvider === DASHSCOPE_PROVIDER && voiceChatLiveTranslate) ? voiceChatEnableVoiceClone : undefined,
+        voiceCloneFrequency: (voiceChatProvider === DASHSCOPE_PROVIDER && voiceChatLiveTranslate) ? voiceChatVoiceCloneFrequency : undefined,
       });
       const ws = new WebSocket(wsUrl);
       const memoryConfig = buildVoiceChatSessionConfig(memoryGroupId || undefined);
@@ -1692,6 +1696,8 @@ export default function useVoiceChat({
     voiceChatTargetLanguageLabel,
     voiceChatTargetLanguageOptions,
     voiceChatEchoTargetLanguage,
+    voiceChatEnableVoiceClone,
+    voiceChatVoiceCloneFrequency,
     voiceChatBusy,
     voiceChatRecording,
     voiceChatConnected,
@@ -1718,6 +1724,8 @@ export default function useVoiceChat({
     onSourceLanguageCodeChange: setVoiceChatSourceLanguageCode,
     onTargetLanguageCodeChange: setVoiceChatTargetLanguageCode,
     onEchoTargetLanguageChange: setVoiceChatEchoTargetLanguage,
+    onVoiceCloneToggle: setVoiceChatEnableVoiceClone,
+    onVoiceCloneFrequencyChange: setVoiceChatVoiceCloneFrequency,
     onSwapLanguages: () => {
       const nextSource = voiceChatTargetLanguageCode;
       const nextTarget = voiceChatSourceLanguageCode;

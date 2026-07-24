@@ -453,6 +453,8 @@ export function buildVoiceChatWebSocketUrl(params: {
   sourceLanguageCode?: string;
   targetLanguageCode?: string;
   echoTargetLanguage?: boolean;
+  enableVoiceClone?: boolean;
+  voiceCloneFrequency?: string;
 }): string {
   const httpUrl = new URL(API_BASE_URL);
   const protocol = httpUrl.protocol === "https:" ? "wss:" : "ws:";
@@ -484,6 +486,12 @@ export function buildVoiceChatWebSocketUrl(params: {
   }
   if (typeof params.echoTargetLanguage === "boolean") {
     wsUrl.searchParams.set("echo_target_language", String(params.echoTargetLanguage));
+  }
+  if (typeof params.enableVoiceClone === "boolean") {
+    wsUrl.searchParams.set("enable_voice_clone", String(params.enableVoiceClone));
+  }
+  if (params.voiceCloneFrequency) {
+    wsUrl.searchParams.set("voice_clone_frequency", params.voiceCloneFrequency);
   }
   return wsUrl.toString();
 }

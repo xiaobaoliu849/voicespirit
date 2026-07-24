@@ -183,12 +183,16 @@ class DashScopeRealtimeMixin:
         source_language: str,
         target_language: str,
         corpus_phrases: dict[str, str] | None = None,
+        enable_voice_clone: bool = False,
+        voice_clone_frequency: str = "once",
     ) -> None:
         conversation.update_session(
             voice=voice or DEFAULT_DASHSCOPE_LIVETRANSLATE_VOICE,
             source_language=normalize_qwen_translate_language(source_language, "zh"),
             target_language=normalize_qwen_translate_language(target_language, "en"),
             corpus_phrases=corpus_phrases,
+            enable_voice_clone=enable_voice_clone,
+            voice_clone_frequency=voice_clone_frequency,
         )
     async def _client_to_dashscope_loop(
         self,
@@ -815,6 +819,8 @@ class DashScopeRealtimeMixin:
         source_language_code: str,
         target_language_code: str,
         echo_target_language: bool,
+        enable_voice_clone: bool = False,
+        voice_clone_frequency: str = "once",
     ) -> None:
         resolved_voice = (voice or DEFAULT_DASHSCOPE_LIVETRANSLATE_VOICE).strip() or DEFAULT_DASHSCOPE_LIVETRANSLATE_VOICE
         memory_session = RealtimeMemorySession()
@@ -847,6 +853,8 @@ class DashScopeRealtimeMixin:
                 voice=resolved_voice,
                 source_language=source_language_code,
                 target_language=target_language_code,
+                enable_voice_clone=enable_voice_clone,
+                voice_clone_frequency=voice_clone_frequency,
             )
             await asyncio.sleep(0.5)
             await self._send_event(
@@ -861,6 +869,8 @@ class DashScopeRealtimeMixin:
                 source_language_code=source_language_code,
                 target_language_code=target_language_code,
                 echo_target_language=echo_target_language,
+                enable_voice_clone=enable_voice_clone,
+                voice_clone_frequency=voice_clone_frequency,
             )
             send_task = asyncio.create_task(
                 self._client_to_dashscope_live_translate_loop(websocket, conversation)
@@ -907,6 +917,8 @@ class DashScopeRealtimeMixin:
         source_language_code: str = "zh-Hans",
         target_language_code: str = "en",
         echo_target_language: bool = True,
+        enable_voice_clone: bool = False,
+        voice_clone_frequency: str = "once",
     ) -> None:
         settings = self._resolve_dashscope_settings(model)
         if _is_dashscope_live_translate_model(settings["model"]):
@@ -918,6 +930,8 @@ class DashScopeRealtimeMixin:
                 source_language_code=source_language_code,
                 target_language_code=target_language_code,
                 echo_target_language=echo_target_language,
+                enable_voice_clone=enable_voice_clone,
+                voice_clone_frequency=voice_clone_frequency,
             )
             return
         voice = _normalize_dashscope_realtime_voice(settings["model"], voice)

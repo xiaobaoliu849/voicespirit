@@ -183,8 +183,44 @@ class LiveTranslateSessionConfigTests(unittest.TestCase):
             url="wss://example/api-ws/v1/realtime",
         )
         conversation._send_event = captured.append  # type: ignore[method-assign]
-        conversation.update_session(source_language="zh", target_language="en")
+        conversation.update_session(voice="Tina", corpus_phrases={})
         self.assertNotIn("corpus", captured[0]["session"]["translation"])
+
+    def test_update_session_voice_clone_once_forces_default_voice(self):
+        captured: list[dict] = []
+        conversation = DashScopeLiveTranslateConversation(
+            model="qwen3.5-livetranslate-flash-realtime",
+            api_key="k",
+            callback=SimpleNamespace(on_open=lambda: None),  # type: ignore[arg-type]
+            url="wss://example/api-ws/v1/realtime",
+        )
+        conversation._send_event = captured.append  # type: ignore[method-assign]
+        conversation.update_session(
+            voice="Tina",
+            enable_voice_clone=True,
+            voice_clone_frequency="once",
+        )
+        session = captured[0]["session"]
+        self.assertTrue(session["enable_voice_clone"])
+        self.assertEqual(session["voice_clone_options"]["frequency"], "once")
+        self.assertEqual(session["voice"], "default")
+
+    def test_update_session_voice_clone_precloned_custom_voice(self):
+        captured: list[dict] = []
+        conversation = DashScopeLiveTranslateConversation(
+            model="qwen3.5-livetranslate-flash-realtime",
+            api_key="k",
+            callback=SimpleNamespace(on_open=lambda: None),  # type: ignore[arg-type]
+            url="wss://example/api-ws/v1/realtime",
+        )
+        conversation._send_event = captured.append  # type: ignore[method-assign]
+        conversation.update_session(
+            voice="qwen-translate-vc-myvoice123",
+        )
+        session = captured[0]["session"]
+        self.assertTrue(session["enable_voice_clone"])
+        self.assertEqual(session["voice_clone_options"]["frequency"], "never")
+        self.assertEqual(session["voice"], "qwen-translate-vc-myvoice123")
 
     def test_finish_session_sends_session_finish(self):
         captured: list[dict] = []

@@ -177,6 +177,8 @@ async def voice_chat_ws(
     source_language_code: str = "zh-Hans",
     target_language_code: str = "en",
     echo_target_language: bool = True,
+    enable_voice_clone: bool = False,
+    voice_clone_frequency: str = "once",
 ) -> None:
     await websocket.accept()
 
@@ -210,6 +212,8 @@ async def voice_chat_ws(
                     source_language_code=(source_language_code or "zh-Hans").strip(),
                     target_language_code=(target_language_code or "en").strip(),
                     echo_target_language=bool(echo_target_language),
+                    enable_voice_clone=bool(enable_voice_clone),
+                    voice_clone_frequency=(voice_clone_frequency or "once").strip(),
                 )
         elif selected_provider == "OpenAI":
             await voice_chat_service.stream_openai_session(

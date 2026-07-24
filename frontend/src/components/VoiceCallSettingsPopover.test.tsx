@@ -157,8 +157,30 @@ describe("VoiceCallSettingsPopover", () => {
       voiceChatEchoTargetLanguage: true,
     });
     openPanel();
-    fireEvent.click(screen.getByRole("checkbox"));
+    fireEvent.click(screen.getByLabelText("同语回放"));
     expect(voiceChat.onEchoTargetLanguageChange).toHaveBeenCalledWith(false);
+  });
+
+  it("toggles Voice Clone switch and mode frequency pills for DashScope LiveTranslate", () => {
+    const voiceChat = renderPopover({
+      voiceChatProvider: "DashScope",
+      voiceChatModel: "qwen3.5-livetranslate-flash-realtime",
+      voiceChatLiveTranslate: true,
+      voiceChatEnableVoiceClone: true,
+      voiceChatVoiceCloneFrequency: "once",
+    });
+    openPanel();
+    expect(screen.getByText("声音复刻 (用本人音色朗读)")).toBeInTheDocument();
+    expect(screen.getByText("单人实时复刻")).toBeInTheDocument();
+    expect(screen.getByText("动态实时复刻")).toBeInTheDocument();
+
+    // Frequency pill click
+    fireEvent.click(screen.getByText("动态实时复刻"));
+    expect(voiceChat.onVoiceCloneFrequencyChange).toHaveBeenCalledWith("always");
+
+    // Toggle off
+    fireEvent.click(screen.getByLabelText("声音复刻 (用本人音色朗读)"));
+    expect(voiceChat.onVoiceCloneToggle).toHaveBeenCalledWith(false);
   });
 
   it("closes on Escape and on outside click", () => {

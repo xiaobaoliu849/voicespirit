@@ -310,6 +310,47 @@ export default function VoiceCallSettingsPopover({ voiceChat, t, disabled = fals
                   <span>{t("同语回放", "Echo target language")}</span>
                 </label>
               ) : null}
+
+              {/* DashScope Voice Clone Controls */}
+              {isDashScopeLiveTranslate ? (
+                <div style={{ marginTop: 12, paddingTop: 10, borderTop: "1px solid rgba(255, 255, 255, 0.08)" }}>
+                  <label
+                    className="vsVoiceSettingsEcho"
+                    title={t("自动提取您的发言声纹，并使用您本人的音色朗读外语", "Extract your voiceprint and speak target languages in your own voice")}
+                    style={{ marginBottom: voiceChat.voiceChatEnableVoiceClone ? 8 : 0 }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={voiceChat.voiceChatEnableVoiceClone || false}
+                      onChange={(e) => voiceChat.onVoiceCloneToggle?.(e.target.checked)}
+                    />
+                    <span style={{ fontWeight: 600, color: "#60a5fa" }}>
+                      {t("声音复刻 (用本人音色朗读)", "Voice Clone (Speak in your own voice)")}
+                    </span>
+                  </label>
+
+                  {voiceChat.voiceChatEnableVoiceClone ? (
+                    <div className="vsPresetPillsGroup" style={{ marginTop: 6 }}>
+                      <button
+                        type="button"
+                        className={`vsPresetPillBtn ${voiceChat.voiceChatVoiceCloneFrequency === "once" ? "active" : ""}`}
+                        onClick={() => voiceChat.onVoiceCloneFrequencyChange?.("once")}
+                        title={t("服务端录入首句声纹并在会话内持续使用", "Clone voice from first utterance and reuse")}
+                      >
+                        {t("单人实时复刻", "Single Speaker (Once)")}
+                      </button>
+                      <button
+                        type="button"
+                        className={`vsPresetPillBtn ${voiceChat.voiceChatVoiceCloneFrequency === "always" ? "active" : ""}`}
+                        onClick={() => voiceChat.onVoiceCloneFrequencyChange?.("always")}
+                        title={t("每次发声均动态捕获声纹特征，适合多人对话", "Dynamically capture voice per utterance")}
+                      >
+                        {t("动态实时复刻", "Multi Speaker (Always)")}
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
             </div>
           );
         })() : null}

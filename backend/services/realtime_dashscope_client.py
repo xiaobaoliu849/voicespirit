@@ -360,20 +360,29 @@ class DashScopeLiveTranslateConversation(DashScopeAudioRealtimeConversation):
         target_language: str = "en",
         corpus_phrases: dict[str, str] | None = None,
         modalities: list[str] | None = None,
+        enable_voice_clone: bool = False,
+        voice_clone_frequency: str = "once",
     ) -> None:
-        # NOTE: keep this payload aligned with the official qwen3.5-livetranslate
-        # Realtime ``session.update`` schema. The translation model is NOT a chat
-        # session: it runs its own server-side VAD ("服务端自动检测音频的起始和结束")
-        # and derives the 16kHz rate from ``input_audio_format: pcm``. Sending the
-        # chat-style ``turn_detection`` / ``sample_rate`` fields (copied from the
-        # Qwen-Omni config) makes the server reject ``session.update`` as a parameter
-        # error — the socket connects and ``session_open`` fires, but no transcription
-        # or translation ever comes back. Only documented fields are sent here:
-        # modalities / voice / input_audio_format / output_audio_format /
-        # input_audio_transcription / translation (+ optional corpus).
+        selected_voice = str(voice or DEFAULT_QWEN_LIVETRANSLATE_VOICE).strip()
+        # Voice clone logic per official Qwen LiveTranslate API:
+        # 1) Pre-cloned custom voice ID (e.g. qwen-translate-vc-xxx): frequency="never"
+        # 2) Server auto-clone once or always: voice must be "default"
+        if selected_voice.startswith("qwen-translate-vc-") or selected_voice.startswith("qwen-vc-"):
+            enable_voice_clone = True
+            voice_clone_frequency = "never"
+            target_voice = selected_voice
+        elif enable_voice_clone:
+            freq = voice_clone_frequency.lower().strip()
+            if freq not in ("once", "always", "never"):
+                freq = "once"
+            voice_clone_frequency = freq
+            target_voice = "default" if freq in ("once", "always") else selected_voice
+        else:
+            target_voice = selected_voice
+
         session: dict[str, Any] = {
             "modalities": list(modalities or ["text", "audio"]),
-            "voice": str(voice or DEFAULT_QWEN_LIVETRANSLATE_VOICE),
+            "voice": target_voice,
             "input_audio_format": "pcm",
             "output_audio_format": "pcm",
             "input_audio_transcription": {
@@ -384,6 +393,12 @@ class DashScopeLiveTranslateConversation(DashScopeAudioRealtimeConversation):
                 "language": target_language or "en",
             },
         }
+        if enable_voice_clone:
+            session["enable_voice_clone"] = True
+            session["voice_clone_options"] = {
+                "frequency": voice_clone_frequency
+            }
+
         phrases = {str(k): str(v) for k, v in (corpus_phrases or {}).items() if str(k).strip()}
         if phrases:
             session["translation"]["corpus"] = {"phrases": phrases}
