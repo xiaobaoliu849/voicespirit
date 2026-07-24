@@ -2035,7 +2035,7 @@ button:focus-visible {
   position: absolute;
   top: -1px;
   left: calc(200% + 12px);
-  width: 250px;
+  min-width: 260px;
   max-width: calc(100vw - 48px);
   background: var(--bg-card);
   border: 1px solid var(--line);
@@ -2364,12 +2364,16 @@ button:focus-visible {
 
 .vsLanguageSelectDropdown {
   width: 100%;
+  max-width: 130px;
   padding: 5px 6px;
-  font-size: 12px;
+  font-size: 11px;
   border-radius: 6px;
   border: 1px solid var(--line);
   background: var(--bg-card);
   color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .vsVoiceSettingsSwapBtn {
